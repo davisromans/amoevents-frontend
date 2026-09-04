@@ -1,0 +1,317 @@
+/* Inter fonts — bundled via @fontsource/inter (no external network). */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/inter/800.css';
+@import '@fontsource/inter/900.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif; }
+  html, body { overflow-x: hidden; max-width: 100vw; }
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'ss01', 'cv11'; /* Plus Jakarta stylistic set for the sharper "a" and geometric numerals. */
+  }
+  img, video, canvas, svg { max-width: 100%; height: auto; }
+  pre, code { overflow-x: auto; max-width: 100%; }
+  table { max-width: 100%; }
+  /* Scrollbar — subtle, purple-tinted. */
+  * { scrollbar-width: thin; scrollbar-color: rgba(192, 111, 239, 0.30) transparent; }
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: rgba(192, 111, 239, 0.30); border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(192, 111, 239, 0.55); }
+  input, textarea, select { @apply outline-none; }
+  /* Focus-visible ring — one ring style, applied everywhere focus matters.
+     Not applied via :focus so click-focus on buttons doesn't ring. */
+  :focus-visible {
+    outline: 2px solid theme('colors.brand.primary');
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  /* Respect user's reduced-motion preference across every custom animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ═══════════════════════════════════════════════════════════════════
+     SURFACES — the neutral geometry every page sits on.
+     Pick by role, not by "what looks right":
+       .surface-page   — page background (default, mostly implicit)
+       .surface-card   — a real, elevated container (product content)
+       .surface-inset  — a subtle inset within a card (form group, side)
+       .surface-glass  — translucent overlay (menu, tooltip, sticky nav)
+     ═══════════════════════════════════════════════════════════════════ */
+  .surface-card {
+    @apply bg-surface-ivory dark:bg-surface-coal
+           border border-surface-mist dark:border-surface-fog
+           rounded-2xl shadow-elev-2;
+  }
+  .surface-inset {
+    @apply bg-surface-cream dark:bg-surface-night
+           border border-surface-mist dark:border-surface-fog rounded-xl;
+  }
+  .surface-glass {
+    @apply bg-surface-ivory/90 dark:bg-surface-coal/90
+           border border-surface-mist/70 dark:border-surface-fog/70
+           rounded-2xl shadow-elev-3 backdrop-blur-xl;
+  }
+
+  table th, table td { padding-top: 1rem; padding-bottom: 1rem; }
+  table thead th { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+
+  .surface-card.p-6 { padding: 1.75rem; }
+  @screen sm { .surface-card.p-6 { padding: 2rem; } }
+
+  .page-shell { @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10; }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     BUTTONS — five variants, three sizes. Every button in the app comes
+     through the Button component in components/ui/Button.vue, which
+     applies these classes. Direct .btn-* usage on marketing pages is fine.
+     Variants: primary | secondary | ghost | danger | link
+     Sizes:    sm (h-8) | md (h-10, default) | lg (h-12)
+     ═══════════════════════════════════════════════════════════════════ */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 sm:gap-2
+           font-bold rounded-xl
+           transition-all duration-fast ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
+           focus-visible:outline-none;
+  }
+  .btn-sm { @apply text-sm px-3 h-8; }
+  .btn-md { @apply text-sm sm:text-md px-4 sm:px-5 h-10; }
+  .btn-lg { @apply text-md px-6 h-12; }
+
+  .btn-primary {
+    @apply btn btn-md
+           bg-gradient-primary text-white shadow-primary-soft
+           hover:scale-[1.02] hover:brightness-105 active:scale-[0.98];
+  }
+  .btn-secondary {
+    @apply btn btn-md
+           bg-surface-ivory dark:bg-surface-dust
+           border border-surface-mist dark:border-surface-fog
+           text-surface-charcoal dark:text-surface-bone
+           hover:border-brand-primary hover:bg-surface-cream dark:hover:bg-surface-fog
+           active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply btn font-medium text-sm sm:text-md h-10 px-3
+           text-surface-slate dark:text-surface-ash
+           hover:text-surface-charcoal dark:hover:text-surface-bone
+           hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50;
+  }
+  .btn-danger {
+    @apply btn btn-md
+           bg-state-danger-bg text-state-danger border border-state-danger/20
+           hover:bg-state-danger hover:text-white active:scale-[0.98];
+  }
+  .btn-link {
+    @apply btn text-md h-auto p-0
+           text-brand-primary-deep dark:text-brand-primary-soft
+           hover:underline underline-offset-4;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     FIELDS — a single form-field vocabulary. The .field-input class is
+     applied by every form primitive (TextInput, PhoneInput, NumberInput,
+     Textarea, Select). Never hand-style an <input> outside these.
+     ═══════════════════════════════════════════════════════════════════ */
+  .field-label {
+    @apply block text-2xs font-bold uppercase tracking-widest
+           text-surface-slate dark:text-surface-ash mb-1.5;
+  }
+  .field-input {
+    @apply w-full bg-surface-cream dark:bg-surface-night
+           border border-surface-mist dark:border-surface-fog
+           text-surface-charcoal dark:text-surface-bone text-md font-medium
+           px-3.5 py-2.5 rounded-xl
+           placeholder:text-surface-slate/60 dark:placeholder:text-surface-ash/60
+           focus:border-brand-primary focus:ring-4 focus:ring-brand-primary-glow
+           transition-all duration-fast;
+  }
+  .field-input--invalid {
+    @apply border-state-danger focus:border-state-danger focus:ring-state-danger-bg;
+  }
+  .field-help  { @apply text-xs text-surface-slate dark:text-surface-ash mt-1.5; }
+  .field-error { @apply text-xs text-state-danger mt-1.5 font-medium; }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     BADGES, CHIPS, DOTS — small state indicators. Prefer <Badge tone="…"/>
+     from components/ui/ over the raw classes below (which the component uses).
+     ═══════════════════════════════════════════════════════════════════ */
+  .chip {
+    @apply inline-flex items-center gap-1
+           px-2.5 py-1 rounded-md text-xs font-semibold
+           bg-surface-mist/60 dark:bg-surface-fog/60
+           text-surface-charcoal dark:text-surface-bone;
+  }
+  .chip-primary { @apply chip bg-brand-primary-glow text-brand-primary-deep dark:text-brand-primary-soft font-bold; }
+  .chip-gold    { @apply chip-primary; } /* legacy alias */
+  .chip-success { @apply chip bg-state-success-bg text-state-success; }
+  .chip-warn    { @apply chip bg-state-warning-bg text-state-warning; }
+  .chip-neutral { @apply chip bg-surface-mist dark:bg-surface-fog text-surface-slate dark:text-surface-ash; }
+  .chip-danger  { @apply chip bg-state-danger-bg text-state-danger; }
+  .chip-info    { @apply chip bg-state-info-bg text-state-info; }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     TYPOGRAPHY — the FOUR canonical text roles. Use ONLY these for text.
+     Anything else (text-lg on a random label, text-2xl on a value) is
+     drift. Pick the tier that matches the ROLE.
+
+       .text-display  — landing hero only (giant editorial statement)
+       .text-title    — page title, one per page
+       .text-heading  — section / card header
+       .text-body     — normal content, labels, values
+       .text-subtext  — meta info, timestamps, helper copy
+       .text-label    — uppercase tracked label (chips, table headers, eyebrows)
+     ═══════════════════════════════════════════════════════════════════ */
+  .text-display {
+    @apply text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight leading-[1.02]
+           text-surface-charcoal dark:text-surface-bone;
+  }
+  .text-title {
+    /* Legacy .section-title kept below as an alias so old pages don't break. */
+    @apply text-2xl sm:text-3xl font-black tracking-tight text-surface-charcoal dark:text-surface-bone;
+  }
+  .section-title { @apply text-title; } /* legacy alias */
+  .text-heading {
+    @apply text-md font-bold text-surface-charcoal dark:text-surface-bone;
+  }
+  .text-body {
+    @apply text-sm text-surface-charcoal dark:text-surface-bone;
+  }
+  .text-subtext {
+    @apply text-xs text-surface-slate dark:text-surface-ash;
+  }
+  .text-label {
+    @apply text-2xs uppercase tracking-widest font-black text-surface-slate dark:text-surface-ash;
+  }
+  /* section-eyebrow — pre-existing but we're phasing out per design principle #4
+     (structure > sub-headers). Kept invisible so removing usages is safe. */
+  .section-eyebrow { display: none; }
+
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Keyboard shortcut visual — used in the command palette and tooltips. */
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5
+           text-2xs font-bold font-mono
+           bg-surface-ivory dark:bg-surface-dust
+           border border-surface-mist dark:border-surface-fog
+           rounded-md text-surface-slate dark:text-surface-ash;
+  }
+
+  /* Mobile app bar (mirrors tai-view-web) */
+  .mobile-appbar {
+    position: sticky; top: 0; z-index: 30;
+    @apply bg-surface-cream dark:bg-surface-night
+           border-b border-surface-mist dark:border-surface-fog;
+  }
+  .mobile-appbar__inner {
+    height: 56px;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 48px;
+    align-items: center;
+    padding: 0 8px;
+  }
+  .mobile-appbar__title {
+    font-size: 19px; font-weight: 800; line-height: 1;
+    @apply text-surface-charcoal dark:text-surface-bone;
+  }
+  .mobile-appbar__brand span:last-child { @apply text-brand-primary; }
+
+  /* Mobile bottom nav */
+  .mobile-bottom-nav {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 40;
+    padding: 0 15px calc(15px + env(safe-area-inset-bottom));
+    pointer-events: none;
+    /* Force own compositor layer — kills the jitter Safari/Firefox mobile show while scrolling. */
+    will-change: transform;
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+  .mobile-bottom-nav__bar {
+    height: 65px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+    overflow: hidden;
+    border-radius: 15px;
+    border: 0.5px solid;
+    pointer-events: auto;
+    @apply bg-surface-ivory/95 dark:bg-surface-coal/95
+           border-surface-mist dark:border-surface-fog
+           shadow-card;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .mobile-bottom-nav__item {
+    min-width: 0; height: 65px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px;
+    -webkit-tap-highlight-color: transparent;
+    @apply text-surface-slate dark:text-surface-ash;
+  }
+  .mobile-bottom-nav__pill {
+    width: 50px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 12px;
+    transition: background 220ms ease, box-shadow 220ms ease, transform 160ms ease;
+  }
+  .mobile-bottom-nav__item--active {
+    @apply text-surface-charcoal dark:text-surface-bone;
+  }
+  .mobile-bottom-nav__item--active .mobile-bottom-nav__pill {
+    @apply bg-gradient-primary shadow-primary-soft;
+  }
+  .mobile-bottom-nav__item:active .mobile-bottom-nav__pill { transform: scale(0.96); }
+  .mobile-bottom-nav__label {
+    font-size: 11px; line-height: 1; font-weight: 500;
+    max-width: 100%; padding: 0 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mobile-bottom-nav__item--active .mobile-bottom-nav__label { font-weight: 700; }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     MOTION — small, consistent micro-interactions shared across UI.
+     `.interactive-lift` pairs a hover translate with a press. All motion
+     is wrapped by the global prefers-reduced-motion override earlier.
+     ═══════════════════════════════════════════════════════════════════ */
+  .interactive-lift {
+    transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                border-color 160ms ease;
+  }
+  .interactive-lift:hover  { transform: translateY(-1px); @apply shadow-elev-3; }
+  .interactive-lift:active { transform: translateY(0);    @apply shadow-elev-1; }
+
+  /* Page-enter fade — pair with <transition name="page"> on <router-view>. */
+  .page-enter-active { transition: opacity 220ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .page-leave-active { transition: opacity 120ms ease; }
+  .page-enter-from   { opacity: 0; transform: translateY(4px); }
+  .page-leave-to     { opacity: 0; }
+
+  /* Fade-slide item — for list additions (toasts, chips, chat messages). */
+  .fade-slide-enter-active { transition: opacity 200ms ease, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .fade-slide-leave-active { transition: opacity 140ms ease, transform 140ms ease; }
+  .fade-slide-enter-from   { opacity: 0; transform: translateY(6px); }
+  .fade-slide-leave-to     { opacity: 0; transform: translateY(-4px); }
+}

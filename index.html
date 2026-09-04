@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/logo.png" color="#C06FEF" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#C06FEF" />
+    <meta name="facebook-domain-verification" content="guq8bum1twf7hem5yg9jiyurj9589l" />
+    <meta name="description" content="Amo Events — event management, ticketing, live streaming for Africa." />
+    <title>Amo Events — Event Management</title>
+    <!-- Plus Jakarta Sans — modern, geometric sans that reads great in dashboards. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+    <script>
+      // Prevent flash of wrong theme. Runs before Vue mounts.
+      (function () {
+        try {
+          var stored = localStorage.getItem('gc.theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var dark = stored ? stored === 'dark' : prefersDark;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="h-full bg-surface-cream dark:bg-surface-night text-surface-charcoal dark:text-surface-bone">
+    <!-- Legal entity notice — present in the raw server-sent HTML (not
+         injected by the SPA at runtime) so Meta/Google/etc. business
+         verification crawlers see it even without executing JS. Real,
+         accessible DOM content via the standard sr-only pattern — not
+         display:none — just kept out of the visual dashboard chrome. -->
+    <p style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">
+      Amo Events is operated by Davintech Labs.
+    </p>
+    <div id="app" class="h-full"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

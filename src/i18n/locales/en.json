@@ -1,0 +1,300 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "saveChanges": "Save changes",
+    "cancel": "Cancel",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "add": "Add",
+    "remove": "Remove",
+    "back": "Back",
+    "logout": "Log out",
+    "confirm": "Confirm",
+    "search": "Search",
+    "actions": "Actions",
+    "required": "Required",
+    "optional": "Optional",
+    "dismiss": "Dismiss",
+    "retry": "Retry",
+    "download": "Download",
+    "yes": "Yes",
+    "no": "No",
+    "maybe": "Maybe",
+    "pending": "Pending",
+    "manage": "Manage"
+  },
+  "brand": {
+    "tagline": "Digital invitations · Tanzania"
+  },
+  "nav": {
+    "home": "Home",
+    "pricing": "Pricing",
+    "login": "Log in",
+    "getStarted": "Get started",
+    "events": "Events",
+    "scanner": "Scanner",
+    "settings": "Settings",
+    "reports": "Reports",
+    "admin": "Admin",
+    "dashboard": "Dashboard"
+  },
+  "landing": {
+    "eyebrow": "Event management · Ticketing · Live streaming",
+    "titleLine1": "Run your event",
+    "titleLine2": "end-to-end.",
+    "subtitle": "Amo Events is an event management platform for weddings, send-offs, kitchen parties, birthdays, graduations, church services, concerts, sports events and corporate functions. Create events, manage guest lists, send QR invitations by WhatsApp and SMS, scan tickets at the gate, sell live-stream passes, and share the photo gallery afterwards — all from one dashboard.",
+    "ctaStart": "Set up your event",
+    "ctaPricing": "See pricing",
+    "features": {
+      "fancyQr": {
+        "title": "Fancy QR codes",
+        "description": "Cards woven with a gold gradient and your logo dead-center."
+      },
+      "excelSmart": {
+        "title": "Smart Excel import",
+        "description": "Re-uploading detects only what changed — no more starting from scratch."
+      },
+      "waSms": {
+        "title": "WhatsApp + SMS",
+        "description": "Send invitations to every guest. If WhatsApp doesn't reach them, we send a text message instead."
+      },
+      "scanner": {
+        "title": "Gate scanner",
+        "description": "Scan a guest's card at the gate. Their name appears in a second."
+      },
+      "liveTracking": {
+        "title": "Live tracking",
+        "description": "See who has arrived and how many, from your phone anywhere."
+      },
+      "manualPayments": {
+        "title": "Simple payments",
+        "description": "Pay easily through M-Pesa, Tigo Pesa or Airtel Money. Your event goes live once we confirm."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Pricing",
+    "title": "Pay only for what you use",
+    "subtitle": "Pick a package that fits your event. Or pay per guest with no cap.",
+    "toggle": {
+      "packages": "Packages",
+      "perCard": "Per-card"
+    },
+    "packages": {
+      "popular": "Popular",
+      "free": "Custom",
+      "perEvent": "per event",
+      "chooseFree": "Talk to us",
+      "chooseThis": "Choose this package"
+    },
+    "perCard": {
+      "eyebrow": "Pay-per-card",
+      "perGuest": "per guest",
+      "note": "No guest cap. Pay based on how many guests you actually invite.",
+      "cta": "Get started"
+    },
+    "addons": {
+      "title": "Add-ons",
+      "per": "per {unit}",
+      "eyebrow": "Extend your package",
+      "subtitle": "Real options that do something — priced clearly, grouped by what they cover."
+    }
+  },
+  "auth": {
+    "login": {
+      "eyebrow": "Welcome back",
+      "title": "Log in to Amo Events",
+      "identifierLabel": "Phone or email",
+      "identifierPlaceholder": "+2557… or you{'@'}example.com",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "••••••••",
+      "submit": "Log in",
+      "noAccount": "No account yet?",
+      "signUp": "Get started"
+    },
+    "register": {
+      "eyebrow": "Get started",
+      "title": "Create your Amo Events account",
+      "tenantName": "Business / event name",
+      "tenantNamePlaceholder": "e.g. Amo Events",
+      "yourName": "Your name",
+      "yourNamePlaceholder": "Davis Mwaisemba",
+      "phone": "Phone",
+      "phonePlaceholder": "+2557XXXXXXXX",
+      "email": "Email (optional)",
+      "emailPlaceholder": "you{'@'}example.com",
+      "password": "Password",
+      "passwordPlaceholder": "Min 6 characters",
+      "referral": "Referral code (optional)",
+      "submit": "Register account",
+      "haveAccount": "Already have an account?",
+      "signIn": "Log in",
+      "validation": {
+        "phoneInvalid": "Enter a valid phone (e.g. +2557XXXXXXXX)",
+        "passwordShort": "Min 6 characters"
+      }
+    },
+    "toast": {
+      "welcome": "Welcome!",
+      "welcomeBack": "Welcome back"
+    }
+  },
+  "events": {
+    "list": {
+      "title": "Events",
+      "eyebrow": "Dashboard",
+      "newEvent": "New event",
+      "empty": {
+        "title": "No events yet",
+        "description": "Start by creating your first event.",
+        "cta": "Create now"
+      }
+    },
+    "form": {
+      "eyebrowNew": "New event",
+      "eyebrowEdit": "Edit event",
+      "createTitle": "Create a new event",
+      "name": "Event name *",
+      "namePlaceholder": "Davis & Neema's Wedding",
+      "type": "Type",
+      "types": {
+        "wedding": "Wedding",
+        "send_off": "Send-off",
+        "kitchen_party": "Kitchen party",
+        "birthday": "Birthday",
+        "graduation": "Graduation",
+        "other": "Other"
+      },
+      "date": "Date *",
+      "endDate": "Ends",
+      "coupleNames": "Celebrant / couple names",
+      "coupleNamesPlaceholder": "Davis Mwaisemba & Neema Yohana",
+      "hostText": "Host text",
+      "hostTextPlaceholder": "The family of Mzee Mwaisemba invite you to their son's…",
+      "venueName": "Venue name",
+      "venueCapacity": "Venue capacity",
+      "venueAddress": "Venue address",
+      "dressCode": "Dress code",
+      "notes": "Notes",
+      "submit": "Create event",
+      "created": "Event created",
+      "saved": "Saved"
+    },
+    "detail": {
+      "capacityWarningTitle": "You've hit venue capacity ({capacity})",
+      "capacityWarningBody": "You have {count} guests — this exceeds venue capacity.",
+      "manageGuests": "Manage guests",
+      "sections": {
+        "details": "Event details",
+        "couple": "Couple / celebrant",
+        "venue": "Venue",
+        "directions": "Directions",
+        "openInMaps": "Open in Maps",
+        "dressCode": "Dress code",
+        "capacity": "Capacity",
+        "status": "Status",
+        "hostText": "Host text"
+      }
+    },
+    "stats": {
+      "total": "Total",
+      "guests": "Guests",
+      "arrived": "Arrived",
+      "rsvpYes": "RSVP Yes",
+      "pending": "Pending"
+    },
+    "payment": {
+      "paid": "Paid",
+      "partial": "Partial",
+      "unpaid": "Unpaid"
+    }
+  },
+  "guests": {
+    "title": "Guests",
+    "add": "Add guest",
+    "searchPlaceholder": "Search name, phone, or member ID…",
+    "empty": {
+      "title": "No guests yet",
+      "description": "Add guests one by one or upload an Excel file."
+    },
+    "table": {
+      "member": "Member",
+      "phone": "Phone",
+      "type": "Type",
+      "rsvp": "RSVP",
+      "arrival": "Arrival",
+      "arrived": "Arrived"
+    },
+    "form": {
+      "firstName": "First name *",
+      "lastName": "Last name",
+      "phone": "Phone *",
+      "whatsapp": "WhatsApp (leave blank if same)",
+      "type": "Type",
+      "types": {
+        "single": "Single",
+        "double": "Double",
+        "family": "Family"
+      },
+      "familySize": "Family size",
+      "vip": "VIP guest",
+      "submit": "Add guest",
+      "created": "Guest added"
+    }
+  },
+  "scanner": {
+    "eyebrow": "Scanner",
+    "chooseEvent": "Choose an event to scan",
+    "noAccess": "No events with access.",
+    "arrivedOf": "{arrived} of {total} arrived",
+    "manualEntry": "Manual entry",
+    "manualEntryTitle": "Manual gate entry",
+    "searchGuest": "Search by name or phone",
+    "reason": "Reason (required)",
+    "admit": "Admit",
+    "admitted": "Admitted manually",
+    "cameraError": "Camera unavailable",
+    "results": {
+      "arrived": "Arrived",
+      "familyAdmitted": "Family admitted",
+      "manual": "Manual entry",
+      "alreadyArrived": "Already arrived",
+      "wrongEvent": "Wrong event",
+      "invalid": "Invalid QR"
+    }
+  },
+  "settings": {
+    "eyebrow": "Account",
+    "title": "Settings",
+    "business": "Business",
+    "name": "Name",
+    "plan": "Plan",
+    "referralCode": "Referral code",
+    "appearance": "Appearance",
+    "theme": "Theme",
+    "themeDescription": "Light or dark",
+    "language": "Language"
+  },
+  "admin": {
+    "pricing": {
+      "title": "Pricing management",
+      "eyebrow": "Super admin",
+      "tabs": {
+        "tiers": "Tiers",
+        "addons": "Add-ons",
+        "perCard": "Per-card rate"
+      },
+      "addTier": "Add tier",
+      "addAddon": "Add addon",
+      "activeToggle": "Active",
+      "confirmDelete": "Delete this permanently?",
+      "saved": "Saved",
+      "created": "Created",
+      "deleted": "Deleted",
+      "perCardRate": "Per-card rate (TZS)",
+      "updateRate": "Update rate"
+    }
+  }
+}

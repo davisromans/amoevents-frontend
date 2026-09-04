@@ -1,0 +1,300 @@
+{
+  "common": {
+    "loading": "Inapakia…",
+    "save": "Hifadhi",
+    "saveChanges": "Hifadhi mabadiliko",
+    "cancel": "Ghairi",
+    "create": "Tengeneza",
+    "edit": "Hariri",
+    "delete": "Futa",
+    "add": "Ongeza",
+    "remove": "Ondoa",
+    "back": "Rudi",
+    "logout": "Toka",
+    "confirm": "Thibitisha",
+    "search": "Tafuta",
+    "actions": "Vitendo",
+    "required": "Inahitajika",
+    "optional": "Si lazima",
+    "dismiss": "Funga",
+    "retry": "Jaribu tena",
+    "download": "Pakua",
+    "yes": "Ndio",
+    "no": "Hapana",
+    "maybe": "Labda",
+    "pending": "Inasubiri",
+    "manage": "Simamia"
+  },
+  "brand": {
+    "tagline": "Mialiko ya kidijitali · Tanzania"
+  },
+  "nav": {
+    "home": "Nyumbani",
+    "pricing": "Bei",
+    "login": "Ingia",
+    "getStarted": "Anza sasa",
+    "events": "Events",
+    "scanner": "Scanner",
+    "settings": "Mipangilio",
+    "reports": "Ripoti",
+    "admin": "Msimamizi",
+    "dashboard": "Dashibodi"
+  },
+  "landing": {
+    "eyebrow": "Uendeshaji wa event · Tiketi · Live stream",
+    "titleLine1": "Endesha event yako",
+    "titleLine2": "kikamilifu.",
+    "subtitle": "Amo Events ni mfumo wa uendeshaji wa event: harusi, send-off, kitchen party, birthday, mahafali, ibada, matamasha, michezo na hafla za kampuni. Tengeneza event, dhibiti orodha ya wageni na michango, tuma QR kupitia WhatsApp na SMS, scan tiketi getini, uza live-stream, na shiriki gallery ya picha baadaye — yote kwenye dashboard moja.",
+    "ctaStart": "Anza event yako",
+    "ctaPricing": "Angalia bei",
+    "features": {
+      "fancyQr": {
+        "title": "QR codes fancy",
+        "description": "Kadi zilizoshonwa na gradient ya dhahabu na logo yako katikati."
+      },
+      "excelSmart": {
+        "title": "Import Excel smart",
+        "description": "Ku-upload tena inagundua kilichoongezeka au kubadilika — hakuna list mpya kila mara."
+      },
+      "waSms": {
+        "title": "WhatsApp + SMS",
+        "description": "Tuma mialiko kwa kila mgeni. Wasio na WhatsApp watapata ujumbe wa kawaida (SMS)."
+      },
+      "scanner": {
+        "title": "Scanner ya lango",
+        "description": "Skani kadi ya mgeni langoni. Jina lake linaonekana kwa sekunde moja."
+      },
+      "liveTracking": {
+        "title": "Kufuatilia moja kwa moja",
+        "description": "Angalia wangapi wamefika, ni nani, kutoka simu yako popote."
+      },
+      "manualPayments": {
+        "title": "Malipo rahisi",
+        "description": "Lipa kwa M-Pesa, Tigo Pesa au Airtel Money. Tukithibitisha, event yako inaanza kutuma mialiko."
+      }
+    }
+  },
+  "pricing": {
+    "eyebrow": "Bei",
+    "title": "Lipa tu unavyotumia",
+    "subtitle": "Chagua package inayolingana na event yako. Au lipa per-card kwa idadi yoyote ya wageni.",
+    "toggle": {
+      "packages": "Packages",
+      "perCard": "Per-card"
+    },
+    "packages": {
+      "popular": "Maarufu",
+      "free": "Custom",
+      "perEvent": "kwa event",
+      "chooseFree": "Wasiliana nasi",
+      "chooseThis": "Chagua kifurushi hiki"
+    },
+    "perCard": {
+      "eyebrow": "Pay-per-card",
+      "perGuest": "kwa mgeni",
+      "note": "Hakuna guest cap. Lipa moja kwa moja idadi ya waalikwa uliyoingiza.",
+      "cta": "Anza sasa"
+    },
+    "addons": {
+      "title": "Add-ons",
+      "per": "kwa {unit}",
+      "eyebrow": "Ongeza kwenye kifurushi chako",
+      "subtitle": "Chaguo halisi — bei wazi, zimepangwa kwa aina."
+    }
+  },
+  "auth": {
+    "login": {
+      "eyebrow": "Karibu tena",
+      "title": "Ingia kwenye Amo Events",
+      "identifierLabel": "Simu au email",
+      "identifierPlaceholder": "+2557… au you{'@'}example.com",
+      "passwordLabel": "Nywila",
+      "passwordPlaceholder": "••••••••",
+      "submit": "Ingia",
+      "noAccount": "Hujajisajili?",
+      "signUp": "Anza sasa"
+    },
+    "register": {
+      "eyebrow": "Anza",
+      "title": "Tengeneza akaunti ya Amo Events",
+      "tenantName": "Jina la biashara / event",
+      "tenantNamePlaceholder": "mfano: Amo Events",
+      "yourName": "Jina lako",
+      "yourNamePlaceholder": "Davis Mwaisemba",
+      "phone": "Simu",
+      "phonePlaceholder": "+2557XXXXXXXX",
+      "email": "Email (si lazima)",
+      "emailPlaceholder": "you{'@'}example.com",
+      "password": "Nywila",
+      "passwordPlaceholder": "Herufi 6 au zaidi",
+      "referral": "Referral code (si lazima)",
+      "submit": "Sajili akaunti",
+      "haveAccount": "Una akaunti tayari?",
+      "signIn": "Ingia",
+      "validation": {
+        "phoneInvalid": "Andika namba sahihi (mfano +2557XXXXXXXX)",
+        "passwordShort": "Herufi 6 au zaidi"
+      }
+    },
+    "toast": {
+      "welcome": "Karibu!",
+      "welcomeBack": "Karibu tena"
+    }
+  },
+  "events": {
+    "list": {
+      "title": "Events",
+      "eyebrow": "Dashibodi",
+      "newEvent": "Event mpya",
+      "empty": {
+        "title": "Bado hakuna event",
+        "description": "Anza kwa kutengeneza event yako ya kwanza.",
+        "cta": "Tengeneza sasa"
+      }
+    },
+    "form": {
+      "eyebrowNew": "Event mpya",
+      "eyebrowEdit": "Hariri event",
+      "createTitle": "Tengeneza event mpya",
+      "name": "Jina la event *",
+      "namePlaceholder": "Harusi ya Davis & Neema",
+      "type": "Aina",
+      "types": {
+        "wedding": "Harusi",
+        "send_off": "Send-off",
+        "kitchen_party": "Kitchen party",
+        "birthday": "Sherehe ya kuzaliwa",
+        "graduation": "Mahafali",
+        "other": "Nyinginezo"
+      },
+      "date": "Tarehe *",
+      "endDate": "Inaisha",
+      "coupleNames": "Majina ya waharusi / mhusika",
+      "coupleNamesPlaceholder": "Davis Mwaisemba & Neema Yohana",
+      "hostText": "Maandishi ya mwenyeji",
+      "hostTextPlaceholder": "Familia ya Mzee Mwaisemba kwa ajili ya kijana yao…",
+      "venueName": "Jina la venue",
+      "venueCapacity": "Uwezo wa venue",
+      "venueAddress": "Anwani ya venue",
+      "dressCode": "Dress code",
+      "notes": "Maelezo",
+      "submit": "Tengeneza event",
+      "created": "Event imetengenezwa",
+      "saved": "Imehifadhiwa"
+    },
+    "detail": {
+      "capacityWarningTitle": "Umefikia venue capacity ({capacity})",
+      "capacityWarningBody": "Una waalikwa {count} — hii ni zaidi ya venue capacity.",
+      "manageGuests": "Simamia wageni",
+      "sections": {
+        "details": "Maelezo ya event",
+        "couple": "Waharusi / mhusika",
+        "venue": "Venue",
+        "directions": "Maelekezo",
+        "openInMaps": "Fungua kwenye Maps",
+        "dressCode": "Dress code",
+        "capacity": "Uwezo",
+        "status": "Hali",
+        "hostText": "Maandishi ya mwenyeji"
+      }
+    },
+    "stats": {
+      "total": "Jumla",
+      "guests": "Waalikwa",
+      "arrived": "Wamefika",
+      "rsvpYes": "Wamekubali",
+      "pending": "Wanasubiri"
+    },
+    "payment": {
+      "paid": "Imelipwa",
+      "partial": "Sehemu",
+      "unpaid": "Haijalipwa"
+    }
+  },
+  "guests": {
+    "title": "Wageni",
+    "add": "Ongeza mgeni",
+    "searchPlaceholder": "Tafuta jina, phone au member ID…",
+    "empty": {
+      "title": "Bado hakuna wageni",
+      "description": "Anza kwa kuongeza wageni mmoja mmoja au pakia Excel."
+    },
+    "table": {
+      "member": "Mgeni",
+      "phone": "Simu",
+      "type": "Aina",
+      "rsvp": "RSVP",
+      "arrival": "Amefika",
+      "arrived": "Amefika"
+    },
+    "form": {
+      "firstName": "Jina la kwanza *",
+      "lastName": "Jina la mwisho",
+      "phone": "Simu *",
+      "whatsapp": "WhatsApp (acha wazi kama ni sawa)",
+      "type": "Aina",
+      "types": {
+        "single": "Mmoja",
+        "double": "Wawili",
+        "family": "Familia"
+      },
+      "familySize": "Idadi ya familia",
+      "vip": "Mgeni maalum (VIP)",
+      "submit": "Ongeza mgeni",
+      "created": "Mgeni ameongezwa"
+    }
+  },
+  "scanner": {
+    "eyebrow": "Scanner",
+    "chooseEvent": "Chagua event ya ku-scan",
+    "noAccess": "Hakuna event yenye access.",
+    "arrivedOf": "{arrived} kati ya {total} wamefika",
+    "manualEntry": "Manual entry",
+    "manualEntryTitle": "Manual gate entry",
+    "searchGuest": "Tafuta kwa jina au simu",
+    "reason": "Sababu (inahitajika)",
+    "admit": "Ruhusu",
+    "admitted": "Ameruhusiwa kwa manual",
+    "cameraError": "Camera haipatikani",
+    "results": {
+      "arrived": "Amefika",
+      "familyAdmitted": "Familia imeruhusiwa",
+      "manual": "Manual entry",
+      "alreadyArrived": "Ameshafika",
+      "wrongEvent": "Event nyingine",
+      "invalid": "QR haifai"
+    }
+  },
+  "settings": {
+    "eyebrow": "Akaunti",
+    "title": "Mipangilio",
+    "business": "Biashara",
+    "name": "Jina",
+    "plan": "Package",
+    "referralCode": "Referral code",
+    "appearance": "Muonekano",
+    "theme": "Theme",
+    "themeDescription": "Nyeupe au nyeusi",
+    "language": "Lugha"
+  },
+  "admin": {
+    "pricing": {
+      "title": "Usimamizi wa bei",
+      "eyebrow": "Super admin",
+      "tabs": {
+        "tiers": "Packages",
+        "addons": "Add-ons",
+        "perCard": "Bei per-card"
+      },
+      "addTier": "Ongeza tier",
+      "addAddon": "Ongeza addon",
+      "activeToggle": "Inaonekana",
+      "confirmDelete": "Futa kabisa?",
+      "saved": "Imehifadhiwa",
+      "created": "Imetengenezwa",
+      "deleted": "Imefutwa",
+      "perCardRate": "Bei per-card (TZS)",
+      "updateRate": "Sasisha bei"
+    }
+  }
+}
