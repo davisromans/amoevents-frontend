@@ -1,0 +1,53 @@
+name: Deploy AmoEvents Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build + rsync to Server A (same box as AmoView)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SPA (vite build)
+        run: npm run build
+
+      - name: Set up SSH for deploy
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.API_SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync dist/ to Server A
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            dist/ ${{ secrets.SERVER_USERNAME }}@${{ secrets.API_SERVER_IP }}:/var/www/amoevents-frontend/dist/
+
+      - name: Verify
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.SERVER_USERNAME }}@${{ secrets.API_SERVER_IP }} \
+            "test -f /var/www/amoevents-frontend/dist/index.html && \
+             curl -sf -k -o /dev/null -w 'origin → %{http_code}\\n' \
+               -H 'Host: events.amoview.com' \
+               https://127.0.0.1/"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
