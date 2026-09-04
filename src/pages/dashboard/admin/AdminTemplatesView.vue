@@ -188,8 +188,13 @@ async function importPsd(e) {
           if (!evt.total) return;
           const pct = Math.round((evt.loaded / evt.total) * 100);
           importProgress.value = Math.min(pct, 95); // upload finishing != server work done
-          if (pct >= 100) importStage.value = 'Parsing layers — large files can take a minute…';
+          if (pct >= 100) importStage.value = 'Uploaded — waiting for the server to start parsing…';
         },
+        // The server now parses in the background (large PSDs can take
+        // minutes — well past what one HTTP request through Cloudflare can
+        // hold open), so progress past "uploaded" comes from polling its
+        // job status rather than from the upload's own progress event.
+        onStage: (stage) => { importStage.value = stage; },
       }
     );
     importProgress.value = 100;

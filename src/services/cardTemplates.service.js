@@ -24,10 +24,15 @@ export async function adminUpload(file, meta) {
   return unwrap(res);
 }
 
-// Batch 3 — PSD import. Same shape as adminUpload but hits the dedicated
-// endpoint that parses the PSD into an editable layer-tree document
-// instead of just storing a flat image.
-export async function adminImportPsd(file, meta, { onUploadProgress } = {}) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Batch 3 — PSD import. The upload request now only has to get the file to
+// disk — the backend responds with a job id right away and parses the PSD
+// in the background, so this polls for completion instead of holding one
+// long request open. That's the fix for large (50-100MB+) PSDs: parsing can
+// take well past Cloudflare's 120-second proxy timeout, which used to kill
+// the request outright (a 524) no matter what timeout the client set here.
+export async function adminImportPsd(file, meta, { onUploadProgress, onStage } = {}) {
   const form = new FormData();
   form.append('file', file);
   Object.entries(meta || {}).forEach(([k, v]) => {
@@ -35,15 +40,21 @@ export async function adminImportPsd(file, meta, { onUploadProgress } = {}) {
   });
   const res = await http.post('/admin/card-templates/import-psd', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    // 2 minutes wasn't enough budget for BOTH the upload itself and
-    // server-side layer parsing on a large (50-100MB+) PSD — on anything
-    // but a fast connection the upload alone could eat the whole timeout,
-    // aborting the request with no time left for parsing. Matches the
-    // 10-minute budget gallery.service.js already uses for large uploads.
-    timeout: 10 * 60 * 1000,
+    timeout: 10 * 60 * 1000, // just the upload now, but a 73MB file on a slow link still needs headroom
     onUploadProgress,
   });
-  return unwrap(res);
+  const { jobId } = unwrap(res);
+
+  // Poll until the background job finishes — no fixed cap, since a huge PSD
+  // legitimately takes minutes to parse and there's no proxy timeout to
+  // race here (each poll is a tiny, fast request of its own).
+  for (;;) {
+    await sleep(1500);
+    const job = await http.get(`/admin/card-templates/import-psd/${jobId}`).then(unwrap);
+    if (job.stage) onStage?.(job.stage);
+    if (job.status === 'completed') return { ...job.template, fontMatch: job.fontMatch };
+    if (job.status === 'failed') throw new Error(job.error || 'PSD import failed');
+  }
 }
 
 // Fetch one template with its full editable document.
