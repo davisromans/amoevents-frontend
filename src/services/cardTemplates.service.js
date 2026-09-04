@@ -1,4 +1,20 @@
+import axios from 'axios';
 import http, { unwrap } from '@/services/http';
+
+// Direct-to-origin upload — bypasses Cloudflare's proxy AND the main
+// nginx vhost's 120s proxy_read_timeout, same as gallery.service.js does
+// for large videos. A 70MB+ PSD can take past 120s just to transfer on a
+// slow connection, which used to 524 regardless of how fast the backend
+// itself responded once the body arrived — this route has no such cap.
+const uploadHttp = axios.create({
+  baseURL: 'https://upload.events.amoview.com/api',
+  timeout: 10 * 60 * 1000,
+});
+uploadHttp.interceptors.request.use((config) => {
+  const token = localStorage.getItem('gc.accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 // Tenant-facing: browse and clone
 export const listTemplates = (category) =>
@@ -38,9 +54,8 @@ export async function adminImportPsd(file, meta, { onUploadProgress, onStage } =
   Object.entries(meta || {}).forEach(([k, v]) => {
     if (v !== undefined && v !== null) form.append(k, String(v));
   });
-  const res = await http.post('/admin/card-templates/import-psd', form, {
+  const res = await uploadHttp.post('/admin/card-templates/import-psd', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 10 * 60 * 1000, // just the upload now, but a 73MB file on a slow link still needs headroom
     onUploadProgress,
   });
   const { jobId } = unwrap(res);
