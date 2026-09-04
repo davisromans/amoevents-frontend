@@ -137,7 +137,11 @@
         </div>
       </div>
 
-      <!-- PawaPay checkout — the primary, real payment path. -->
+      <!-- PawaPay checkout — the primary, real payment path. Amount is
+           editable and defaults to the full balance — pay less now (e.g.
+           guest count may still grow and change the final total) and
+           finish the rest later; the event stays "partial" until the
+           balance actually reaches zero. -->
       <div v-if="billing.balanceTZS > 0" class="surface-card p-4 sm:p-6 mb-6">
         <p class="text-2xs uppercase font-black tracking-widest text-brand-gold-deep dark:text-brand-gold-soft mb-3">Pay with mobile money</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -150,6 +154,16 @@
             </select>
           </div>
         </div>
+        <div class="mt-3">
+          <AppInput v-model="checkoutAmount" label="Amount to pay now (TZS)" thousands />
+          <p class="text-2xs text-subtext mt-1">
+            <span v-if="checkoutAmountValid && checkoutAmount < billing.balanceTZS">
+              Paying part now — {{ fmtTZS(billing.balanceTZS - checkoutAmount) }} will remain due after this.
+            </span>
+            <span v-else>Balance due: {{ fmtTZS(billing.balanceTZS) }}.</span>
+            <button type="button" class="underline ml-1" @click="checkoutAmount = billing.balanceTZS">Pay full balance</button>
+          </p>
+        </div>
         <div v-if="checkoutStage === 'pending'" class="text-sm text-brand-gold-deep dark:text-brand-gold-soft mt-3">
           <span class="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
           Approve the {{ networkLabel(checkout.correspondent) }} prompt on your phone.
@@ -160,8 +174,8 @@
         <p v-if="checkoutErr" class="text-sm text-red-600 dark:text-red-400 font-medium mt-3">{{ checkoutErr }}</p>
         <div class="flex justify-end mt-4">
           <AppButton v-if="checkoutStage !== 'success'" :loading="checkingOut"
-                     :disabled="!checkout.phone || !checkout.correspondent" @click="doCheckout">
-            Send payment prompt for {{ fmtTZS(billing.balanceTZS) }}
+                     :disabled="!checkout.phone || !checkout.correspondent || !checkoutAmountValid" @click="doCheckout">
+            Send payment prompt for {{ fmtTZS(checkoutAmount) }}
           </AppButton>
         </div>
       </div>
@@ -186,7 +200,10 @@
         <form class="space-y-4" @submit.prevent="submit">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <AppSelect v-model="form.method" label="Payment method *" :options="METHOD_OPTIONS" />
-            <AppInput v-model="form.amountTZS" label="Amount (TZS) *" thousands placeholder="75,000" required />
+            <div>
+              <AppInput v-model="form.amountTZS" label="Amount (TZS) *" thousands placeholder="75,000" required />
+              <p class="text-2xs text-subtext mt-1">Doesn't have to be the full {{ fmtTZS(billing.balanceTZS) }} due — a partial payment is fine, and the balance updates once we confirm it.</p>
+            </div>
           </div>
           <AppInput v-model="form.reference" label="Reference number *" placeholder="e.g. M-Pesa confirmation code" required />
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -230,7 +247,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { CheckCircleIcon, ClockIcon, ExclamationCircleIcon, PaperAirplaneIcon, CheckIcon } from '@heroicons/vue/24/outline';
 import http from '@/services/http';
@@ -412,6 +429,19 @@ function pickStoragePlan(addon) {
 }
 
 const checkout = reactive({ phone: '', correspondent: '' });
+// Defaults to the full balance but the organizer can lower it — e.g. guest
+// count may still grow and change the final total, so pay part now and
+// finish the rest later rather than being forced to pay everything upfront.
+const checkoutAmount = ref(0);
+watch(() => billing.value.balanceTZS, (bal) => {
+  // Only snap to the new balance if the field was still at the old full
+  // balance (or empty) — don't clobber an amount the organizer typed in.
+  if (checkoutAmount.value === 0 || checkoutAmount.value > bal) checkoutAmount.value = bal;
+}, { immediate: true });
+const checkoutAmountValid = computed(() => {
+  const n = Number(checkoutAmount.value);
+  return n > 0 && n <= billing.value.balanceTZS;
+});
 const checkingOut = ref(false);
 const checkoutStage = ref('idle');
 const checkoutErr = ref('');
@@ -419,11 +449,13 @@ let pollTimer = null;
 onBeforeUnmount(() => clearInterval(pollTimer));
 
 async function doCheckout() {
+  if (!checkoutAmountValid.value) return;
   checkoutErr.value = ''; checkingOut.value = true; checkoutStage.value = 'idle';
   try {
     const d = await checkoutPackage(route.params.id, {
       phone: checkout.phone.trim(),
       correspondent: checkout.correspondent,
+      amountTZS: Number(checkoutAmount.value),
     });
     checkoutStage.value = 'pending';
     pollDeposit(d.depositId);
