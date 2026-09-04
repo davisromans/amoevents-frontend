@@ -1,10 +1,10 @@
 <template>
   <PageShell title="Card templates library">
     <template #actions>
-      <button class="btn-secondary" :disabled="importing || creatingBlank" @click="createBlank">
+      <button class="btn-secondary" :disabled="psdImport.active || creatingBlank" @click="createBlank">
         <PlusIcon class="w-4 h-4" /> New from scratch
       </button>
-      <button class="btn-secondary" :disabled="importing" @click="psdInput?.click()">
+      <button class="btn-secondary" :disabled="psdImport.active" @click="psdInput?.click()">
         <SparklesIcon class="w-4 h-4" /> Import PSD
       </button>
       <input ref="psdInput" type="file" accept=".psd" class="hidden" @change="importPsd" />
@@ -14,28 +14,47 @@
     </template>
 
     <!-- PSD import progress — visible stage + percentage + byte counter so
-         a slow upload doesn't just look like a stalled spinner. -->
-    <div v-if="importing" class="surface-card p-4 mb-4">
+         a slow upload doesn't just look like a stalled spinner. Lives in a
+         Pinia store (not this component's own state), so it keeps running
+         and stays visible even after navigating away and back — a 2-hour
+         upload shouldn't require staying on this exact page. -->
+    <div v-if="psdImport.active" class="surface-card p-4 mb-4">
       <div class="flex items-center justify-between mb-2">
-        <p class="text-sm font-bold text-surface-charcoal dark:text-surface-bone">{{ importStage }}</p>
-        <p class="text-xs font-mono text-surface-slate dark:text-surface-ash">{{ importProgress }}%</p>
+        <p class="text-sm font-bold text-surface-charcoal dark:text-surface-bone">{{ psdImport.stage }}</p>
+        <p class="text-xs font-mono text-surface-slate dark:text-surface-ash">{{ psdImport.progress }}%</p>
       </div>
       <div class="h-2 rounded-full surface-inset overflow-hidden mb-2">
-        <div class="h-full bg-gradient-gold transition-all duration-300" :style="{ width: importProgress + '%' }" />
+        <div class="h-full bg-gradient-gold transition-all duration-300" :style="{ width: psdImport.progress + '%' }" />
       </div>
-      <p v-if="importBytesText" class="text-2xs text-surface-slate dark:text-surface-ash font-mono">{{ importBytesText }}</p>
+      <p v-if="psdImport.bytesText" class="text-2xs text-surface-slate dark:text-surface-ash font-mono">{{ psdImport.bytesText }}</p>
+    </div>
+
+    <!-- Import completed while the admin was on another page — offer to
+         open it rather than silently redirecting them mid-work. -->
+    <div v-if="psdImport.completedTemplate" class="surface-card p-4 mb-4 border-l-4 border-green-500">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-sm font-bold text-surface-charcoal dark:text-surface-bone">
+          "{{ psdImport.completedTemplate.name }}" imported and ready to edit.
+        </p>
+        <div class="flex gap-1.5 shrink-0">
+          <button class="btn-primary !text-xs !py-1.5 !px-3" @click="openImportedTemplate">Open in Studio</button>
+          <button class="btn-ghost !p-1.5" title="Dismiss" @click="psdImport.dismissCompleted()">
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Import error — persistent card (not a toast that vanishes) so a
          slow-connection failure is actually diagnosable. -->
-    <div v-if="importError" class="surface-card p-4 mb-4 border-l-4 border-red-500">
+    <div v-if="psdImport.error" class="surface-card p-4 mb-4 border-l-4 border-red-500">
       <div class="flex items-start justify-between gap-3">
         <div class="flex-1">
           <p class="text-sm font-bold text-red-600 dark:text-red-400 mb-1">PSD import failed</p>
-          <p class="text-xs text-surface-charcoal dark:text-surface-bone break-words">{{ importError }}</p>
-          <p v-if="importErrorHint" class="text-2xs text-surface-slate dark:text-surface-ash mt-2">{{ importErrorHint }}</p>
+          <p class="text-xs text-surface-charcoal dark:text-surface-bone break-words">{{ psdImport.error }}</p>
+          <p v-if="psdImport.errorHint" class="text-2xs text-surface-slate dark:text-surface-ash mt-2">{{ psdImport.errorHint }}</p>
         </div>
-        <button class="btn-ghost !p-1.5 shrink-0" title="Dismiss" @click="importError = ''">
+        <button class="btn-ghost !p-1.5 shrink-0" title="Dismiss" @click="psdImport.dismissError()">
           <XMarkIcon class="w-4 h-4" />
         </button>
       </div>
@@ -122,12 +141,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { askConfirm } from '@/composables/useConfirm';
 import { ArrowUpTrayIcon, TrashIcon, SparklesIcon, PencilSquareIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import * as api from '@/services/cardTemplates.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
+import { usePsdImportStore } from '@/stores/psdImport';
 import AppInput from '@/components/common/AppInput.vue';
 import AppButton from '@/components/common/AppButton.vue';
 import AppModal from '@/components/common/AppModal.vue';
@@ -151,22 +171,24 @@ const uploaderOpen = ref(false);
 const uploading = ref(false);
 const draft = reactive({ name: '', category: 'wedding', file: null });
 const psdInput = ref(null);
-const importing = ref(false);
-const importStage = ref('');
-const importProgress = ref(0);
-const importBytesText = ref('');
-const importError = ref('');
-const importErrorHint = ref('');
-const importStartedAt = ref(0);
-
-function formatBytes(n) {
-  if (!n) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let i = 0; let v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
+const psdImport = usePsdImportStore();
 const creatingBlank = ref(false);
+
+// The import runs in the store, independent of this component's own
+// lifecycle — this just reacts to it finishing while the admin may be on
+// a completely different page (or back on this one).
+watch(() => psdImport.completedTemplate, (tpl) => {
+  if (!tpl) return;
+  refresh();
+  const fm = tpl.fontMatch;
+  if (fm?.unmatched?.length) {
+    toast.error(`Imported "${tpl.name}", but couldn't find a matching font for: ${fm.unmatched.join(', ')} — upload it manually from the font picker.`);
+  } else if (fm?.matched?.length) {
+    toast.success(`Imported "${tpl.name}" — matched ${fm.matched.length} font${fm.matched.length > 1 ? 's' : ''} automatically.`);
+  } else {
+    toast.success(`Imported "${tpl.name}"`);
+  }
+});
 
 const search = ref('');
 const categoryFilter = ref('');
@@ -203,68 +225,20 @@ async function upload() {
   finally { uploading.value = false; }
 }
 
-async function importPsd(e) {
+function importPsd(e) {
   const file = e.target.files?.[0];
   e.target.value = ''; // allow re-selecting the same file next time
   if (!file) return;
+  // Fire-and-forget — the store runs the upload/poll to completion on its
+  // own, so this handler doesn't need to stay mounted for the import to
+  // keep going (navigate away, come back, it's all still in the store).
+  psdImport.startImport(file, { name: file.name.replace(/\.psd$/i, ''), category: 'wedding' });
+}
 
-  importing.value = true;
-  importProgress.value = 0;
-  importStage.value = `Uploading ${file.name} (${formatBytes(file.size)})…`;
-  importBytesText.value = `0 / ${formatBytes(file.size)}`;
-  importError.value = '';
-  importErrorHint.value = '';
-  importStartedAt.value = Date.now();
-  try {
-    const tpl = await api.adminImportPsd(
-      file,
-      { name: file.name.replace(/\.psd$/i, ''), category: 'wedding' },
-      {
-        onUploadProgress: (evt) => {
-          const total = evt.total || file.size;
-          if (!total) return;
-          const pct = Math.round((evt.loaded / total) * 100);
-          importProgress.value = Math.min(pct, 99); // upload finishing != server work done
-          const elapsedSec = Math.max(1, (Date.now() - importStartedAt.value) / 1000);
-          const speed = evt.loaded / elapsedSec; // bytes/sec
-          importBytesText.value = `${formatBytes(evt.loaded)} / ${formatBytes(total)}  ·  ${formatBytes(speed)}/s`;
-          if (evt.loaded >= total) importStage.value = 'Uploaded — waiting for the server to start parsing…';
-        },
-        // The server now parses in the background (large PSDs can take
-        // minutes), so progress past "uploaded" comes from polling its
-        // job status rather than from the upload's own progress event.
-        onStage: (stage) => { importStage.value = stage; importBytesText.value = ''; },
-      }
-    );
-    importProgress.value = 100;
-    importStage.value = 'Done';
-    const fm = tpl.fontMatch;
-    if (fm?.unmatched?.length) {
-      toast.error(`Imported, but couldn't find a matching font for: ${fm.unmatched.join(', ')} — upload it manually from the font picker.`);
-    } else if (fm?.matched?.length) {
-      toast.success(`Imported — matched ${fm.matched.length} font${fm.matched.length > 1 ? 's' : ''} automatically.`);
-    } else {
-      toast.success('Imported — opening in the Template Studio');
-    }
-    openStudio(tpl._id);
-  } catch (err) {
-    const msg = apiErrorMessage(err);
-    importError.value = msg;
-    // Give the user something useful for the two most common failure
-    // modes on a big upload rather than just the raw axios/HTTP text.
-    const code = err?.response?.status;
-    if (err?.code === 'ECONNABORTED' || /timeout/i.test(msg)) {
-      importErrorHint.value = 'The upload took longer than 10 minutes. Try a stronger connection, or shrink the PSD (flatten unused layers, downsample embedded images) before importing.';
-    } else if (code === 408) {
-      importErrorHint.value = 'The server did not receive the full file in time (nginx 408). This usually means the connection stalled mid-upload. Try again on a more stable network.';
-    } else if (code === 413) {
-      importErrorHint.value = 'The file exceeds the server upload cap. If this PSD is above 2 GB, shrink it before importing.';
-    } else if (!err?.response) {
-      importErrorHint.value = 'The browser lost the connection to the server. Check your network and retry.';
-    }
-  } finally {
-    importing.value = false;
-  }
+function openImportedTemplate() {
+  if (!psdImport.completedTemplate) return;
+  openStudio(psdImport.completedTemplate._id);
+  psdImport.dismissCompleted();
 }
 
 async function createBlank() {

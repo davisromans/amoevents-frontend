@@ -8,7 +8,7 @@ import http, { unwrap } from '@/services/http';
 // itself responded once the body arrived — this route has no such cap.
 const uploadHttp = axios.create({
   baseURL: 'https://upload.events.amoview.com/api',
-  timeout: 10 * 60 * 1000,
+  timeout: 2 * 60 * 60 * 1000, // 2h — some connections genuinely need this long for 70MB+ files
 });
 uploadHttp.interceptors.request.use((config) => {
   const token = localStorage.getItem('gc.accessToken');
