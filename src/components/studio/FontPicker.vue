@@ -35,15 +35,47 @@
           <PlusCircleIcon class="w-3.5 h-3.5 text-surface-slate dark:text-surface-ash shrink-0" />
         </button>
       </div>
+
+      <!-- Upload a custom font file (e.g. an extra Montserrat weight the
+           Google family is missing). Uploading again with the SAME family
+           name adds another weight/style variant to that family instead of
+           creating a duplicate — so a designer can build up a full set
+           (regular, italic, bold, black…) one file at a time. -->
+      <div class="border-t border-surface-mist dark:border-surface-fog pt-2">
+        <button v-if="!uploadOpen" class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-2xs font-bold flex items-center gap-1.5"
+                @click="uploadOpen = true">
+          <ArrowUpTrayIcon class="w-3.5 h-3.5 shrink-0" /> Upload font file…
+        </button>
+        <div v-else class="flex flex-col gap-1.5 px-1">
+          <input v-model="uploadFamily" type="text" placeholder="Family name (e.g. Montserrat)" class="field-input !py-1.5 !text-xs" />
+          <div class="flex gap-1.5">
+            <select v-model.number="uploadWeight" class="field-input !py-1.5 !text-xs flex-1">
+              <option v-for="w in FONT_WEIGHTS" :key="w.value" :value="w.value">{{ w.label }}</option>
+            </select>
+            <select v-model="uploadStyle" class="field-input !py-1.5 !text-xs flex-1">
+              <option value="normal">Normal</option>
+              <option value="italic">Italic</option>
+            </select>
+          </div>
+          <input ref="fontFileRef" type="file" accept=".ttf,.otf,.woff,.woff2" class="text-2xs" @change="onFontFileChosen" />
+          <p v-if="uploadError" class="text-2xs text-red-500">{{ uploadError }}</p>
+          <div class="flex gap-1.5 justify-end">
+            <button class="btn-ghost !text-2xs !py-1 !px-2" @click="uploadOpen = false">Cancel</button>
+            <button class="btn-ghost !text-2xs !py-1 !px-2 bg-brand-primary-glow text-brand-primary-deep" :disabled="uploading" @click="submitUpload">
+              {{ uploading ? 'Uploading…' : 'Upload' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { ChevronDownIcon, PlusCircleIcon } from '@heroicons/vue/24/outline';
-import { listFonts, searchGoogleCatalog, addGoogleFont } from '@/services/fonts.service';
-import { loadFont, loadGoogleFont } from '@/utils/fontLoader';
+import { ChevronDownIcon, PlusCircleIcon, ArrowUpTrayIcon } from '@heroicons/vue/24/outline';
+import { listFonts, searchGoogleCatalog, addGoogleFont, uploadFontVariant } from '@/services/fonts.service';
+import { loadFont, loadGoogleFont, loadUploadedFontVariant } from '@/utils/fontLoader';
 
 const props = defineProps({ modelValue: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue']);
@@ -58,6 +90,48 @@ const q = ref('');
 const category = ref('');
 const active = ref([]);
 const catalog = ref([]);
+
+const FONT_WEIGHTS = [
+  { value: 100, label: 'Thin (100)' }, { value: 200, label: 'Extra Light (200)' }, { value: 300, label: 'Light (300)' },
+  { value: 400, label: 'Regular (400)' }, { value: 500, label: 'Medium (500)' }, { value: 600, label: 'Semi Bold (600)' },
+  { value: 700, label: 'Bold (700)' }, { value: 800, label: 'Extra Bold (800)' }, { value: 900, label: 'Black (900)' },
+];
+const uploadOpen = ref(false);
+const uploadFamily = ref('');
+const uploadWeight = ref(400);
+const uploadStyle = ref('normal');
+const uploadError = ref('');
+const uploading = ref(false);
+const fontFileRef = ref(null);
+let uploadFile = null;
+
+function onFontFileChosen(e) {
+  uploadFile = e.target.files?.[0] || null;
+  uploadError.value = '';
+}
+
+async function submitUpload() {
+  uploadError.value = '';
+  const family = uploadFamily.value.trim();
+  if (!family) { uploadError.value = 'Family name is required.'; return; }
+  if (!uploadFile) { uploadError.value = 'Choose a font file.'; return; }
+  uploading.value = true;
+  try {
+    const font = await uploadFontVariant(uploadFile, { family, weight: uploadWeight.value, style: uploadStyle.value });
+    const variant = (font.variants || []).find((v) => v.weight === uploadWeight.value && v.style === uploadStyle.value) || font.variants?.[font.variants.length - 1];
+    if (variant) await loadUploadedFontVariant(family, variant);
+    await refreshActive();
+    choose(family);
+    uploadOpen.value = false;
+    uploadFamily.value = '';
+    uploadFile = null;
+    if (fontFileRef.value) fontFileRef.value.value = '';
+  } catch (err) {
+    uploadError.value = err?.response?.data?.message || 'Upload failed. Please try a different file.';
+  } finally {
+    uploading.value = false;
+  }
+}
 
 // Roster search now happens server-side (q/category/limit) — with 1,500+
 // fonts in the roster after the bulk import, fetching everything on every

@@ -58,6 +58,16 @@
       <span v-if="autosaveStatus" class="text-2xs text-surface-slate dark:text-surface-ash mr-1">
         {{ autosaveStatus === 'pending' ? 'Saving…' : 'Autosaved' }}
       </span>
+      <div class="relative">
+        <button class="btn-ghost !text-2xs !py-1.5 !px-3 flex items-center gap-1" :disabled="exporting" @click="exportMenuOpen = !exportMenuOpen">
+          {{ exporting ? 'Exporting…' : 'Export' }}
+          <ChevronDownIcon class="w-3 h-3" />
+        </button>
+        <div v-if="exportMenuOpen" class="absolute top-full right-0 mt-1 z-30 surface-card shadow-card p-1 rounded-lg flex flex-col gap-0.5 w-32">
+          <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('png')">Export as PNG</button>
+          <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('jpeg')">Export as JPEG</button>
+        </div>
+      </div>
       <AppButton :loading="saving" @click="save">Save</AppButton>
     </div>
 
@@ -1857,6 +1867,40 @@ async function save() {
     toast.error(apiErrorMessage(err));
   } finally {
     saving.value = false;
+  }
+}
+
+const exportMenuOpen = ref(false);
+const exporting = ref(false);
+
+// Client-side raster export straight off the live Fabric canvas — separate
+// from the server-rendered guest-card exports (cardVariants.service.js),
+// which only exist once a template is attached to an event's guest list.
+// This lets a designer grab a flat preview of the template itself, in
+// whichever font weights are currently loaded in the browser, without
+// having to publish it first.
+async function exportImage(format) {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true;
+  exportMenuOpen.value = false;
+  try {
+    fabricCanvasRaw.discardActiveObject();
+    fabricCanvasRaw.requestRenderAll();
+    const dataUrl = fabricCanvasRaw.toDataURL({
+      format: format === 'jpeg' ? 'jpeg' : 'png',
+      quality: 0.92,
+      multiplier: 1 / (fabricCanvasRaw.getZoom() || 1),
+    });
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `${(name.value || 'template').trim() || 'template'}.${format === 'jpeg' ? 'jpg' : 'png'}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    toast.error('Export failed. Please try again.');
+  } finally {
+    exporting.value = false;
   }
 }
 

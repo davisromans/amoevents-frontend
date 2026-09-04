@@ -35,7 +35,12 @@ export async function adminImportPsd(file, meta, { onUploadProgress } = {}) {
   });
   const res = await http.post('/admin/card-templates/import-psd', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000, // large PSDs with many high-res layers can take a while to parse
+    // 2 minutes wasn't enough budget for BOTH the upload itself and
+    // server-side layer parsing on a large (50-100MB+) PSD — on anything
+    // but a fast connection the upload alone could eat the whole timeout,
+    // aborting the request with no time left for parsing. Matches the
+    // 10-minute budget gallery.service.js already uses for large uploads.
+    timeout: 10 * 60 * 1000,
     onUploadProgress,
   });
   return unwrap(res);

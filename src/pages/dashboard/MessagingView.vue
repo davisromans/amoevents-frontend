@@ -837,9 +837,16 @@ function placeholderLabel(n) { return '{' + '{' + n + '}' + '}'; }
 async function refreshWaTemplates() {
   try {
     const resp = await listWhatsAppTemplates();
+    // Response shape has drifted across backend revisions — tolerate the
+    // array living at the top level, under `items`, or under `templates`,
+    // rather than assuming one shape and silently ending up with nothing.
+    const rawList = Array.isArray(resp) ? resp
+      : Array.isArray(resp?.items) ? resp.items
+        : Array.isArray(resp?.templates) ? resp.templates
+          : [];
     // Guarantee varMap/urlButtonMap are objects so v-model can safely set keys —
     // older synced rows predate the field and would otherwise crash the picker.
-    const items = (resp.items || resp || []).map((t) => ({
+    const items = rawList.map((t) => ({
       ...t,
       varMap: t.varMap && typeof t.varMap === 'object' ? t.varMap : {},
       urlButtonMap: t.urlButtonMap && typeof t.urlButtonMap === 'object' ? t.urlButtonMap : {},
@@ -850,7 +857,13 @@ async function refreshWaTemplates() {
     bodyCatalog.value = resp.bodyCatalog || (resp.bodyTokens || []).map((k) => ({ key: k, label: k }));
     urlCatalog.value = resp.urlCatalog || (resp.urlTokens || []).map((k) => ({ key: k, label: k }));
     urlTokens.value = resp.urlTokens || [];
-  } catch (_) { /* silent */ }
+  } catch (err) {
+    // This used to fail silently, which is exactly how "Synced 2 templates"
+    // could show while the dropdown stayed empty — the sync call succeeded
+    // but this follow-up list refresh failed with no visible sign of it.
+    console.error('Failed to load WhatsApp templates', err);
+    toast.error(apiErrorMessage(err));
+  }
 }
 const selectedWaMeta = computed(() =>
   waTemplates.value.find((t) => t.name === composer.value?.waTemplate) || null
