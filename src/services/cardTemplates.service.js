@@ -1,20 +1,4 @@
-import axios from 'axios';
 import http, { unwrap } from '@/services/http';
-
-// Direct-to-origin upload — bypasses Cloudflare's proxy AND the main
-// nginx vhost's 120s proxy_read_timeout, same as gallery.service.js does
-// for large videos. A 70MB+ PSD can take past 120s just to transfer on a
-// slow connection, which used to 524 regardless of how fast the backend
-// itself responded once the body arrived — this route has no such cap.
-const uploadHttp = axios.create({
-  baseURL: 'https://upload.events.amoview.com/api',
-  timeout: 2 * 60 * 60 * 1000, // 2h — some connections genuinely need this long for 70MB+ files
-});
-uploadHttp.interceptors.request.use((config) => {
-  const token = localStorage.getItem('gc.accessToken');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
 
 // Tenant-facing: browse and clone
 export const listTemplates = (category) =>
@@ -42,23 +26,68 @@ export async function adminUpload(file, meta) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Batch 3 — PSD import. The upload request now only has to get the file to
-// disk — the backend responds with a job id right away and parses the PSD
-// in the background, so this polls for completion instead of holding one
-// long request open. That's the fix for large (50-100MB+) PSDs: parsing can
-// take well past Cloudflare's 120-second proxy timeout, which used to kill
-// the request outright (a 524) no matter what timeout the client set here.
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+const CHUNK_CONCURRENCY = 3;
+
+// Batch 3 — PSD import, uploaded in small chunks instead of one giant
+// multipart POST. Two problems this fixes at once:
+//   1. A single 70MB+ request can get killed by a proxy timeout partway
+//      through (Cloudflare, nginx) no matter what client-side timeout is
+//      set — each chunk here finishes in seconds regardless of total size.
+//   2. A single long-lived TCP stream to the direct-to-origin upload host
+//      (bypassing Cloudflare) measured as low as ~90KB/s on some
+//      connections, vs ~1MB/s+ through the normal Cloudflare-proxied path
+//      — Cloudflare's edge network is usually the FASTER route for the
+//      client's leg of the trip (closer PoP, optimized backbone to
+//      origin), especially from a region far from the origin server. So
+//      this goes back through the normal proxied /api host, and a few
+//      chunks in flight at once helps throughput further on high-latency
+//      links (each small request's TCP+TLS setup overlaps instead of
+//      serializing behind one huge sequential transfer).
+// The backend assembles the chunks back into one file and runs the exact
+// same background parse job as before — polling is unchanged.
 export async function adminImportPsd(file, meta, { onUploadProgress, onStage } = {}) {
-  const form = new FormData();
-  form.append('file', file);
-  Object.entries(meta || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) form.append(k, String(v));
-  });
-  const res = await uploadHttp.post('/admin/card-templates/import-psd', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    onUploadProgress,
-  });
-  const { jobId } = unwrap(res);
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const { uploadId } = await http.post('/admin/card-templates/import-psd/init', { fileName: file.name }).then(unwrap);
+
+  const loadedByChunk = new Array(totalChunks).fill(0);
+  const reportProgress = () => {
+    const loaded = loadedByChunk.reduce((a, b) => a + b, 0);
+    onUploadProgress?.({ loaded, total: file.size });
+  };
+
+  async function uploadChunk(index) {
+    const start = index * CHUNK_SIZE;
+    const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+    const form = new FormData();
+    form.append('chunk', blob);
+    form.append('uploadId', uploadId);
+    form.append('index', String(index));
+    await http.post('/admin/card-templates/import-psd/chunk', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 5 * 60 * 1000, // the shared http client's default (20s) assumes small JSON bodies, not an 8MB chunk on a slow link
+      onUploadProgress: (evt) => { loadedByChunk[index] = evt.loaded; reportProgress(); },
+    });
+  }
+
+  // A small fixed-size worker pool rather than Promise.all(all chunks) —
+  // uploading all of them at once would just recreate one big burst
+  // (and could overwhelm a weak connection); a pool of a few keeps several
+  // requests overlapping without flooding it.
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const index = next++;
+      if (index >= totalChunks) return;
+      await uploadChunk(index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, totalChunks) }, worker));
+
+  const { jobId } = await http.post('/admin/card-templates/import-psd/complete', {
+    uploadId, totalChunks, fileName: file.name,
+    name: meta?.name, category: meta?.category, sortOrder: meta?.sortOrder,
+  }).then(unwrap);
 
   // Poll until the background job finishes — no fixed cap, since a huge PSD
   // legitimately takes minutes to parse and there's no proxy timeout to
