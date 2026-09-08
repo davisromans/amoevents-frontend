@@ -847,7 +847,16 @@ function onKeyDown(e) {
   if (e.key === 'o' || e.key === 'O') setTool('dodge');
   if (e.key === 'e' || e.key === 'E') setTool('eraser');
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (selectedObjects.value.length) { selectedObjects.value.forEach((o) => fabricCanvasRaw.remove(o)); fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll(); refreshLayersList(); }
+    // Was fabricCanvasRaw.remove(o) directly — a no-op for any object
+    // nested inside a Fabric Group (true for virtually every PSD-imported
+    // layer), since removing from the canvas does nothing when the object
+    // was never the canvas's own direct child. onDeleteLayer already knows
+    // to remove from the object's actual parent group when it has one —
+    // route every selected object through it instead of duplicating (and
+    // getting wrong) that logic here.
+    if (selectedObjects.value.length) {
+      selectedObjects.value.forEach((o) => onDeleteLayer(o, findParentGroup(o, fabricCanvasRaw.getObjects())));
+    }
   }
   // Arrow-key nudge — shift for a bigger jump, matches Photoshop's 1px/10px convention.
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedObjects.value.length) {
@@ -1663,8 +1672,22 @@ async function boot() {
     applyZoom();
     refreshLayersList();
 
-    fabricCanvasRaw.on('selection:created', (e) => { selectedObjects.value = (e.selected || []).map(markRaw); selectedParent.value = null; });
-    fabricCanvasRaw.on('selection:updated', (e) => { selectedObjects.value = (e.selected || []).map(markRaw); selectedParent.value = null; });
+    // A direct canvas click on a layer nested inside a group (true for
+    // virtually every PSD-imported layer, which all live several groups
+    // deep) resolves through Fabric's own subTargetCheck and fires these
+    // two events with the nested object as the selection target — same as
+    // clicking its row in the Layers panel. Unconditionally nulling
+    // selectedParent here silently broke that: Delete (button AND
+    // keyboard) would then call fabricCanvasRaw.remove(obj) on an object
+    // that was never the canvas's own child, a guaranteed no-op, on
+    // anything selected by clicking the canvas directly rather than the
+    // Layers panel row.
+    const syncSelectedParent = (e) => {
+      const sel = e.selected || [];
+      selectedParent.value = sel.length === 1 ? findParentGroup(sel[0], fabricCanvasRaw.getObjects()) : null;
+    };
+    fabricCanvasRaw.on('selection:created', (e) => { selectedObjects.value = (e.selected || []).map(markRaw); syncSelectedParent(e); });
+    fabricCanvasRaw.on('selection:updated', (e) => { selectedObjects.value = (e.selected || []).map(markRaw); syncSelectedParent(e); });
     fabricCanvasRaw.on('selection:cleared', () => { selectedObjects.value = []; selectedParent.value = null; });
     fabricCanvasRaw.on('object:added', refreshLayersList);
     fabricCanvasRaw.on('object:removed', refreshLayersList);
