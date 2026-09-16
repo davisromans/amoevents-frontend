@@ -48,10 +48,11 @@
               class="w-full text-left px-3 py-2 hover:bg-surface-mist/50 dark:hover:bg-surface-fog/20 flex items-center gap-2"
               @click="inviteAmoview(u)"
             >
-              <span class="w-7 h-7 rounded-full bg-gradient-gold flex items-center justify-center text-surface-charcoal text-xs font-black shrink-0">{{ initials(u.name) }}</span>
+              <img v-if="u.avatarUrl" :src="u.avatarUrl" alt="" class="w-7 h-7 rounded-full object-cover shrink-0" />
+              <span v-else class="w-7 h-7 rounded-full bg-gradient-gold flex items-center justify-center text-surface-charcoal text-xs font-black shrink-0">{{ initials(u.name) }}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-heading truncate">{{ u.name }}</span>
-                <span class="block text-subtext truncate">{{ u.phoneMasked }}</span>
+                <span v-if="u.phoneMasked" class="block text-subtext truncate">{{ u.phoneMasked }}</span>
               </span>
             </button>
           </div>
@@ -61,12 +62,13 @@
       <section v-if="data.items.length" class="space-y-2">
         <p class="section-eyebrow">Team ({{ data.items.length }})</p>
         <div v-for="c in data.items" :key="c._id" class="surface-card p-3 flex items-center gap-3">
-          <div class="w-9 h-9 rounded-full bg-gradient-gold flex items-center justify-center text-surface-charcoal text-xs font-black shrink-0">
+          <img v-if="c.userId?.avatarUrl" :src="c.userId.avatarUrl" alt="" class="w-9 h-9 rounded-full object-cover shrink-0" />
+          <div v-else class="w-9 h-9 rounded-full bg-gradient-gold flex items-center justify-center text-surface-charcoal text-xs font-black shrink-0">
             {{ initials(c.userId?.name) }}
           </div>
           <div class="min-w-0 flex-1">
             <p class="text-heading truncate">{{ c.userId?.name || 'Unknown' }}</p>
-            <p class="text-subtext truncate">{{ c.userId?.phone }} · {{ c.status }}</p>
+            <p class="text-subtext truncate">{{ displayContact(c.userId) }} · {{ c.status }}</p>
           </div>
           <select
             :value="c.role"
@@ -147,6 +149,14 @@ async function revoke(c) {
 }
 
 function initials(name) { return (name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase(); }
+// A co-owner invited via Amoview gets a placeholder phone like
+// `taiview:<id>` (internal-only, satisfies the required+unique field)
+// until they've accepted and we can pull their real profile — showing
+// that raw string was exactly the "nonsense" in the Team list.
+function displayContact(u) {
+  if (!u?.phone) return '';
+  return u.phone.startsWith('taiview:') ? 'Amoview account' : u.phone;
+}
 
 watch(coOwnerQuery, (q) => {
   clearTimeout(coOwnerSearchTimer);
@@ -162,7 +172,7 @@ async function inviteAmoview(u) {
   coOwnerResults.value = [];
   coOwnerQuery.value = '';
   try {
-    await api.inviteAmoviewUser(route.params.id, { amoviewUserId: u.id, role: 'collaborator' });
+    await api.inviteAmoviewUser(route.params.id, { amoviewUserId: u.id, role: 'collaborator', name: u.name, avatarUrl: u.avatarUrl || '' });
     toast.success(`Invited ${u.name} — they'll get a notification to accept`);
     await refresh();
   } catch (err) { toast.error(apiErrorMessage(err)); }
