@@ -172,7 +172,7 @@ async function inviteAmoview(u) {
   coOwnerResults.value = [];
   coOwnerQuery.value = '';
   try {
-    await api.inviteAmoviewUser(route.params.id, { amoviewUserId: u.id, role: 'collaborator', name: u.name, avatarUrl: u.avatarUrl || '' });
+    await api.inviteAmoviewUser(route.params.id, { amoviewUserId: u.id, role: 'collaborator', name: u.name, avatarUrl: u.avatarUrl || '', email: u.email || '' });
     toast.success(`Invited ${u.name} — they'll get a notification to accept`);
     await refresh();
   } catch (err) { toast.error(apiErrorMessage(err)); }
