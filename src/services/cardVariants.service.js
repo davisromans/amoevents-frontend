@@ -51,7 +51,11 @@ export const deleteVariant = (eventId, variantId) =>
 // button. Undersize is fine because Tanzania ⇄ origin is ~360ms RTT and
 // every extra KB costs.
 // bust=<n> = cache-buster (pass Date.now() after any layout change).
-export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp = false } = {}) {
+export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp = true } = {}) {
+  // stamp defaults to TRUE now — operators expect the Variants grid to show
+  // the REAL composited card (QR + short-code + seat-type strip), the same
+  // thing that gets downloaded / sent. Pass stamp=false only for a raw
+  // artwork preview (used inside the QR-position editor).
   const params = { w };
   if (bust) params._r = bust;
   if (stamp) params.stamp = 1;

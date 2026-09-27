@@ -14,6 +14,11 @@
         <button v-if="samplerVariant && samplerVariant.sourceType !== 'document'" class="btn-secondary !text-sm" @click="openSamplerEditor">
           <QrCodeIcon class="w-4 h-4" /> Position QR
         </button>
+        <!-- Fallback for events with NO shared template: fan the QR position
+             out to every guest with their own uploaded artwork. -->
+        <button v-if="!samplerVariant && anyGuestHasCardImage" class="btn-secondary !text-sm" @click="openBulkQrEditor">
+          <QrCodeIcon class="w-4 h-4" /> Position QR for all
+        </button>
         <label v-if="guests.length" class="flex items-center gap-1.5 text-subtext cursor-pointer select-none mr-1"
                title="Hide guests without their own uploaded card (the shared sampler still applies to them at send time)">
           <input type="checkbox" v-model="onlyOwnArtwork" class="accent-brand-gold w-4 h-4" />
@@ -143,6 +148,8 @@
     <AppModal v-model="qrEditor.open"
               :title="qrEditor.mode === 'variant'
                 ? 'Position QR on the sampler design'
+                : qrEditor.mode === 'bulk'
+                ? 'Position QR on every uploaded card'
                 : `Adjust QR — ${qrEditor.guest?.firstName || ''} ${qrEditor.guest?.lastName || ''}`"
               :maxWidth="760">
       <div v-if="qrEditor.artUrl && qrEditor.qrUrl" class="space-y-4">
@@ -315,7 +322,9 @@ async function loadThumb(g, bust) {
   try {
     // `bust` is passed after any layout change so intermediate caches (SW,
     // browser HTTP cache, proxies) all miss and refetch fresh composites.
-    thumbs[g._id] = await fetchPreviewUrl(route.params.id, g._id, { bust });
+    // Retina-sharp thumbnail (w=600) with QR + short-code + seat-type strip
+    // baked in — same composite the download endpoint produces, just smaller.
+    thumbs[g._id] = await fetchPreviewUrl(route.params.id, g._id, { bust, w: 600, stamp: true });
   } catch (_) {
     thumbErrors[g._id] = true;
   }
@@ -325,7 +334,15 @@ async function refresh() {
   loading.value = true;
   try {
     const [{ items, meta }, cov, vs] = await Promise.all([
-      listGuests(route.params.id, { limit: PAGE_SIZE, page: page.value, q: searchInput.value.trim() || undefined }),
+      listGuests(route.params.id, {
+        limit: PAGE_SIZE,
+        page: page.value,
+        q: searchInput.value.trim() || undefined,
+        // Guests with uploaded card artwork first — so the operator sees
+        // completed cards up top and the "no artwork" placeholders sink to
+        // the bottom / later pages instead of hiding the ones that ARE ready.
+        sort: 'cardFirst',
+      }),
       cardCoverage(route.params.id).catch(() => ({})),
       listVariants(route.params.id).catch(() => []),
     ]);
@@ -489,6 +506,31 @@ async function openQrEditor(g) {
     qrEditor.qrUrl = qr;
   } catch (err) { toast.error(apiErrorMessage(err)); qrEditor.open = false; }
 }
+// "Set QR position for every guest who has their own uploaded card"
+// — same modal as the sampler editor, but the fan-out on save walks
+// guest.cardImagePath instead of a variant. Uses the first guest WITH
+// uploaded artwork as the canvas so what you see is what gets baked in.
+async function openBulkQrEditor() {
+  const first = guests.value.find((g) => !!g.cardImagePath) || guests.value.find((g) => coverage[g._id] === 'own');
+  if (!first) { toast.error('Upload guest cards first'); return; }
+  qrEditor.mode = 'bulk';
+  qrEditor.guest = null;
+  qrEditor.variant = null;
+  qrEditor.artUrl = null;
+  qrEditor.qrUrl = null;
+  qrEditor.layout = first.qrLayout && typeof first.qrLayout.x === 'number'
+    ? { ...first.qrLayout } : { ...DEFAULT_LAYOUT };
+  qrEditor.open = true;
+  try {
+    const [{ url: art }, { url: qr }] = await Promise.all([
+      getCardUrl(route.params.id, first._id),
+      getGuestQrUrl(route.params.id, first._id),
+    ]);
+    qrEditor.artUrl = art;
+    qrEditor.qrUrl = qr;
+  } catch (err) { toast.error(apiErrorMessage(err)); qrEditor.open = false; }
+}
+
 async function openSamplerEditor() {
   const v = samplerVariant.value;
   if (!v) return;
@@ -535,6 +577,19 @@ function invalidateAllThumbs() {
 async function saveQrLayout() {
   qrEditor.saving = true;
   try {
+    if (qrEditor.mode === 'bulk') {
+      const layout = { ...qrEditor.layout };
+      const targets = guests.value.filter((g) => !!g.cardImagePath && !g.skipQrOverlay);
+      await Promise.allSettled(
+        targets.map((g) => updateGuest(route.params.id, g._id, { qrLayout: layout })
+          .then(() => { g.qrLayout = { ...layout }; })
+          .catch(() => {})),
+      );
+      invalidateAllThumbs();
+      toast.success(`QR position applied to ${targets.length} card${targets.length === 1 ? '' : 's'}`);
+      qrEditor.open = false;
+      return;
+    }
     if (qrEditor.mode === 'variant') {
       const v = qrEditor.variant;
       // Sampler edit = "set once for everyone" — write the layout to the
