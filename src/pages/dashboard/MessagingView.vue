@@ -1169,13 +1169,21 @@ watch(selectedId, (id) => {
     includeRsvpButtons: !!t.includeRsvpButtons,
     buttons: (t.buttons || []).map((b) => ({ ...b })),
     poll: t.poll ? { question: t.poll.question || '', options: (t.poll.options || []).map((o) => ({ ...o })) } : null,
-    attachCardVariant: !!t.attachCardVariant,
+    // Derive attachCardVariant from whether an explicit image URL is set,
+    // not from the saved t.attachCardVariant flag directly — a template
+    // saved before this field existed (or via some other path that left it
+    // unset) loaded as attachCardVariant:false while headerImageChoice
+    // still displayed "Personalised guest card", so the operator saw the
+    // per-guest-card option selected but the real flag sent to the server
+    // was false — guaranteeing a hasImageHeader WA template send fails for
+    // every recipient with "template expects image, none available".
+    attachCardVariant: !t.attachImageUrl,
     attachImagePath: t.attachImagePath || null,
     attachImageUrl: t.attachImageUrl || null,
     attachImagePreview: t.attachImageUrl || null,
     waTemplate: t.waTemplate || waTemplates.value[0]?.name || '',
     waOverrides: t.waOverrides ? { ...t.waOverrides } : {},
-    headerImageChoice: t.attachCardVariant === false && t.attachImageUrl
+    headerImageChoice: t.attachImageUrl
       ? `asset:${eventAssets.value.find((a) => a.url === t.attachImageUrl)?._id || ''}`
       : 'card',
     __isNew: false,
