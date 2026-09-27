@@ -66,7 +66,7 @@
         <p class="text-lg font-bold text-surface-charcoal dark:text-surface-bone mb-1">No template selected yet</p>
         <p class="text-md text-surface-charcoal dark:text-surface-bone mb-3">
           Pick a card template (or upload your own artwork) to see the variants for each guest here.
-          Variables like <span class="chip">{{ '{{firstName}}' }}</span> and <span class="chip">{{ '{{memberId}}' }}</span> are auto-mapped from the design.
+          Variables like <span v-pre class="chip">{{firstName}}</span> and <span v-pre class="chip">{{memberId}}</span> are auto-mapped from the design.
         </p>
         <div class="flex gap-2">
           <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">Browse templates</router-link>
