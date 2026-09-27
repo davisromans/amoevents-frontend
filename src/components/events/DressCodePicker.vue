@@ -69,7 +69,8 @@ const PALETTE = [
     { name: 'Nude', hex: '#E3BC9A' }, { name: 'Ecru', hex: '#C2B280' },
   ] },
   { name: 'Blush & pinks', colors: [
-    { name: 'Blush', hex: '#FFC0CB' }, { name: 'Rose', hex: '#FF66CC' },
+    { name: 'Blush', hex: '#FFC0CB' }, { name: 'Light Pink', hex: '#FFB6C1' },
+    { name: 'Blush Pink', hex: '#F7CAC9' }, { name: 'Rose', hex: '#FF66CC' },
     { name: 'Dusty Rose', hex: '#DCAE96' }, { name: 'Coral', hex: '#FF7F50' },
     { name: 'Salmon', hex: '#FA8072' }, { name: 'Peach', hex: '#FFCBA4' },
     { name: 'Fuchsia', hex: '#FF00FF' }, { name: 'Magenta', hex: '#C71585' },
