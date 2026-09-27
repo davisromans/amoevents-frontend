@@ -54,5 +54,13 @@ export default http;
 
 export function unwrap(res) { return res.data?.data ?? res.data; }
 export function apiErrorMessage(err) {
-  return err?.response?.data?.error?.message || err?.message || 'Request failed';
+  const e = err?.response?.data?.error;
+  if (e?.message && e.message !== 'Invalid request') return e.message;
+  // Backend now puts the real per-field reason in e.message directly, but
+  // fall back to joining e.details (Joi's {path, message} array) for any
+  // older/other endpoint that still sends the generic literal.
+  if (e?.details?.length) {
+    return e.details.map((d) => d.message).filter(Boolean).join('; ') || e?.message || 'Request failed';
+  }
+  return e?.message || err?.message || 'Request failed';
 }
