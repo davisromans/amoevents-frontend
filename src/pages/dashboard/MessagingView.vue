@@ -296,7 +296,10 @@
              style="background-image: radial-gradient(circle at 20% 20%, rgba(0,0,0,0.02) 1px, transparent 1px); background-size: 12px 12px;">
           <div class="rounded-xl bg-white dark:bg-[#075e54] p-3 shadow max-w-full">
             <div v-if="selectedWaMeta?.hasImageHeader"
-                 class="mb-2 rounded-md aspect-[4/5] bg-surface-mist dark:bg-black/30 flex items-center justify-center text-4xl">🖼️</div>
+                 class="mb-2 rounded-md aspect-[4/5] bg-surface-mist dark:bg-black/30 overflow-hidden flex items-center justify-center">
+              <img v-if="sampleCardUrl" :src="sampleCardUrl" alt="Personalised guest card preview" class="w-full h-full object-contain" />
+              <span v-else class="text-4xl">🖼️</span>
+            </div>
             <pre v-if="selectedWaTemplatePreview"
                  class="text-sm whitespace-pre-wrap font-sans text-surface-charcoal dark:text-white leading-snug">{{ selectedWaTemplatePreview.body }}</pre>
             <p v-else class="text-xs text-surface-slate dark:text-white/70">Pick a template to preview.</p>
@@ -603,6 +606,7 @@ import PageShell from '@/components/shell/PageShell.vue';
 import WatermarkBanner from '@/components/events/WatermarkBanner.vue';
 import InfoHint from '@/components/common/InfoHint.vue';
 import { Button } from '@/components/ui';
+import { fetchPreviewUrl } from '@/services/cardVariants.service';
 
 const PLEDGE_STATUS_OPTIONS = [
   { value: 'any', label: 'Everyone' },
@@ -645,6 +649,7 @@ const PLACEHOLDERS = [
   { token: '{{member_id}}', label: 'Member ID' },
   { token: '{{code}}', label: 'Short code' },
   { token: '{{gallery_url}}', label: 'Gallery share link' },
+  { token: '{{card_url}}', label: 'Personalised guest card link' },
   { token: '{{event_type}}', label: 'Event type' },
   { token: '{{countdown_days}}', label: 'Days until event' },
   { token: '{{church_name}}', label: 'Church name' },
@@ -711,6 +716,19 @@ const eventPledgeTiers = computed(() => {
 const allGuests = ref([]);
 const sampleGuestId = ref('');
 const sampleGuest = computed(() => allGuests.value.find((g) => g._id === sampleGuestId.value) || allGuests.value[0] || null);
+const sampleCardUrl = ref('');
+let sampleCardObjectUrl = '';
+async function loadSampleCard() {
+  const guest = sampleGuest.value;
+  if (!guest) { sampleCardUrl.value = ''; return; }
+  try {
+    const url = await fetchPreviewUrl(route.params.id, guest._id, { w: 600, stamp: true, bust: Date.now() });
+    if (sampleCardObjectUrl) URL.revokeObjectURL(sampleCardObjectUrl);
+    sampleCardObjectUrl = url;
+    sampleCardUrl.value = url;
+  } catch (_) { sampleCardUrl.value = ''; }
+}
+watch(sampleGuest, loadSampleCard);
 const jobs = ref([]);
 const sending = ref(false);
 const serverError = ref('');
@@ -777,6 +795,7 @@ const GUEST_VARYING_TOKENS = new Set([
   'short_code', 'member_id',
   'pledge_amount', 'pledge_received', 'pledge_outstanding',
   'gallery_url',
+  'card_url',
 ]);
 // Average real-world length for the guest-varying tokens only, in
 // characters — used purely for segment/cost estimation, never shown as
@@ -787,7 +806,8 @@ const TOKEN_LENGTH_ESTIMATE = {
   first_name: 6, last_name: 8, guest_name: 15, full_name: 15,
   short_code: 7, member_id: 11,
   pledge_amount: 9, pledge_received: 9, pledge_outstanding: 9,
-  gallery_url: 78, // https://events.amoview.com/gallery/<signed JWT>
+    gallery_url: 78, // https://events.amoview.com/gallery/<signed JWT>
+  card_url: 96,
 };
 const DEFAULT_TOKEN_LENGTH_ESTIMATE = 8; // fallback for any token not listed above
 
@@ -1007,6 +1027,7 @@ function tokenValues() {
     church_name:    ev.church?.name || '',
     church_address: ev.church?.address || '',
     church_arrival: ev.church?.arrivalTime || '',
+    card_url: g.cardImageUrl || '',
     // gallery_url is a server-signed JWT link (send.service.js signs it
     // at send-time) — genuinely can't be reproduced client-side, so this
     // one token stays a length ESTIMATE (handled in TOKEN_LENGTH_ESTIMATE

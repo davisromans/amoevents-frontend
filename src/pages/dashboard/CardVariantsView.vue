@@ -945,6 +945,7 @@ async function persistTypography() {
         seatTypeColor: eventBranding.seatTypeColor,
         seatTypeX: eventBranding.seatTypeX,
         seatTypeY: eventBranding.seatTypeY,
+        guestCardQrLayout: { ...qrEditor.layout },
       },
     });
   } catch (err) { toast.error(`Typography save failed: ${apiErrorMessage(err)}`); }
