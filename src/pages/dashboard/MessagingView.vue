@@ -1033,8 +1033,13 @@ function tokenValues() {
     guest_name:   `${g.firstName || ''} ${g.lastName || ''}`.trim() || 'Davis',
     event_name:   ev.name || 'Event',
     event_type:   ev.eventType || '',
-    date:         ev.date ? new Date(ev.date).toLocaleDateString('en-GB') : '—',
-    time:         ev.date ? new Date(ev.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—',
+    // Explicit timeZone — the stored event.date is a UTC instant matching
+    // the event's own local midnight/time, and formatting without a
+    // timeZone option uses the VIEWER's browser timezone, which can show
+    // the wrong calendar day (confirmed: an operator anywhere outside
+    // Africa/Dar_es_Salaam, or a server-side render, saw one day off).
+    date:         ev.date ? new Date(ev.date).toLocaleDateString('en-GB', { timeZone: ev.timezone || 'Africa/Dar_es_Salaam' }) : '—',
+    time:         ev.date ? new Date(ev.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: ev.timezone || 'Africa/Dar_es_Salaam' }) : '—',
     venue:        ev.venue?.name || '—',
     venue_address: ev.venue?.address || '—',
     short_code:   short,
@@ -1043,7 +1048,7 @@ function tokenValues() {
     pledge_amount:      fmtTZS(pledgedAmt),
     pledge_received:    fmtTZS(pledgedPaid),
     pledge_outstanding: fmtTZS(pledgedOut),
-    due_date:           ev.pledgeDueAt ? new Date(ev.pledgeDueAt).toLocaleDateString('en-GB') : '—',
+    due_date:           ev.pledgeDueAt ? new Date(ev.pledgeDueAt).toLocaleDateString('en-GB', { timeZone: ev.timezone || 'Africa/Dar_es_Salaam' }) : '—',
     payment_contacts:   paymentBlock,
     contact_phones:     phoneBlock,
     payment_contact_1: formatContactLine(ev.paymentContacts?.[0]),
