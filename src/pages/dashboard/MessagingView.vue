@@ -596,6 +596,7 @@ const deliveryJobId = ref('');
 function openDelivery(j) { deliveryJobId.value = j._id; deliveryOpen.value = true; }
 import { listGuests } from '@/services/guests.service';
 import { formatTZS } from '@/utils/format';
+import { seatTypeLabel } from '@/utils/seatType';
 import { listTags as listTagsApi } from '@/services/tags.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
@@ -658,7 +659,7 @@ const PLACEHOLDERS = [
   { token: '{{venue_address}}', label: 'Venue address' },
   { token: '{{member_id}}', label: 'Member ID' },
   { token: '{{code}}', label: 'Short code' },
-  { token: '{{seat_type}}', label: 'Seat type (Single/Double/Multiple-N)' },
+  { token: '{{seat_type}}', label: 'Seat type (Single/Double/Triple/Double xN)' },
   { token: '{{gallery_url}}', label: 'Gallery share link' },
   { token: '{{card_url}}', label: 'Personalised guest card link' },
   { token: '{{countdown_days}}', label: 'Days until event' },
@@ -819,7 +820,7 @@ const GUEST_VARYING_TOKENS = new Set([
 // for any one guest (that's inherently unknowable before send-time).
 const TOKEN_LENGTH_ESTIMATE = {
   first_name: 6, last_name: 8, guest_name: 15, full_name: 15,
-  short_code: 7, member_id: 11, seat_type: 10, // 'Multiple-10' worst case
+  short_code: 7, member_id: 11, seat_type: 20, // 'Double x10 + Single' worst case
   pledge_amount: 9, pledge_received: 9, pledge_outstanding: 9,
     gallery_url: 78, // https://events.amoview.com/gallery/<signed JWT>
   card_url: 96,
@@ -1043,7 +1044,7 @@ function tokenValues() {
     venue:        ev.venue?.name || '—',
     venue_address: ev.venue?.address || '—',
     short_code:   short,
-    seat_type:    g.type === 'family' ? `Multiple-${g.familySize || 2}` : g.type === 'double' ? 'Double' : 'Single',
+    seat_type:    seatTypeLabel(g),
     member_id:    g.memberId || '—',
     pledge_amount:      fmtTZS(pledgedAmt),
     pledge_received:    fmtTZS(pledgedPaid),

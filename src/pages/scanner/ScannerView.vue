@@ -169,6 +169,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { seatTypeLabel } from '@/utils/seatType';
 import { useRoute } from 'vue-router';
 import jsQR from 'jsqr';
 import {
@@ -232,9 +233,7 @@ const headline = computed(() => ({
 }[lastResult.value?.result] || 'Scanned'));
 const seatLabel = computed(() => {
   const g = lastResult.value?.guest; if (!g) return '';
-  return g.type === 'family' ? `Multiple-${g.familySize}`
-       : g.type === 'double' ? 'Double'
-       : 'Single';
+  return seatTypeLabel(g);
 });
 
 async function loadEvent() {

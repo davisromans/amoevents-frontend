@@ -237,7 +237,7 @@
             </template>
           </Field>
           <Field v-if="form.type === 'family'" label="Scans allowed"
-                 :help="`Shows on the card as Multiple-${form.familySize || 2}`">
+                 :help="`Shows on the card as ${seatTypeLabel({ type: 'family', familySize: form.familySize || 3 })}`">
             <template #default="{ id }">
               <TextInput v-model.number="form.familySize" :id="id" type="number" min="3" max="20" />
             </template>
@@ -318,11 +318,12 @@ import PhoneInput from '@/components/common/PhoneInput.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PageShell from '@/components/shell/PageShell.vue';
 import { Badge, Button, EmptyState, Field, Modal, Select, TextInput } from '@/components/ui';
+import { seatTypeLabel } from '@/utils/seatType';
 
 const TYPES = [
   { value: 'single', label: 'Single' },
   { value: 'double', label: 'Double' },
-  { value: 'family', label: 'Multiple (3+)' },
+  { value: 'family', label: 'Triple+ (3 or more)' },
 ];
 const RSVP_FILTERS = [
   { value: 'all',     label: 'All' },
@@ -358,9 +359,9 @@ const form = reactive({
   firstName: '', lastName: '', phone: '', whatsapp: '', type: 'single',
   familySize: 2, isVip: false, tags: [], pledge: { amount: 0, item: '', status: 'pending' },
 });
-// Multiple (3+) is meaningfully different from Double (fixed at 2) — start
+// Triple+ (3+) is meaningfully different from Double (fixed at 2) — start
 // the scans-allowed field at 3 the moment an operator switches into this
-// type, so "Multiple-2" (a confusing duplicate of Double) never appears
+// type, so "Double" (a confusing duplicate of the Double type) never appears
 // as the default. Only fires the bump when the current value doesn't
 // already make sense (e.g. loading an existing guest whose familySize is
 // legitimately 2 from before this field was tightened isn't touched here).

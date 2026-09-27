@@ -110,6 +110,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { seatTypeLabel } from '@/utils/seatType';
 import { StarIcon } from '@heroicons/vue/24/solid';
 import { CheckCircleIcon, ArrowDownTrayIcon, PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline';
 import { Badge, Button, SectionHeader, Sheet } from '@/components/ui';
@@ -164,10 +165,7 @@ const tagObjects = computed(() => {
 
 function rsvpLabel(s) { return ({ yes: 'Attending', no: 'Declined', maybe: 'Maybe', pending: 'Awaiting reply' })[s] || 'Awaiting reply'; }
 function rsvpTone(s)  { return ({ yes: 'success', no: 'danger', maybe: 'warning' })[s] || 'neutral'; }
-function typeLabel(g) {
-  if (g?.type === 'family') return `Multiple-${g.familySize || 2}`;
-  return ({ single: 'Single', double: 'Double' })[g?.type] || 'Single';
-}
+function typeLabel(g) { return seatTypeLabel(g || {}); }
 function isPlaceholderPhone(phone) { return String(phone || '').startsWith('no-phone:'); }
 function fmtTZS(n) { return `${Number(n || 0).toLocaleString('sw-TZ')} TZS`; }
 </script>
