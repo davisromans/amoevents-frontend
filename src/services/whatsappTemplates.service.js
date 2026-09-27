@@ -8,7 +8,12 @@ export async function listWhatsAppTemplates() {
 }
 
 export async function syncWhatsAppTemplates() {
-  const res = await http.post('/whatsapp-templates/sync');
+  // Depends on an external API (Infobip or Meta's Graph API) whose latency
+  // we don't control — the global 20s axios default is too tight for a
+  // slow moment on their end, and the request would otherwise die
+  // client-side ("timing out") even though the server-side sync (normally
+  // well under 1s for a small template set) would have finished fine.
+  const res = await http.post('/whatsapp-templates/sync', {}, { timeout: 60000 });
   return unwrap(res);
 }
 
