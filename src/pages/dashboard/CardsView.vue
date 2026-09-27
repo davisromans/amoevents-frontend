@@ -326,6 +326,19 @@ async function uploadFiles(files) {
         const res = await bulkUploadCards(route.params.id, [file], { onDuplicate: duplicateMode.value });
         totalMatched += res.summary?.matched || 0;
         totalUnmatched += res.summary?.unmatched || 0;
+        // Show this file's result immediately instead of waiting for the
+        // whole queue to finish — drop it into the grid and fetch its
+        // thumbnail right now, so cards visibly appear one by one as each
+        // upload actually completes.
+        for (const m of res.matched || []) {
+          const idx = matched.value.findIndex((x) => x.guestId === m.guestId);
+          if (idx >= 0) matched.value[idx] = m; else matched.value.push(m);
+          delete thumbs[m.guestId];
+          loadThumb(m.guestId);
+        }
+        for (const u of res.unmatched || []) {
+          if (!unmatched.value.some((x) => x.stagedPath === u.stagedPath)) unmatched.value.push(u);
+        }
       } catch (err) {
         uploadFilesFailed.value += 1;
         failedNames.push(file.name);
