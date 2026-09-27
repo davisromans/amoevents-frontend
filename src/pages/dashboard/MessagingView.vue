@@ -658,6 +658,7 @@ const PLACEHOLDERS = [
   { token: '{{venue_address}}', label: 'Venue address' },
   { token: '{{member_id}}', label: 'Member ID' },
   { token: '{{code}}', label: 'Short code' },
+  { token: '{{seat_type}}', label: 'Seat type (Single/Double/Multiple-N)' },
   { token: '{{gallery_url}}', label: 'Gallery share link' },
   { token: '{{card_url}}', label: 'Personalised guest card link' },
   { token: '{{countdown_days}}', label: 'Days until event' },
@@ -806,7 +807,7 @@ async function loadPricing() {
 // here so it gets the same "estimate, don't fake precision" treatment.
 const GUEST_VARYING_TOKENS = new Set([
   'first_name', 'last_name', 'guest_name', 'full_name',
-  'short_code', 'member_id',
+  'short_code', 'member_id', 'seat_type',
   'pledge_amount', 'pledge_received', 'pledge_outstanding',
   'gallery_url',
   'card_url',
@@ -818,7 +819,7 @@ const GUEST_VARYING_TOKENS = new Set([
 // for any one guest (that's inherently unknowable before send-time).
 const TOKEN_LENGTH_ESTIMATE = {
   first_name: 6, last_name: 8, guest_name: 15, full_name: 15,
-  short_code: 7, member_id: 11,
+  short_code: 7, member_id: 11, seat_type: 10, // 'Multiple-10' worst case
   pledge_amount: 9, pledge_received: 9, pledge_outstanding: 9,
     gallery_url: 78, // https://events.amoview.com/gallery/<signed JWT>
   card_url: 96,
@@ -1037,6 +1038,7 @@ function tokenValues() {
     venue:        ev.venue?.name || '—',
     venue_address: ev.venue?.address || '—',
     short_code:   short,
+    seat_type:    g.type === 'family' ? `Multiple-${g.familySize || 2}` : g.type === 'double' ? 'Double' : 'Single',
     member_id:    g.memberId || '—',
     pledge_amount:      fmtTZS(pledgedAmt),
     pledge_received:    fmtTZS(pledgedPaid),
