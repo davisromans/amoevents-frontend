@@ -175,99 +175,127 @@
                draggable="false"
                :style="qrOverlayStyle(qrEditor.layout)"
                alt="" />
-          <!-- Short-code band above the QR + seat-type band below it,
-               positioned relative to the QR so they move with it. Uses the
-               live typography state so what you see is what gets baked. -->
-          <div class="absolute pointer-events-none text-center whitespace-nowrap tabular-nums"
-               :style="{ ...editorBandStyle(1), ...topBandPositionStyle(qrEditor.layout) }">
+          <!-- Top band: short code. Click / drag it to switch targets. -->
+          <div class="absolute text-center whitespace-nowrap tabular-nums select-none"
+               :class="editorTarget === 'top' ? 'ring-2 ring-brand-gold rounded-sm cursor-move' : 'cursor-pointer'"
+               :style="{ ...editorBandStyle('guestCode'), ...bandBoxStyle('guestCode') }"
+               @pointerdown.stop="onBandPointerDown('top', $event)">
             {{ previewShortCode }}
           </div>
+          <!-- Bottom band: seat type. Hidden when the operator disabled it. -->
           <div v-if="eventBranding.guestCodeShowSeatType !== false"
-               class="absolute pointer-events-none text-center whitespace-nowrap tabular-nums"
-               :style="{ ...editorBandStyle(1), ...bottomBandPositionStyle(qrEditor.layout) }">
+               class="absolute text-center whitespace-nowrap tabular-nums select-none"
+               :class="editorTarget === 'bot' ? 'ring-2 ring-brand-gold rounded-sm cursor-move' : 'cursor-pointer'"
+               :style="{ ...editorBandStyle('seatType'), ...bandBoxStyle('seatType') }"
+               @pointerdown.stop="onBandPointerDown('bot', $event)">
             {{ previewSeatType }}
           </div>
         </div>
 
-        <!-- Three sliders: X, Y, Size -->
-        <div class="grid grid-cols-1 gap-2.5">
-          <div v-for="s in SLIDERS" :key="s.key" class="flex items-center gap-3">
-            <label class="text-xs font-black uppercase tracking-widest text-surface-slate dark:text-surface-ash w-14">{{ s.label }}</label>
-            <input type="range" :min="s.min" :max="s.max" :step="s.step"
-                   :value="qrEditor.layout[s.key]"
-                   @input="setLayoutField(s.key, Number($event.target.value))"
-                   class="flex-1 accent-brand-gold" />
-            <input type="number" :min="s.min" :max="s.max" :step="s.step"
-                   :value="qrEditor.layout[s.key]"
-                   @input="setLayoutField(s.key, Number($event.target.value))"
-                   class="field-input !py-1 !text-sm !w-24 text-right tabular-nums" />
-            <span class="text-2xs text-surface-slate dark:text-surface-ash w-10 text-right tabular-nums">{{ pct(qrEditor.layout[s.key]) }}</span>
+        <!-- Target selector — which layer the sliders / drag act on. -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-black uppercase tracking-widest text-surface-slate dark:text-surface-ash">Editing:</span>
+          <div class="flex gap-1 p-1 rounded-lg bg-surface-mist/60 dark:bg-surface-fog/40">
+            <button v-for="t in EDITOR_TARGETS" :key="t.value" type="button"
+                    class="px-3 py-1 rounded-md text-xs font-bold transition"
+                    :class="editorTarget === t.value
+                      ? 'bg-white dark:bg-surface-night text-brand-gold-deep dark:text-brand-gold-soft shadow-sm'
+                      : 'text-surface-slate dark:text-surface-ash'"
+                    @click="editorTarget = t.value">
+              {{ t.label }}
+            </button>
           </div>
         </div>
 
-        <!-- Live typography controls — same fields as the Edit Event form.
-             Bound to eventBranding; PATCHed to the event on Save so this
-             modal is a shortcut instead of a separate config. -->
-        <div class="surface-inset p-3 rounded-lg space-y-2">
-          <p class="section-eyebrow">Guest-code typography</p>
-          <div class="grid grid-cols-2 gap-2">
-            <label class="flex flex-col gap-1">
-              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Font</span>
-              <select v-model="eventBranding.guestCodeFont" class="field-input !py-1 !text-xs">
-                <option :value="null">Default (Inter)</option>
-                <option value="Inter">Inter</option>
-                <option value="Playfair Display">Playfair Display</option>
-                <option value="Cormorant Garamond">Cormorant Garamond</option>
-                <option value="Montserrat">Montserrat</option>
-                <option value="Poppins">Poppins</option>
-                <option value="Great Vibes">Great Vibes</option>
-                <option value="Cinzel">Cinzel</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Weight</span>
-              <select v-model.number="eventBranding.guestCodeWeight" class="field-input !py-1 !text-xs">
-                <option :value="null">Default (900)</option>
-                <option :value="300">300</option><option :value="400">400</option>
-                <option :value="500">500</option><option :value="700">700</option>
-                <option :value="900">900</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Style</span>
-              <select v-model="eventBranding.guestCodeStyle" class="field-input !py-1 !text-xs">
-                <option :value="null">Normal</option>
-                <option value="italic">Italic</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Text color</span>
-              <input type="color" :value="eventBranding.textColor || '#2A2417'"
-                     @input="eventBranding.textColor = $event.target.value"
-                     class="h-7 w-full rounded-md border border-surface-mist cursor-pointer" />
-            </label>
-            <label class="flex flex-col gap-1 col-span-2">
-              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">
-                Size × {{ eventBranding.guestCodeSizeScale ?? 1 }} · Letter spacing {{ eventBranding.guestCodeLetterSpacing ?? 2 }}
-              </span>
-              <div class="grid grid-cols-2 gap-2">
-                <input type="range" min="0.5" max="2" step="0.05"
-                       :value="eventBranding.guestCodeSizeScale ?? 1"
-                       @input="eventBranding.guestCodeSizeScale = Number($event.target.value)"
-                       class="accent-brand-gold" />
-                <input type="range" min="0" max="16" step="1"
-                       :value="eventBranding.guestCodeLetterSpacing ?? 2"
-                       @input="eventBranding.guestCodeLetterSpacing = Number($event.target.value)"
-                       class="accent-brand-gold" />
-              </div>
-            </label>
-            <label class="flex items-center gap-2 col-span-2">
-              <input type="checkbox" v-model="eventBranding.guestCodeShowSeatType" class="accent-brand-gold w-4 h-4" />
-              <span class="text-xs text-surface-charcoal dark:text-surface-bone">Show seat-type strip below the QR</span>
+        <!-- X / Y / Size sliders, bound to the active target. Size for the
+             QR moves the QR square; Size for a text band scales its font. -->
+        <div class="grid grid-cols-1 gap-2.5">
+          <div v-for="s in SLIDERS" :key="s.key" class="flex items-center gap-3">
+            <label class="text-xs font-black uppercase tracking-widest text-surface-slate dark:text-surface-ash w-14">{{ s.label }}</label>
+            <input type="range"
+                   :min="s.key === 'size' && editorTarget !== 'qr' ? 0.5 : s.min"
+                   :max="s.key === 'size' && editorTarget !== 'qr' ? 2 : s.max"
+                   :step="s.step"
+                   :value="currentXYSize()[s.key] ?? (s.key === 'size' ? 1 : 0.5)"
+                   @input="setTargetAxis(s.key, Number($event.target.value))"
+                   class="flex-1 accent-brand-gold" />
+            <span class="text-2xs text-surface-slate dark:text-surface-ash w-14 text-right tabular-nums">
+              {{ s.key === 'size' && editorTarget !== 'qr' ? `${(currentXYSize().size ?? 1).toFixed(2)}×` : pct(currentXYSize()[s.key] ?? 0.5) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Two independent typography blocks — top band (short code) and
+             bottom band (seat type). Each carries its own font / weight /
+             style / color / size scale / letter spacing. -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div v-for="band in TYPO_BANDS" :key="band.prefix"
+               class="surface-inset p-3 rounded-lg space-y-2 cursor-pointer"
+               :class="editorTarget === band.target ? 'ring-2 ring-brand-gold' : ''"
+               @click="editorTarget = band.target">
+            <p class="section-eyebrow">{{ band.label }}</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="flex flex-col gap-1">
+                <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Font</span>
+                <select v-model="eventBranding[band.prefix + 'Font']" class="field-input !py-1 !text-xs" @click.stop>
+                  <option :value="null">Default</option>
+                  <option v-for="f in FONTS" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Weight</span>
+                <select v-model.number="eventBranding[band.prefix + 'Weight']" class="field-input !py-1 !text-xs" @click.stop>
+                  <option :value="null">Default</option>
+                  <option :value="300">300</option><option :value="400">400</option>
+                  <option :value="500">500</option><option :value="700">700</option>
+                  <option :value="900">900</option>
+                </select>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Style</span>
+                <select v-model="eventBranding[band.prefix + 'Style']" class="field-input !py-1 !text-xs" @click.stop>
+                  <option :value="null">Normal</option>
+                  <option value="italic">Italic</option>
+                </select>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Color</span>
+                <input type="color"
+                       :value="eventBranding[band.colorKey] || (band.prefix === 'seatType' && eventBranding.textColor) || '#2A2417'"
+                       @input="eventBranding[band.colorKey] = $event.target.value"
+                       @click.stop
+                       class="h-7 w-full rounded-md border border-surface-mist cursor-pointer" />
+              </label>
+              <label class="flex flex-col gap-1 col-span-2">
+                <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">
+                  Size × {{ eventBranding[band.prefix + 'SizeScale'] ?? 1 }} · Spacing {{ eventBranding[band.prefix + 'LetterSpacing'] ?? 2 }}
+                </span>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="range" min="0.5" max="2" step="0.05"
+                         :value="eventBranding[band.prefix + 'SizeScale'] ?? 1"
+                         @input="eventBranding[band.prefix + 'SizeScale'] = Number($event.target.value)"
+                         @click.stop
+                         class="accent-brand-gold" />
+                  <input type="range" min="0" max="16" step="1"
+                         :value="eventBranding[band.prefix + 'LetterSpacing'] ?? 2"
+                         @input="eventBranding[band.prefix + 'LetterSpacing'] = Number($event.target.value)"
+                         @click.stop
+                         class="accent-brand-gold" />
+                </div>
+              </label>
+              <button v-if="eventBranding[band.prefix + 'X'] != null || eventBranding[band.prefix + 'Y'] != null"
+                      type="button" class="col-span-2 text-2xs text-brand-gold-deep dark:text-brand-gold-soft font-bold text-left"
+                      @click.stop="eventBranding[band.prefix + 'X'] = null; eventBranding[band.prefix + 'Y'] = null">
+                Reset position (return to auto-place around QR)
+              </button>
+            </div>
+            <label v-if="band.prefix === 'guestCode'" class="flex items-center gap-2 pt-1 border-t border-surface-mist dark:border-surface-fog">
+              <input type="checkbox" v-model="eventBranding.guestCodeShowSeatType" class="accent-brand-gold w-4 h-4" @click.stop />
+              <span class="text-xs text-surface-charcoal dark:text-surface-bone">Show bottom seat-type strip</span>
             </label>
           </div>
-          <p class="text-2xs text-surface-slate dark:text-surface-ash">These settings also update the event's branding in Settings.</p>
         </div>
+        <p class="text-2xs text-surface-slate dark:text-surface-ash">These settings also update the event's branding in Settings.</p>
 
         <!-- Escape hatch for guests whose uploaded artwork already has a QR
              baked in (e.g. re-uploaded from a previous export). Only offered
@@ -501,20 +529,37 @@ const eventBranding = reactive({
   guestCodeFont: null, guestCodeWeight: null, guestCodeStyle: null,
   guestCodeSizeScale: null, guestCodeLetterSpacing: null,
   guestCodeShowSeatType: true,
+  guestCodeX: null, guestCodeY: null,
+  seatTypeFont: null, seatTypeWeight: null, seatTypeStyle: null,
+  seatTypeSizeScale: null, seatTypeLetterSpacing: null, seatTypeColor: null,
+  seatTypeX: null, seatTypeY: null,
 });
+// Which layer the sliders / drags are currently editing.
+const editorTarget = ref('qr'); // 'qr' | 'top' | 'bot'
 async function loadEventBranding() {
   try {
     const { event } = await getEvent(route.params.id);
+    const eb = event.branding || {};
     Object.assign(eventBranding, {
-      qrColor: event.branding?.qrColor || null,
-      textColor: event.branding?.textColor || null,
-      logoColor: event.branding?.logoColor || null,
-      guestCodeFont: event.branding?.guestCodeFont || null,
-      guestCodeWeight: event.branding?.guestCodeWeight || null,
-      guestCodeStyle: event.branding?.guestCodeStyle || null,
-      guestCodeSizeScale: event.branding?.guestCodeSizeScale ?? null,
-      guestCodeLetterSpacing: event.branding?.guestCodeLetterSpacing ?? null,
-      guestCodeShowSeatType: event.branding?.guestCodeShowSeatType !== false,
+      qrColor: eb.qrColor || null,
+      textColor: eb.textColor || null,
+      logoColor: eb.logoColor || null,
+      guestCodeFont: eb.guestCodeFont || null,
+      guestCodeWeight: eb.guestCodeWeight || null,
+      guestCodeStyle: eb.guestCodeStyle || null,
+      guestCodeSizeScale: eb.guestCodeSizeScale ?? null,
+      guestCodeLetterSpacing: eb.guestCodeLetterSpacing ?? null,
+      guestCodeShowSeatType: eb.guestCodeShowSeatType !== false,
+      guestCodeX: eb.guestCodeX ?? null,
+      guestCodeY: eb.guestCodeY ?? null,
+      seatTypeFont: eb.seatTypeFont || null,
+      seatTypeWeight: eb.seatTypeWeight || null,
+      seatTypeStyle: eb.seatTypeStyle || null,
+      seatTypeSizeScale: eb.seatTypeSizeScale ?? null,
+      seatTypeLetterSpacing: eb.seatTypeLetterSpacing ?? null,
+      seatTypeColor: eb.seatTypeColor || null,
+      seatTypeX: eb.seatTypeX ?? null,
+      seatTypeY: eb.seatTypeY ?? null,
     });
     if (event.code) eventBranding._eventCode = event.code;
   } catch (_) { /* silently — the editor still works, just without preview text */ }
@@ -531,22 +576,75 @@ const previewSeatType = computed(() => {
   return t === 'family' ? `FAMILY (${qrEditor.guest?.familySize || 1})`
     : t === 'double' ? 'DOUBLE' : 'SINGLE';
 });
-function editorBandStyle(sizeMul) {
-  const scale = Math.min(2, Math.max(0.5, Number(eventBranding.guestCodeSizeScale) || 1));
-  // Pixel-based sizing computed from the measured canvas width. Mirrors the
-  // server compositor: stampSize ≈ layout.size * cardWidth, bandH = 22% of
-  // stampSize, font ≈ 78% of bandH. sizeMul lets us tune per band.
-  const stampPx = canvasPxWidth.value * (qrEditor.layout.size || 0.2);
-  const fontPx = Math.max(6, stampPx * 0.22 * 0.78 * scale * sizeMul);
+// Reads per-band typography from eventBranding, top band from guestCode*,
+// bottom band from seatType* falling back to guestCode* so an event that
+// only tuned one still gets a sensible other side.
+function bandCfg(which) {
+  const pick = (k) => {
+    if (which === 'seatType') {
+      const v = eventBranding[`seatType${k}`];
+      if (v != null && v !== '') return v;
+    }
+    return eventBranding[`guestCode${k}`];
+  };
   return {
-    fontFamily: eventBranding.guestCodeFont
-      ? `'${eventBranding.guestCodeFont}', sans-serif` : 'Inter, sans-serif',
-    fontWeight: eventBranding.guestCodeWeight || 900,
-    fontStyle: eventBranding.guestCodeStyle === 'italic' ? 'italic' : 'normal',
+    font: pick('Font'),
+    weight: pick('Weight') || 900,
+    style: pick('Style') === 'italic' ? 'italic' : 'normal',
+    scale: Math.min(2, Math.max(0.5, Number(pick('SizeScale')) || 1)),
+    letter: pick('LetterSpacing') ?? 2,
+    color: (which === 'seatType' ? eventBranding.seatTypeColor : null) || eventBranding.textColor || '#2A2417',
+  };
+}
+function editorBandStyle(which) {
+  const cfg = bandCfg(which);
+  const stampPx = canvasPxWidth.value * (qrEditor.layout.size || 0.2);
+  const fontPx = Math.max(8, stampPx * 0.22 * 0.78 * cfg.scale);
+  return {
+    fontFamily: cfg.font ? `'${cfg.font}', sans-serif` : 'Inter, sans-serif',
+    fontWeight: cfg.weight,
+    fontStyle: cfg.style,
     fontSize: `${fontPx}px`,
     lineHeight: '1',
-    letterSpacing: `${(eventBranding.guestCodeLetterSpacing ?? 2) * 0.5}px`,
-    color: eventBranding.textColor || '#2A2417',
+    letterSpacing: `${cfg.letter * 0.5}px`,
+    color: cfg.color,
+  };
+}
+
+// Effective position for a text band — override (guestCodeX/Y or
+// seatTypeX/Y) when set, else auto-place directly above / below the QR.
+function bandPos(which) {
+  const l = qrEditor.layout;
+  const s = clamp(l?.size ?? 0.2, 0.01, 1);
+  const y = clamp(l?.y ?? 0.75, 0, 1);
+  const aspect = qrEditor.cardAspect || (3 / 4);
+  const heightPct = s * aspect;
+  const cfg = bandCfg(which);
+  const bandHPct = s * 0.22 * aspect * cfg.scale;
+  if (which === 'guestCode') {
+    const overrideY = eventBranding.guestCodeY;
+    const overrideX = eventBranding.guestCodeX;
+    return {
+      x: typeof overrideX === 'number' ? overrideX : clamp(l?.x ?? 0.5, 0, 1),
+      y: typeof overrideY === 'number' ? overrideY : (y - heightPct / 2 - bandHPct / 2),
+      h: bandHPct,
+    };
+  }
+  const overrideY = eventBranding.seatTypeY;
+  const overrideX = eventBranding.seatTypeX;
+  return {
+    x: typeof overrideX === 'number' ? overrideX : clamp(l?.x ?? 0.5, 0, 1),
+    y: typeof overrideY === 'number' ? overrideY : (y + heightPct / 2 + bandHPct / 2),
+    h: bandHPct,
+  };
+}
+function bandBoxStyle(which) {
+  const p = bandPos(which);
+  const s = clamp(qrEditor.layout?.size ?? 0.2, 0.01, 1);
+  return {
+    left: `${(p.x - s / 2) * 100}%`,
+    top: `${(p.y - p.h / 2) * 100}%`,
+    width: `${s * 100}%`,
   };
 }
 
@@ -597,35 +695,6 @@ if (typeof window !== 'undefined') {
 // QR is stamped SQUARE at the composite stage, sized as `size * cardWidth`.
 // Convert that into the overlay's on-canvas rectangle. left/top position the
 // TOP-LEFT corner; we adjust so (x,y) refers to the QR CENTER.
-// Position the short-code band directly above the QR square and the
-// seat-type band directly below it — mirrors the server compositor's
-// bandH = 22% of stampSize placement so the preview matches the render.
-function topBandPositionStyle(l) {
-  const s = clamp(l?.size ?? 0.2, 0.01, 1);
-  const x = clamp(l?.x ?? 0.5, 0, 1);
-  const y = clamp(l?.y ?? 0.75, 0, 1);
-  const aspect = qrEditor.cardAspect || (3 / 4);
-  const heightPct = s * aspect;
-  const bandHPct = s * 0.22 * aspect;
-  return {
-    left: `${(x - s / 2) * 100}%`, width: `${s * 100}%`,
-    top: `${(y - heightPct / 2 - bandHPct) * 100}%`,
-    lineHeight: `${bandHPct * 100}%`,
-  };
-}
-function bottomBandPositionStyle(l) {
-  const s = clamp(l?.size ?? 0.2, 0.01, 1);
-  const x = clamp(l?.x ?? 0.5, 0, 1);
-  const y = clamp(l?.y ?? 0.75, 0, 1);
-  const aspect = qrEditor.cardAspect || (3 / 4);
-  const heightPct = s * aspect;
-  const bandHPct = s * 0.22 * aspect;
-  return {
-    left: `${(x - s / 2) * 100}%`, width: `${s * 100}%`,
-    top: `${(y + heightPct / 2) * 100}%`,
-    lineHeight: `${bandHPct * 100}%`,
-  };
-}
 function qrOverlayStyle(l) {
   const s = clamp(l?.size ?? 0.2, 0.01, 1);
   const x = clamp(l?.x ?? 0.5, 0, 1);
@@ -641,16 +710,14 @@ function qrOverlayStyle(l) {
     top: `${(y - heightPct / 2) * 100}%`,
   };
 }
-// Drag-to-move: pointerdown + pointermove until pointerup.
+// Drag on canvas — routes to whichever target is active (QR / top / bottom).
 function onPointerDown(e) {
-  // The click handler already sets x/y for one-off placement; here we set up
-  // drag so users can also fine-tune by dragging the QR.
   const el = e.currentTarget;
   const rect = el.getBoundingClientRect();
   const move = (ev) => {
     const x = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
     const y = clamp((ev.clientY - rect.top) / rect.height, 0, 1);
-    qrEditor.layout = { ...qrEditor.layout, x, y };
+    applyPositionToTarget(x, y);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
@@ -659,6 +726,42 @@ function onPointerDown(e) {
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
 }
+function onBandPointerDown(which, e) {
+  editorTarget.value = which;
+  onPointerDown(e.currentTarget?.parentElement ? { currentTarget: e.currentTarget.parentElement } : e);
+}
+function applyPositionToTarget(x, y) {
+  if (editorTarget.value === 'qr') qrEditor.layout = { ...qrEditor.layout, x, y };
+  else if (editorTarget.value === 'top') { eventBranding.guestCodeX = x; eventBranding.guestCodeY = y; }
+  else if (editorTarget.value === 'bot') { eventBranding.seatTypeX = x; eventBranding.seatTypeY = y; }
+}
+// Slider helpers — read/write the active target instead of always the QR.
+function currentXYSize() {
+  if (editorTarget.value === 'qr') return { x: qrEditor.layout.x, y: qrEditor.layout.y, size: qrEditor.layout.size };
+  const p = bandPos(editorTarget.value === 'top' ? 'guestCode' : 'seatType');
+  const cfg = bandCfg(editorTarget.value === 'top' ? 'guestCode' : 'seatType');
+  return { x: p.x, y: p.y, size: cfg.scale };
+}
+function setTargetAxis(axis, v) {
+  if (editorTarget.value === 'qr') {
+    qrEditor.layout = { ...qrEditor.layout, [axis]: v };
+    return;
+  }
+  const prefix = editorTarget.value === 'top' ? 'guestCode' : 'seatType';
+  if (axis === 'x') eventBranding[`${prefix}X`] = v;
+  else if (axis === 'y') eventBranding[`${prefix}Y`] = v;
+  else if (axis === 'size') eventBranding[`${prefix}SizeScale`] = v;
+}
+const EDITOR_TARGETS = [
+  { value: 'qr', label: 'QR code' },
+  { value: 'top', label: 'Top text' },
+  { value: 'bot', label: 'Bottom text' },
+];
+const TYPO_BANDS = [
+  { prefix: 'guestCode', target: 'top', colorKey: 'textColor', label: 'Top text (short code)' },
+  { prefix: 'seatType', target: 'bot', colorKey: 'seatTypeColor', label: 'Bottom text (seat type)' },
+];
+const FONTS = ['Inter', 'Playfair Display', 'Cormorant Garamond', 'Montserrat', 'Poppins', 'Great Vibes', 'Cinzel'];
 function hasCustomLayout(g) {
   const l = g?.qrLayout;
   return !!(l && [l.x, l.y, l.size].every((v) => typeof v === 'number'));
@@ -735,7 +838,7 @@ function onCanvasClick(e) {
   const rect = e.currentTarget.getBoundingClientRect();
   const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-  qrEditor.layout = { ...qrEditor.layout, x, y };
+  applyPositionToTarget(x, y);
 }
 // Invalidate every cached thumbnail so the composite reflects the new QR
 // position. `bust` is Date.now() at save time — passed all the way to the
@@ -759,12 +862,24 @@ async function persistTypography() {
         qrColor: eventBranding.qrColor,
         textColor: eventBranding.textColor,
         logoColor: eventBranding.logoColor,
+        // Top band
         guestCodeFont: eventBranding.guestCodeFont,
         guestCodeWeight: eventBranding.guestCodeWeight,
         guestCodeStyle: eventBranding.guestCodeStyle,
         guestCodeSizeScale: eventBranding.guestCodeSizeScale,
         guestCodeLetterSpacing: eventBranding.guestCodeLetterSpacing,
         guestCodeShowSeatType: eventBranding.guestCodeShowSeatType,
+        guestCodeX: eventBranding.guestCodeX,
+        guestCodeY: eventBranding.guestCodeY,
+        // Bottom band
+        seatTypeFont: eventBranding.seatTypeFont,
+        seatTypeWeight: eventBranding.seatTypeWeight,
+        seatTypeStyle: eventBranding.seatTypeStyle,
+        seatTypeSizeScale: eventBranding.seatTypeSizeScale,
+        seatTypeLetterSpacing: eventBranding.seatTypeLetterSpacing,
+        seatTypeColor: eventBranding.seatTypeColor,
+        seatTypeX: eventBranding.seatTypeX,
+        seatTypeY: eventBranding.seatTypeY,
       },
     });
   } catch (err) { toast.error(`Typography save failed: ${apiErrorMessage(err)}`); }
@@ -846,7 +961,7 @@ async function resetQr() {
 
 // Lazy-load the picked font from Google Fonts so the modal preview uses
 // the real typeface. Same mechanism as EventFormView; harmless dedupe.
-watch(() => eventBranding.guestCodeFont, (font) => {
+function ensureFontLoaded(font) {
   if (!font || typeof document === 'undefined') return;
   if (document.querySelector(`link[data-branding-font="${font}"]`)) return;
   const link = document.createElement('link');
@@ -854,7 +969,9 @@ watch(() => eventBranding.guestCodeFont, (font) => {
   link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g, '+')}:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&display=swap`;
   link.setAttribute('data-branding-font', font);
   document.head.appendChild(link);
-});
+}
+watch(() => eventBranding.guestCodeFont, ensureFontLoaded);
+watch(() => eventBranding.seatTypeFont, ensureFontLoaded);
 
 onMounted(() => { refresh(); loadEventBranding(); });
 onBeforeUnmount(() => {
