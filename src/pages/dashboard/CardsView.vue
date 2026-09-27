@@ -38,8 +38,10 @@
 
     <div v-if="uploading" class="mb-4">
       <div class="flex items-center justify-between text-sm mb-1">
-        <span class="text-surface-slate dark:text-surface-ash">Uploading…</span>
-        <span class="tabular-nums font-bold">{{ progress }}%</span>
+        <span class="text-surface-slate dark:text-surface-ash">
+          Uploading batch {{ uploadBatchIndex }} of {{ uploadBatchTotal }}…
+        </span>
+        <span class="tabular-nums font-bold">{{ uploadFilesDone }} / {{ uploadFilesTotal }} uploaded</span>
       </div>
       <div class="h-1.5 bg-surface-mist dark:bg-surface-fog rounded-full overflow-hidden">
         <div class="h-full bg-gradient-gold transition-all" :style="{ width: `${progress}%` }" />
@@ -115,6 +117,17 @@ const toast = useToast();
 const dragging = ref(false);
 const uploading = ref(false);
 const progress = ref(0);
+// Real per-file completion tracking — a single giant multipart POST only
+// gives byte-level progress (which barely moves until most of the payload
+// is through, and never reports "N files done"). Files upload in fixed-size
+// batches instead; the counter advances by a whole batch's worth the moment
+// that batch's response actually comes back, so "42/269 uploaded" reflects
+// files the server has genuinely finished processing, not bytes in flight.
+const uploadFilesDone = ref(0);
+const uploadFilesTotal = ref(0);
+const uploadBatchIndex = ref(0);
+const uploadBatchTotal = ref(0);
+const UPLOAD_BATCH_SIZE = 20;
 const loading = ref(true);
 const search = ref('');
 const matched = ref([]);       // [{ guestId, name, memberId, phone, cardImagePath }]
@@ -174,14 +187,37 @@ function onPick(e) {
 async function upload(files) {
   uploading.value = true;
   progress.value = 0;
+  uploadFilesDone.value = 0;
+  uploadFilesTotal.value = files.length;
+  const batches = [];
+  for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) batches.push(files.slice(i, i + UPLOAD_BATCH_SIZE));
+  uploadBatchTotal.value = batches.length;
+  uploadBatchIndex.value = 0;
+
+  let totalMatched = 0;
+  let totalUnmatched = 0;
+  let hadError = false;
   try {
-    const res = await bulkUploadCards(route.params.id, files, (evt) => {
-      if (evt.total) progress.value = Math.round((evt.loaded / evt.total) * 100);
-    });
-    toast.success(`${res.summary.matched} matched, ${res.summary.unmatched} need assignment`);
+    for (const batch of batches) {
+      uploadBatchIndex.value += 1;
+      try {
+        const res = await bulkUploadCards(route.params.id, batch);
+        totalMatched += res.summary?.matched || 0;
+        totalUnmatched += res.summary?.unmatched || 0;
+      } catch (err) {
+        hadError = true;
+        toast.error(`Batch ${uploadBatchIndex.value}/${batches.length} failed: ${apiErrorMessage(err)}`);
+        // Keep going with the remaining batches instead of abandoning the
+        // whole queue over one bad batch (e.g. a single corrupt file).
+      }
+      uploadFilesDone.value = Math.min(files.length, uploadFilesDone.value + batch.length);
+      progress.value = Math.round((uploadFilesDone.value / uploadFilesTotal.value) * 100);
+    }
+    const summary = `${totalMatched} matched, ${totalUnmatched} need assignment`;
+    if (hadError) toast.error(`${summary} — some batches failed, see above`);
+    else toast.success(summary);
     await refresh();
-  } catch (err) { toast.error(apiErrorMessage(err)); }
-  finally { uploading.value = false; }
+  } finally { uploading.value = false; }
 }
 
 async function assignOne(u) {
