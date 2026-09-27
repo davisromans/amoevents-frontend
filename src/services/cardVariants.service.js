@@ -71,6 +71,12 @@ export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp =
 export const cardCoverage = (eventId) =>
   http.get(`/events/${eventId}/card-variants/coverage`).then(unwrap);
 
+// Wipe rendered/ cache + reset skipQrOverlay for every guest with artwork.
+export async function repairCards(eventId) {
+  const res = await http.post(`/events/${eventId}/card-variants/repair`);
+  return unwrap(res);
+}
+
 export async function downloadGuestCardPng(eventId, guestId, filename) {
   // Print-quality but slim: 1600px JPEG (~250-400 KB) instead of the full
   // 2 MB+ PNG that used to abort on slow mobile links. Filename kept as

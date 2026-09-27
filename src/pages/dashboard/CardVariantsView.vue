@@ -19,6 +19,10 @@
         <button v-if="!samplerVariant && anyGuestHasCardImage" class="btn-secondary !text-sm" @click="openBulkQrEditor">
           <QrCodeIcon class="w-4 h-4" /> Position QR for all
         </button>
+        <button v-if="anyGuestHasCardImage" class="btn-ghost !text-sm" :disabled="repairing" @click="runRepair" title="Wipe every rendered thumbnail and re-enable the QR overlay for every guest">
+          <span v-if="repairing" class="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-r-transparent animate-spin" />
+          <ArrowPathIcon v-else class="w-4 h-4" /> {{ repairing ? 'Repairing…' : 'Repair thumbnails' }}
+        </button>
         <label v-if="guests.length" class="flex items-center gap-1.5 text-subtext cursor-pointer select-none mr-1"
                title="Hide guests without their own uploaded card (the shared sampler still applies to them at send time)">
           <input type="checkbox" v-model="onlyOwnArtwork" class="accent-brand-gold w-4 h-4" />
@@ -225,6 +229,37 @@
           </div>
         </div>
 
+        <!-- QR appearance — modules color + logo ring color, same fields
+             the Edit Event page's Card colors block exposes. Kept here so
+             a designer can iterate on the whole card without hopping
+             between pages. -->
+        <div class="surface-inset p-3 rounded-lg space-y-2"
+             :class="editorTarget === 'qr' ? 'ring-2 ring-brand-gold' : ''"
+             @click="editorTarget = 'qr'">
+          <p class="section-eyebrow">QR appearance</p>
+          <div class="grid grid-cols-3 gap-2">
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Modules</span>
+              <input type="color"
+                     :value="eventBranding.qrColor || '#9A7B2E'"
+                     @input="eventBranding.qrColor = $event.target.value"
+                     @click.stop
+                     class="h-7 w-full rounded-md border border-surface-mist cursor-pointer" />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Logo ring</span>
+              <input type="color"
+                     :value="eventBranding.logoColor || '#E5C97A'"
+                     @input="eventBranding.logoColor = $event.target.value"
+                     @click.stop
+                     class="h-7 w-full rounded-md border border-surface-mist cursor-pointer" />
+            </label>
+            <button type="button" class="btn-ghost !text-2xs mt-4" @click.stop="eventBranding.qrColor = null; eventBranding.logoColor = null">
+              Reset
+            </button>
+          </div>
+        </div>
+
         <!-- Two independent typography blocks — top band (short code) and
              bottom band (seat type). Each carries its own font / weight /
              style / color / size scale / letter spacing. -->
@@ -326,12 +361,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
-  PhotoIcon, ArrowDownTrayIcon, DocumentArrowDownIcon, ExclamationTriangleIcon, QrCodeIcon, PencilSquareIcon,
+  PhotoIcon, ArrowDownTrayIcon, DocumentArrowDownIcon, ExclamationTriangleIcon, QrCodeIcon, PencilSquareIcon, ArrowPathIcon,
 } from '@heroicons/vue/24/outline';
 import AppModal from '@/components/common/AppModal.vue';
 import { getCardUrl } from '@/services/cards.service';
 import { updateGuest, getGuestQrUrl } from '@/services/guests.service';
-import { listVariants, updateVariant, variantImageUrlById } from '@/services/cardVariants.service';
+import { listVariants, updateVariant, variantImageUrlById, repairCards } from '@/services/cardVariants.service';
 import { listGuests } from '@/services/guests.service';
 import { fetchPreviewUrl, cardCoverage, downloadGuestCardPng, downloadPdf as downloadPdfApi } from '@/services/cardVariants.service';
 import { getEvent, updateEvent } from '@/services/events.service';
@@ -860,6 +895,18 @@ function invalidateAllThumbs() {
 // PATCH the event with the current typography state — same shape as
 // EventFormView's payload. Fires alongside every Save in the QR editor
 // so operators don't have to hop over to Settings.
+const repairing = ref(false);
+async function runRepair() {
+  if (!window.confirm('Repair thumbnails? This wipes every rendered card cache and re-enables the QR overlay for every guest with uploaded artwork.')) return;
+  repairing.value = true;
+  try {
+    const r = await repairCards(route.params.id);
+    toast.success(`Repaired: ${r.cachePurged || 0} cached files cleared, ${r.guestsReset || 0} guest overlays re-enabled.`);
+    invalidateAllThumbs();
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { repairing.value = false; }
+}
+
 async function persistTypography() {
   try {
     await updateEvent(route.params.id, {
