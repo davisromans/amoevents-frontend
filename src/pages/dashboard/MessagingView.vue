@@ -640,23 +640,37 @@ const RSVP = [
 const ARRIVAL = [
   { value: '', label: 'Any' }, { value: 'not_arrived', label: 'Not arrived' }, { value: 'arrived', label: 'Arrived' },
 ];
+// Full parity with the WhatsApp template var-mapper's token set
+// (tokenValue() in send.service.js) — this list used to be missing
+// last_name, time, venue_address, and the individual payment/contact
+// slots, so writing {{time}} or {{venue_address}} into an SMS/plain body
+// silently rendered literally instead of being replaced (renderTemplate()
+// had no case for them either — both sides are fixed together).
 const PLACEHOLDERS = [
   { token: '{{first_name}}', label: 'First name' },
+  { token: '{{last_name}}', label: 'Last name' },
   { token: '{{guest_name}}', label: 'Full name' },
   { token: '{{event_name}}', label: 'Event' },
+  { token: '{{event_type}}', label: 'Event type' },
   { token: '{{date}}', label: 'Date' },
+  { token: '{{time}}', label: 'Time' },
   { token: '{{venue}}', label: 'Venue' },
+  { token: '{{venue_address}}', label: 'Venue address' },
   { token: '{{member_id}}', label: 'Member ID' },
   { token: '{{code}}', label: 'Short code' },
   { token: '{{gallery_url}}', label: 'Gallery share link' },
   { token: '{{card_url}}', label: 'Personalised guest card link' },
-  { token: '{{event_type}}', label: 'Event type' },
   { token: '{{countdown_days}}', label: 'Days until event' },
   { token: '{{church_name}}', label: 'Church name' },
   { token: '{{church_address}}', label: 'Church address' },
   { token: '{{church_arrival}}', label: 'Church arrival time' },
   { token: '{{payment_contacts}}', label: 'Payment contacts (block)' },
   { token: '{{contact_phones}}', label: 'Contact phones (block)' },
+  { token: '{{payment_contact_1}}', label: 'Payment contact 1' },
+  { token: '{{payment_contact_2}}', label: 'Payment contact 2' },
+  { token: '{{payment_contact_3}}', label: 'Payment contact 3' },
+  { token: '{{contact_phone_1}}', label: 'Contact phone 1' },
+  { token: '{{contact_phone_2}}', label: 'Contact phone 2' },
   { token: '{{pledge_amount}}', label: 'Guest pledged (TZS)' },
   { token: '{{pledge_received}}', label: 'Guest paid so far (TZS)' },
   { token: '{{pledge_outstanding}}', label: 'Guest outstanding (TZS)' },
@@ -985,6 +999,15 @@ const WA_HARDCODED_PREVIEW = {
 };
 // Values keyed by canonical token so we can substitute using whatever varMap
 // the admin picked for this template.
+// Single-entry version of the paymentBlock/phoneBlock join logic — mirrors
+// formatPaymentContact/formatContactPhone in send.service.js so the preview
+// matches what a real send actually substitutes for {{payment_contact_N}}
+// / {{contact_phone_N}}.
+function formatContactLine(c) {
+  if (!c) return '';
+  const label = c.bankName || c.method || c.label || '';
+  return [c.phone, c.accountName, label].filter(Boolean).join(' - ');
+}
 function tokenValues() {
   const g = sampleGuest.value || {};
   const ev = event.value || {};
@@ -1021,6 +1044,11 @@ function tokenValues() {
     due_date:           ev.pledgeDueAt ? new Date(ev.pledgeDueAt).toLocaleDateString('en-GB') : '—',
     payment_contacts:   paymentBlock,
     contact_phones:     phoneBlock,
+    payment_contact_1: formatContactLine(ev.paymentContacts?.[0]),
+    payment_contact_2: formatContactLine(ev.paymentContacts?.[1]),
+    payment_contact_3: formatContactLine(ev.paymentContacts?.[2]),
+    contact_phone_1: formatContactLine(ev.contactPhones?.[0]),
+    contact_phone_2: formatContactLine(ev.contactPhones?.[1]),
     // Same for every recipient — computed identically to what
     // send.service.js actually substitutes server-side.
     countdown_days: ev.date ? String(Math.max(0, Math.ceil((new Date(ev.date) - Date.now()) / 86_400_000))) : '0',

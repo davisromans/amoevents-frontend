@@ -236,9 +236,10 @@
               <Select v-model="form.type" :id="id" :options="TYPES" />
             </template>
           </Field>
-          <Field v-if="form.type === 'family'" label="Family size">
+          <Field v-if="form.type === 'family'" label="Scans allowed"
+                 :help="`Shows on the card as Multiple-${form.familySize || 2}`">
             <template #default="{ id }">
-              <TextInput v-model.number="form.familySize" :id="id" type="number" />
+              <TextInput v-model.number="form.familySize" :id="id" type="number" min="3" max="20" />
             </template>
           </Field>
         </div>
@@ -321,7 +322,7 @@ import { Badge, Button, EmptyState, Field, Modal, Select, TextInput } from '@/co
 const TYPES = [
   { value: 'single', label: 'Single' },
   { value: 'double', label: 'Double' },
-  { value: 'family', label: 'Family' },
+  { value: 'family', label: 'Multiple (3+)' },
 ];
 const RSVP_FILTERS = [
   { value: 'all',     label: 'All' },
@@ -356,6 +357,15 @@ const serverError = ref('');
 const form = reactive({
   firstName: '', lastName: '', phone: '', whatsapp: '', type: 'single',
   familySize: 2, isVip: false, tags: [], pledge: { amount: 0, item: '', status: 'pending' },
+});
+// Multiple (3+) is meaningfully different from Double (fixed at 2) — start
+// the scans-allowed field at 3 the moment an operator switches into this
+// type, so "Multiple-2" (a confusing duplicate of Double) never appears
+// as the default. Only fires the bump when the current value doesn't
+// already make sense (e.g. loading an existing guest whose familySize is
+// legitimately 2 from before this field was tightened isn't touched here).
+watch(() => form.type, (t) => {
+  if (t === 'family' && (!form.familySize || form.familySize < 3)) form.familySize = 3;
 });
 function toggleFormTag(id) {
   const idx = form.tags.indexOf(id);

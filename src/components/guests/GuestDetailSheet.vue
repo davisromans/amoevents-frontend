@@ -21,7 +21,7 @@
         <Badge :tone="guest.arrivalStatus === 'arrived' ? 'success' : 'neutral'">
           {{ guest.arrivalStatus === 'arrived' ? '✓ Arrived' : 'Not arrived' }}
         </Badge>
-        <Badge tone="neutral" size="sm">{{ typeLabel(guest.type) }}</Badge>
+        <Badge tone="neutral" size="sm">{{ typeLabel(guest) }}</Badge>
       </div>
 
       <!-- Contact -->
@@ -164,7 +164,10 @@ const tagObjects = computed(() => {
 
 function rsvpLabel(s) { return ({ yes: 'Attending', no: 'Declined', maybe: 'Maybe', pending: 'Awaiting reply' })[s] || 'Awaiting reply'; }
 function rsvpTone(s)  { return ({ yes: 'success', no: 'danger', maybe: 'warning' })[s] || 'neutral'; }
-function typeLabel(t) { return ({ single: 'Single', double: 'Double', family: 'Family' })[t] || 'Single'; }
+function typeLabel(g) {
+  if (g?.type === 'family') return `Multiple-${g.familySize || 2}`;
+  return ({ single: 'Single', double: 'Double' })[g?.type] || 'Single';
+}
 function isPlaceholderPhone(phone) { return String(phone || '').startsWith('no-phone:'); }
 function fmtTZS(n) { return `${Number(n || 0).toLocaleString('sw-TZ')} TZS`; }
 </script>

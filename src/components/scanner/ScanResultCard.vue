@@ -66,7 +66,7 @@ const isDup = computed(() => props.result.result === 'already_arrived');
 
 const headline = computed(() => ({
   ok_first: 'Arrived',
-  ok_family_increment: 'Family admitted',
+  ok_family_increment: 'Admitted (multi-scan)',
   manual: 'Manual entry',
   already_arrived: 'Already arrived',
   wrong_event: 'Wrong event',

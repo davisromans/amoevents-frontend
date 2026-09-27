@@ -224,7 +224,7 @@ const resultTone = computed(() => {
 });
 const headline = computed(() => ({
   ok_first: 'Welcome!',
-  ok_family_increment: 'Family admitted',
+  ok_family_increment: 'Admitted (multi-scan)',
   manual: 'Admitted manually',
   already_arrived: 'Already arrived',
   wrong_event: 'Wrong event',
@@ -232,7 +232,7 @@ const headline = computed(() => ({
 }[lastResult.value?.result] || 'Scanned'));
 const seatLabel = computed(() => {
   const g = lastResult.value?.guest; if (!g) return '';
-  return g.type === 'family' ? `Family (${g.familySize})`
+  return g.type === 'family' ? `Multiple-${g.familySize}`
        : g.type === 'double' ? 'Double'
        : 'Single';
 });
