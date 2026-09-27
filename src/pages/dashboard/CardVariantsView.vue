@@ -458,14 +458,27 @@ function toggleAll() {
   else selected.value = new Set(visibleGuests.value.map((g) => g._id));
 }
 
-async function loadThumb(g, bust) {
+async function loadThumb(g, bust, retriesLeft = 2) {
   try {
     // `bust` is passed after any layout change so intermediate caches (SW,
     // browser HTTP cache, proxies) all miss and refetch fresh composites.
     // Retina-sharp thumbnail (w=600) with QR + short-code + seat-type strip
     // baked in — same composite the download endpoint produces, just smaller.
     thumbs[g._id] = await fetchPreviewUrl(route.params.id, g._id, { bust, w: 600, stamp: true });
-  } catch (_) {
+    delete thumbErrors[g._id];
+  } catch (err) {
+    // A 429 (rate limited) or 5xx is transient — the card almost certainly
+    // exists, the server just asked us to slow down. Back off and retry a
+    // couple of times instead of permanently flagging "No artwork", which
+    // used to happen on every burst-loaded page and looked like the
+    // artwork was missing when it never was.
+    const status = err?.response?.status;
+    const transient = status === 429 || status >= 500;
+    if (transient && retriesLeft > 0) {
+      const delay = status === 429 ? 1500 : 800;
+      await new Promise((r) => setTimeout(r, delay));
+      return loadThumb(g, bust, retriesLeft - 1);
+    }
     thumbErrors[g._id] = true;
   }
 }
