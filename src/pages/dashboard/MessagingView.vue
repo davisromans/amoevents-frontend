@@ -350,6 +350,11 @@
             ]" />
             <InfoHint v-if="audience.sendState !== 'any'" text="Scoped to this saved template's own send history — skip guests who already got, say, the RSVP invite without also excluding them from a separate Thank-you template. Only works for saved templates; typed one-off messages fall back to \'messaged at all, ever\' for the whole event." />
           </div>
+          <AppSelect v-if="audience.sendState !== 'any'" v-model="audience.sendStateChannel" label="…via channel" :options="[
+            {value:'', label:'Any channel'},
+            {value:'whatsapp', label:'WhatsApp only'},
+            {value:'sms', label:'SMS only'},
+          ]" />
           <label class="flex items-end gap-2 pb-3">
             <input type="checkbox" v-model="audience.vipOnly" class="accent-brand-gold w-4 h-4" />
             <span class="text-heading">VIP only</span>
@@ -684,7 +689,7 @@ const toast = useToast();
 
 const channel = ref('auto');
 const audience = reactive({
-  rsvpStatus: '', arrivalStatus: '', vipOnly: false, sendState: 'any', tags: [],
+  rsvpStatus: '', arrivalStatus: '', vipOnly: false, sendState: 'any', sendStateChannel: '', tags: [],
   pledgeStatus: 'any', tierMinTZS: '', tierMode: 'atLeast',
   // Invitation-count filter — 'any' | 'never' | 'once' | 'twice_plus'
   invitationState: 'any',
@@ -1315,6 +1320,7 @@ function buildAudiencePayload() {
     arrivalStatus: audience.arrivalStatus || undefined,
     vipOnly: audience.vipOnly || undefined,
     sendState: audience.sendState || undefined,
+    sendStateChannel: audience.sendStateChannel || undefined,
     invitationCountMin, invitationCountMax,
     whatsappOnly: audience.whatsappOnly || undefined,
     // Scopes "never/already messaged" to THIS saved template's own send
