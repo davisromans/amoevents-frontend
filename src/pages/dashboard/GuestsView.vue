@@ -385,7 +385,16 @@ function editFromSheet(g) {
     whatsapp: g.whatsapp || '', type: g.type || 'single', familySize: g.familySize || 2,
     isVip: !!g.isVip,
     tags: (g.tags || []).map((t) => (typeof t === 'string' ? t : t._id)),
-    pledge: { amount: g.pledge?.amount || 0, item: g.pledge?.item || '', status: g.pledge?.status || 'pending' },
+    // Carry receivedTZS/receipts through untouched — this form only ever
+    // edits amount/item/status, but the backend now merges (not replaces)
+    // pledge on save, so keeping these here is a belt-and-suspenders
+    // safeguard rather than a strict requirement. See guests.service.js's
+    // update() for the actual fix (a previous full-replace bug here wiped
+    // real payment history on routine edits).
+    pledge: {
+      amount: g.pledge?.amount || 0, item: g.pledge?.item || '', status: g.pledge?.status || 'pending',
+      receivedTZS: g.pledge?.receivedTZS || 0, receipts: g.pledge?.receipts || [],
+    },
   });
   createOpen.value = true;
 }
