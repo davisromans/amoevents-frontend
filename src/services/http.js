@@ -40,9 +40,20 @@ http.interceptors.response.use(
         return http(original);
       } catch (e) {
         refreshing = null;
-        localStorage.removeItem('gc.accessToken');
-        localStorage.removeItem('gc.refreshToken');
-        if (onUnauthorized) onUnauthorized();
+        // Only a genuine "this refresh token is invalid/expired" (401 from
+        // the refresh endpoint itself) means the session is actually over —
+        // clear storage and force a real logout. Anything else (network
+        // blip, a 429 from a refresh burst, a transient 5xx, a timeout) is
+        // NOT proof the session ended; wiping valid tokens over a hiccup is
+        // exactly what was logging people out early. Let the request fail
+        // once and leave the tokens in place so the NEXT action can retry
+        // normally with credentials that are probably still fine.
+        const refreshStatus = e?.response?.status;
+        if (refreshStatus === 401) {
+          localStorage.removeItem('gc.accessToken');
+          localStorage.removeItem('gc.refreshToken');
+          if (onUnauthorized) onUnauthorized();
+        }
         return Promise.reject(e);
       }
     }
