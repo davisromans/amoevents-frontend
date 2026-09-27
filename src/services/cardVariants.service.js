@@ -59,10 +59,18 @@ export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp =
   const params = { w };
   if (bust) params._r = bust;
   if (stamp) params.stamp = 1;
+  // A cold-cache page load (280+ guests, or right after a bulk edit that
+  // invalidates many render caches at once) can genuinely queue behind
+  // other renders on the server — 45s was tight enough that the LAST few
+  // thumbnails on a big page would time out even though the render itself
+  // was still progressing normally, just slower than the deadline. 120s
+  // gives real headroom without masking an actual hang (the server-side
+  // MAX_CONCURRENT_RENDERS + sharp concurrency fixes make this the rare
+  // case, not the common one).
   const res = await http.get(`/events/${eventId}/card-variants/preview/${guestId}`, {
     responseType: 'blob',
     params,
-    timeout: 45000,
+    timeout: 120000,
   });
   return URL.createObjectURL(res.data);
 }

@@ -382,7 +382,13 @@ const toast = useToast();
 const guests = ref([]);
 const loading = ref(true);
 const page = ref(1);
-const PAGE_SIZE = 200;
+// 200 meant a single page load could queue up to 200 real image-composite
+// renders server-side — fine at ~60 guests, but at 280+ guests (this
+// event) the render queue backed up badly enough that the tail end of the
+// page timed out even though rendering was still progressing normally.
+// Smaller pages finish their render queue comfortably within any
+// reasonable timeout, even from a fully cold cache.
+const PAGE_SIZE = 60;
 const totalGuests = ref(0);
 const totalPages = computed(() => Math.max(1, Math.ceil(totalGuests.value / PAGE_SIZE)));
 const searchInput = ref('');
