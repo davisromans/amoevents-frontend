@@ -264,7 +264,49 @@ function onPick(e) {
   e.target.value = '';
 }
 
+// Mirrors cards.service.js's matchGuest() closely enough to pre-filter —
+// NOT the source of truth (the server's own matcher + skip logic still
+// decides for real), just an optimization so "skip" mode never transfers
+// a file over the network only to have the server throw it away. A file
+// this can't confidently match still gets uploaded and handled normally.
+function nameKeyClient(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+function phoneKeyClient(p) { return String(p || '').replace(/\D/g, ''); }
+function findGuestForFilename(base, guests) {
+  const clean = base.replace(/[._-]+/g, ' ').trim();
+  const key = nameKeyClient(clean);
+  const digits = phoneKeyClient(clean);
+  const byId = guests.find((g) => nameKeyClient(g.memberId) === key || nameKeyClient(g.memberId) === nameKeyClient(clean.replace(/\s+/g, '-')));
+  if (byId) return byId;
+  if (digits.length >= 9) {
+    const last9 = digits.slice(-9);
+    const byPhone = guests.find((g) => phoneKeyClient(g.phone).slice(-9) === last9);
+    if (byPhone) return byPhone;
+  }
+  const byName = guests.filter((g) => nameKeyClient(`${g.firstName} ${g.lastName}`) === key);
+  if (byName.length === 1) return byName[0];
+  return null;
+}
+
 async function upload(files) {
+  let toUpload = files;
+  let preSkipped = 0;
+  if (duplicateMode.value === 'skip') {
+    toUpload = files.filter((f) => {
+      const base = f.name.replace(/\.[^.]+$/, '');
+      const g = findGuestForFilename(base, guestOptions.value);
+      const alreadyHasCard = g && g.cardImagePath;
+      if (alreadyHasCard) preSkipped += 1;
+      return !alreadyHasCard;
+    });
+    if (preSkipped) {
+      toast.success?.(`Skipping ${preSkipped} file${preSkipped === 1 ? '' : 's'} — guest already has a card. Uploading ${toUpload.length}.`);
+    }
+    if (!toUpload.length) return;
+  }
+  return uploadFiles(toUpload);
+}
+
+async function uploadFiles(files) {
   uploading.value = true;
   progress.value = 0;
   uploadFilesDone.value = 0;
