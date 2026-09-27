@@ -1,6 +1,11 @@
 <template>
-  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-    <div class="flex items-end justify-end gap-3 mb-5">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+    <div class="flex flex-wrap items-center gap-3 mb-5">
+      <div class="relative flex-1 min-w-[220px]">
+        <MagnifyingGlassIcon class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-surface-slate" />
+        <input v-model="search" type="text" placeholder="Search cards by name, phone, memberId…"
+               class="field-input !pl-9 !py-2 !text-sm w-full" />
+      </div>
       <div class="flex gap-2">
         <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">
           Browse templates
@@ -16,7 +21,7 @@
     </p>
 
     <div
-      class="surface-inset p-8 border-2 border-dashed rounded-2xl text-center transition-all cursor-pointer mb-6"
+      class="surface-inset p-6 border-2 border-dashed rounded-2xl text-center transition-all cursor-pointer mb-6"
       :class="dragging
         ? 'border-brand-gold bg-brand-gold-glow'
         : 'border-surface-mist dark:border-surface-fog hover:border-brand-gold'"
@@ -41,54 +46,64 @@
       </div>
     </div>
 
-    <div v-if="result" class="space-y-5 animate-slide-up">
-      <div class="grid grid-cols-2 gap-3">
-        <SummaryTile label="Matched" :value="result.summary.matched" tone="success" />
-        <SummaryTile label="Unmatched" :value="result.summary.unmatched" tone="warn" />
-      </div>
-
-      <section v-if="result.matched.length">
-        <p class="section-eyebrow mb-2">Matched ({{ result.matched.length }})</p>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          <div v-for="m in result.matched" :key="m.guestId" class="surface-card p-2">
-            <div class="aspect-[3/4] rounded-lg overflow-hidden bg-surface-mist dark:bg-surface-fog">
-              <img v-if="thumbs[m.guestId]" :src="thumbs[m.guestId]" class="w-full h-full object-cover" />
-            </div>
-            <p class="text-heading mt-2 truncate">{{ m.name }}</p>
-            <p class="text-2xs uppercase font-extrabold tracking-widest text-brand-gold-deep dark:text-brand-gold-soft">{{ m.method }}</p>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="result.unmatched.length">
-        <p class="section-eyebrow mb-2">Needs assignment ({{ result.unmatched.length }})</p>
-        <div class="space-y-2">
-          <div v-for="u in result.unmatched" :key="u.stagedPath" class="surface-card p-3 flex items-center gap-3">
-            <PhotoIcon class="w-5 h-5 text-surface-slate shrink-0" />
-            <p class="flex-1 text-heading truncate">{{ u.originalFilename }}</p>
-            <select
-              class="field-input !py-1.5 !text-sm !w-56"
-              v-model="pending[u.stagedPath]"
-              @change="assignOne(u)"
-            >
-              <option value="">Assign to guest…</option>
-              <option v-for="g in guestOptions" :key="g._id" :value="g._id">
-                {{ g.firstName }} {{ g.lastName }} · {{ g.memberId }}
-              </option>
-            </select>
-            <button class="btn-danger !text-sm !py-1.5 !px-3" @click="discardOne(u)">Discard</button>
-          </div>
-        </div>
-      </section>
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <SummaryTile label="Uploaded" :value="matched.length" tone="success" />
+      <SummaryTile label="Awaiting assignment" :value="unmatched.length" tone="warn" />
     </div>
+
+    <section v-if="visibleMatched.length" class="mb-6">
+      <p class="section-eyebrow mb-2">Uploaded cards ({{ visibleMatched.length }})</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div v-for="m in visibleMatched" :key="m.guestId" class="surface-card p-2 flex flex-col">
+          <div class="aspect-[3/4] rounded-lg overflow-hidden bg-surface-mist dark:bg-surface-fog mb-2">
+            <img v-if="thumbs[m.guestId]" :src="thumbs[m.guestId]" class="w-full h-full object-cover" />
+          </div>
+          <p class="text-heading truncate">{{ m.name }}</p>
+          <p class="text-2xs text-surface-slate dark:text-surface-ash truncate">{{ m.memberId }}<span v-if="m.phone"> · {{ m.phone }}</span></p>
+          <div class="flex gap-1 mt-2">
+            <button class="btn-ghost !text-xs flex-1" :disabled="busy[m.guestId]" @click="download(m)" title="Download original">
+              <ArrowDownTrayIcon class="w-3.5 h-3.5" /> Download
+            </button>
+            <button class="btn-ghost !text-xs flex-1 !text-red-500 hover:!bg-red-500/10" :disabled="busy[m.guestId]" @click="removeOne(m)" title="Delete card">
+              <TrashIcon class="w-3.5 h-3.5" /> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-if="search && !visibleMatched.length" class="text-subtext mt-3">No cards match "{{ search }}".</p>
+    </section>
+
+    <section v-if="unmatched.length">
+      <p class="section-eyebrow mb-2">Needs assignment ({{ unmatched.length }})</p>
+      <div class="space-y-2">
+        <div v-for="u in unmatched" :key="u.stagedPath" class="surface-card p-3 flex items-center gap-3">
+          <PhotoIcon class="w-5 h-5 text-surface-slate shrink-0" />
+          <p class="flex-1 text-heading truncate">{{ u.originalFilename }}</p>
+          <select class="field-input !py-1.5 !text-sm !w-56" v-model="pending[u.stagedPath]" @change="assignOne(u)">
+            <option value="">Assign to guest…</option>
+            <option v-for="g in guestOptions" :key="g._id" :value="g._id">
+              {{ g.firstName }} {{ g.lastName }} · {{ g.memberId }}
+            </option>
+          </select>
+          <button class="btn-danger !text-sm !py-1.5 !px-3" @click="discardOne(u)">Discard</button>
+        </div>
+      </div>
+    </section>
+
+    <p v-if="!loading && !matched.length && !unmatched.length" class="text-subtext text-center py-8">
+      No cards uploaded yet. Drop artwork above to get started.
+    </p>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { PhotoIcon } from '@heroicons/vue/24/outline';
-import { bulkUploadCards, assignStagedCard, discardStagedCard, getCardUrl } from '@/services/cards.service';
+import { PhotoIcon, ArrowDownTrayIcon, TrashIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
+import {
+  bulkUploadCards, assignStagedCard, discardStagedCard, removeGuestCard,
+  getCardUrl, listCards, downloadCard,
+} from '@/services/cards.service';
 import { listGuests } from '@/services/guests.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
@@ -100,16 +115,49 @@ const toast = useToast();
 const dragging = ref(false);
 const uploading = ref(false);
 const progress = ref(0);
-const result = ref(null);
+const loading = ref(true);
+const search = ref('');
+const matched = ref([]);       // [{ guestId, name, memberId, phone, cardImagePath }]
+const unmatched = ref([]);
 const guestOptions = ref([]);
 const pending = reactive({});
 const thumbs = reactive({});
+const busy = reactive({});
 
-async function loadGuests() {
+const visibleMatched = computed(() => {
+  if (!search.value.trim()) return matched.value;
+  const q = search.value.trim().toLowerCase();
+  return matched.value.filter((m) =>
+    (m.name || '').toLowerCase().includes(q) ||
+    (m.memberId || '').toLowerCase().includes(q) ||
+    (m.phone || '').toLowerCase().includes(q) ||
+    (m.pubCode || '').toLowerCase().includes(q),
+  );
+});
+
+async function loadThumb(guestId) {
   try {
-    const { items } = await listGuests(route.params.id, { limit: 500 });
-    guestOptions.value = items;
+    const { url } = await getCardUrl(route.params.id, guestId);
+    thumbs[guestId] = url;
+  } catch (_) { /* skip */ }
+}
+
+async function refresh() {
+  loading.value = true;
+  try {
+    const [data, guests] = await Promise.all([
+      listCards(route.params.id),
+      listGuests(route.params.id, { limit: 500 }),
+    ]);
+    matched.value = data.matched || [];
+    unmatched.value = data.unmatched || [];
+    guestOptions.value = guests.items || [];
+    // Stagger thumb fetches so a 500-card event doesn't fire 500 concurrent requests.
+    matched.value.forEach((m, i) => {
+      if (!thumbs[m.guestId]) setTimeout(() => loadThumb(m.guestId), i * 30);
+    });
   } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { loading.value = false; }
 }
 
 function onDrop(e) {
@@ -130,17 +178,10 @@ async function upload(files) {
     const res = await bulkUploadCards(route.params.id, files, (evt) => {
       if (evt.total) progress.value = Math.round((evt.loaded / evt.total) * 100);
     });
-    result.value = res;
     toast.success(`${res.summary.matched} matched, ${res.summary.unmatched} need assignment`);
-    // Fetch thumbnails for matched.
-    for (const m of res.matched) {
-      try { const { url } = await getCardUrl(route.params.id, m.guestId); thumbs[m.guestId] = url; } catch (_) { /* skip */ }
-    }
-  } catch (err) {
-    toast.error(apiErrorMessage(err));
-  } finally {
-    uploading.value = false;
-  }
+    await refresh();
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { uploading.value = false; }
 }
 
 async function assignOne(u) {
@@ -148,20 +189,38 @@ async function assignOne(u) {
   if (!guestId) return;
   try {
     await assignStagedCard(route.params.id, u.stagedPath, guestId);
-    result.value.unmatched = result.value.unmatched.filter((x) => x.stagedPath !== u.stagedPath);
-    result.value.summary.matched += 1;
-    result.value.summary.unmatched -= 1;
     toast.success('Assigned');
+    await refresh();
   } catch (err) { toast.error(apiErrorMessage(err)); }
 }
 
 async function discardOne(u) {
   try {
     await discardStagedCard(route.params.id, u.stagedPath);
-    result.value.unmatched = result.value.unmatched.filter((x) => x.stagedPath !== u.stagedPath);
-    result.value.summary.unmatched -= 1;
+    unmatched.value = unmatched.value.filter((x) => x.stagedPath !== u.stagedPath);
   } catch (err) { toast.error(apiErrorMessage(err)); }
 }
 
-onMounted(loadGuests);
+async function download(m) {
+  busy[m.guestId] = true;
+  try {
+    const ext = (m.cardImagePath || '').split('.').pop() || 'png';
+    await downloadCard(route.params.id, m.guestId, `${m.memberId || m.guestId}.${ext}`);
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { delete busy[m.guestId]; }
+}
+
+async function removeOne(m) {
+  if (!window.confirm(`Delete card for ${m.name}? This can't be undone.`)) return;
+  busy[m.guestId] = true;
+  try {
+    await removeGuestCard(route.params.id, m.guestId);
+    matched.value = matched.value.filter((x) => x.guestId !== m.guestId);
+    delete thumbs[m.guestId];
+    toast.success('Card deleted');
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { delete busy[m.guestId]; }
+}
+
+onMounted(refresh);
 </script>

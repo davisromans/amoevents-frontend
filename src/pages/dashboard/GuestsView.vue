@@ -78,6 +78,7 @@
                        :indeterminate.prop="someVisibleSelected && !allVisibleSelected"
                        @change="toggleAllVisible" />
               </th>
+              <th class="text-left px-2 py-2 w-8 hidden sm:table-cell">#</th>
               <th class="text-left px-4 py-2">Guest</th>
               <th class="text-left px-4 py-2 hidden sm:table-cell">Phone</th>
               <th class="text-left px-4 py-2 hidden md:table-cell">Tags</th>
@@ -87,7 +88,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-surface-mist dark:divide-surface-fog">
-            <tr v-for="g in filtered" :key="g._id"
+            <tr v-for="(g, gi) in filtered" :key="g._id"
                 :class="['cursor-pointer transition-colors duration-fast',
                          selected.has(g._id) ? 'bg-brand-primary-glow' : 'hover:bg-surface-mist/40 dark:hover:bg-surface-fog/40']"
                 @click="openDetail(g)">
@@ -96,6 +97,7 @@
                        :checked="selected.has(g._id)"
                        @change="toggleSelected(g._id)" />
               </td>
+              <td class="px-2 py-3 text-2xs tabular-nums text-surface-slate dark:text-surface-ash hidden sm:table-cell">{{ gi + 1 }}</td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
                   <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white font-black text-2xs shrink-0"
@@ -130,7 +132,16 @@
                   <span v-if="tagsOf(g).length > 2" class="text-2xs text-surface-slate dark:text-surface-ash">+{{ tagsOf(g).length - 2 }}</span>
                 </div>
               </td>
-              <td class="px-4 py-3"><Badge size="sm" :tone="rsvpTone(g.rsvpStatus)">{{ rsvpLabel(g.rsvpStatus) }}</Badge></td>
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-1.5">
+                  <Badge size="sm" :tone="rsvpTone(g.rsvpStatus)">{{ rsvpLabel(g.rsvpStatus) }}</Badge>
+                  <span v-if="g.invitationCount > 0"
+                        class="text-2xs font-black px-1.5 py-0.5 rounded bg-brand-gold-glow text-brand-gold-deep dark:text-brand-gold-soft tabular-nums"
+                        :title="`Invitation sent ${g.invitationCount} time${g.invitationCount === 1 ? '' : 's'}`">
+                    {{ g.invitationCount }} invit.
+                  </span>
+                </div>
+              </td>
               <td class="px-4 py-3 hidden lg:table-cell">
                 <Badge v-if="g.arrivalStatus === 'arrived'" tone="success" size="sm">✓ Arrived</Badge>
                 <span v-else class="text-2xs text-surface-slate dark:text-surface-ash">—</span>
@@ -491,13 +502,22 @@ const filtered = computed(() => {
   let list = items.value;
   if (rsvpFilter.value !== 'all') list = list.filter((g) => (g.rsvpStatus || 'pending') === rsvpFilter.value);
   const s = q.value.trim().toLowerCase();
-  if (!s) return list;
-  return list.filter((g) =>
-    (g.firstName || '').toLowerCase().includes(s)
-    || (g.lastName || '').toLowerCase().includes(s)
-    || (g.phone || '').includes(s)
-    || (g.memberId || '').toLowerCase().includes(s)
-  );
+  if (s) {
+    list = list.filter((g) =>
+      (g.firstName || '').toLowerCase().includes(s)
+      || (g.lastName || '').toLowerCase().includes(s)
+      || (g.phone || '').includes(s)
+      || (g.memberId || '').toLowerCase().includes(s),
+    );
+  }
+  // Sort A→Z by full name so it's easy to track a guest — same ordering
+  // the pledge page rows read as (numbered, scannable list). Rendered rows
+  // pick up the row index next to each row.
+  return [...list].sort((a, b) => {
+    const an = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
+    const bn = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
+    return an.localeCompare(bn);
+  });
 });
 
 async function refresh() {

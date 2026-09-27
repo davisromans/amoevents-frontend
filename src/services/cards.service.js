@@ -29,3 +29,23 @@ export async function getCardUrl(eventId, guestId) {
   const res = await http.get(`/events/${eventId}/cards/${guestId}/url`);
   return unwrap(res);
 }
+
+export async function listCards(eventId, search = '') {
+  const res = await http.get(`/events/${eventId}/cards`, { params: search ? { search } : {} });
+  return unwrap(res);
+}
+
+// Streams the raw uploaded card artwork as a download. Uses fetch+blob so
+// the browser saves via a synthetic <a> click — the same trick the PDF
+// download uses in cardVariants.service.
+export async function downloadCard(eventId, guestId, filename) {
+  const res = await http.get(`/events/${eventId}/cards/${guestId}/download`, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `${guestId}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

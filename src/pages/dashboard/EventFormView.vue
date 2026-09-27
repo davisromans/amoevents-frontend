@@ -58,6 +58,69 @@
         <button class="btn-ghost !text-xs" @click.prevent="form.branding.qrColor = null; form.branding.logoColor = null; form.branding.textColor = null">
           Reset to default gold
         </button>
+
+        <!-- Guest-code typography — controls the SHORT-CODE text drawn above
+             the QR and the SINGLE/DOUBLE/FAMILY strip below it. -->
+        <div class="mt-4 pt-4 border-t border-surface-mist dark:border-surface-fog space-y-3">
+          <p class="section-eyebrow">Guest code typography</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">Font family</span>
+              <select v-model="form.branding.guestCodeFont" class="field-input !py-1.5 !text-sm">
+                <option :value="null">Default (Inter)</option>
+                <option value="Inter">Inter (sans, modern)</option>
+                <option value="Playfair Display">Playfair Display (serif)</option>
+                <option value="Cormorant Garamond">Cormorant Garamond (serif)</option>
+                <option value="Montserrat">Montserrat (sans)</option>
+                <option value="Poppins">Poppins (sans, rounded)</option>
+                <option value="Great Vibes">Great Vibes (script)</option>
+                <option value="Cinzel">Cinzel (roman caps)</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">Weight</span>
+              <select v-model.number="form.branding.guestCodeWeight" class="field-input !py-1.5 !text-sm">
+                <option :value="null">Default (900)</option>
+                <option :value="300">300 · Light</option>
+                <option :value="400">400 · Regular</option>
+                <option :value="500">500 · Medium</option>
+                <option :value="700">700 · Bold</option>
+                <option :value="900">900 · Black</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">Style</span>
+              <select v-model="form.branding.guestCodeStyle" class="field-input !py-1.5 !text-sm">
+                <option :value="null">Normal</option>
+                <option value="italic">Italic</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">
+                Size scale ({{ form.branding.guestCodeSizeScale ?? 1 }}×)
+              </span>
+              <input type="range" min="0.5" max="2" step="0.05"
+                     :value="form.branding.guestCodeSizeScale ?? 1"
+                     @input="form.branding.guestCodeSizeScale = Number($event.target.value)"
+                     class="accent-brand-gold" />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">
+                Letter spacing ({{ form.branding.guestCodeLetterSpacing ?? 2 }})
+              </span>
+              <input type="range" min="0" max="16" step="1"
+                     :value="form.branding.guestCodeLetterSpacing ?? 2"
+                     @input="form.branding.guestCodeLetterSpacing = Number($event.target.value)"
+                     class="accent-brand-gold" />
+            </label>
+            <label class="flex items-center gap-2 mt-6">
+              <input type="checkbox" v-model="form.branding.guestCodeShowSeatType" class="accent-brand-gold w-4 h-4" />
+              <span class="text-sm text-surface-charcoal dark:text-surface-bone">
+                Show seat type strip (Single / Double / Family) under the QR
+              </span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <!-- Payment contacts — rendered into message templates via {{payment_contacts}}.
@@ -236,7 +299,12 @@ const form = reactive({
   church: { enabled: false, name: '', address: '', arrivalTime: '', serviceTime: '' },
   paymentContacts: [],
   contactPhones: [],
-  branding: { qrColor: null, logoColor: null, textColor: null },
+  branding: {
+    qrColor: null, logoColor: null, textColor: null,
+    guestCodeFont: null, guestCodeWeight: null, guestCodeStyle: null,
+    guestCodeSizeScale: null, guestCodeLetterSpacing: null,
+    guestCodeShowSeatType: true,
+  },
   venueCapacity: null,
   dressCode: '', notes: '',
   features: { showMaps: true, showCalendar: true, showProgram: true, showDressCode: true, showGallery: false, guestListVisibility: 'owner_only', guestListShowsPhone: false },
@@ -283,6 +351,12 @@ onMounted(async () => {
           qrColor: event.branding?.qrColor || null,
           logoColor: event.branding?.logoColor || null,
           textColor: event.branding?.textColor || null,
+          guestCodeFont: event.branding?.guestCodeFont || null,
+          guestCodeWeight: event.branding?.guestCodeWeight || null,
+          guestCodeStyle: event.branding?.guestCodeStyle || null,
+          guestCodeSizeScale: event.branding?.guestCodeSizeScale ?? null,
+          guestCodeLetterSpacing: event.branding?.guestCodeLetterSpacing ?? null,
+          guestCodeShowSeatType: event.branding?.guestCodeShowSeatType !== false,
         },
         venueCapacity: event.venueCapacity || null,
         dressCode: event.dressCode || '',

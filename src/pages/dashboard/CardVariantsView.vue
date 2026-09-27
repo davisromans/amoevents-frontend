@@ -36,6 +36,20 @@
       </template>
     </PageHeader>
 
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <div class="relative flex-1 min-w-[220px]">
+        <input v-model="searchInput" @input="onSearch" type="text" placeholder="Search guests by name, phone, memberId…"
+               class="field-input !py-2 !text-sm w-full" />
+      </div>
+      <div v-if="totalGuests" class="text-2xs text-surface-slate dark:text-surface-ash tabular-nums">
+        Page {{ page }} / {{ totalPages }} · {{ totalGuests }} guest{{ totalGuests === 1 ? '' : 's' }}
+      </div>
+      <div class="flex gap-1">
+        <button class="btn-ghost !text-sm" :disabled="page <= 1 || loading" @click="goToPage(page - 1)">Prev</button>
+        <button class="btn-ghost !text-sm" :disabled="page >= totalPages || loading" @click="goToPage(page + 1)">Next</button>
+      </div>
+    </div>
+
     <div v-if="loading" class="flex justify-center py-10"><LoadingSpinner /></div>
 
     <EmptyState v-else-if="!guests.length"
@@ -48,17 +62,38 @@
     </EmptyState>
 
     <div v-else>
-      <p v-if="!anyHasCard" class="surface-card p-4 border-l-4 border-l-amber-500 mb-5 text-md text-surface-charcoal dark:text-surface-bone">
+      <div v-if="!samplerVariant && !anyOwnArtwork" class="surface-card p-6 border-l-4 border-l-amber-500 mb-5">
+        <p class="text-lg font-bold text-surface-charcoal dark:text-surface-bone mb-1">No template selected yet</p>
+        <p class="text-md text-surface-charcoal dark:text-surface-bone mb-3">
+          Pick a card template (or upload your own artwork) to see the variants for each guest here.
+          Variables like <span class="chip">{{ '{{firstName}}' }}</span> and <span class="chip">{{ '{{memberId}}' }}</span> are auto-mapped from the design.
+        </p>
+        <div class="flex gap-2">
+          <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">Browse templates</router-link>
+          <router-link :to="`/app/events/${route.params.id}/cards`" class="btn-secondary !text-sm">Upload artwork</router-link>
+        </div>
+      </div>
+      <p v-else-if="!anyHasCard" class="surface-card p-4 border-l-4 border-l-amber-500 mb-5 text-md text-surface-charcoal dark:text-surface-bone">
         No card artwork uploaded yet. Head to
         <router-link :to="`/app/events/${route.params.id}/cards`" class="text-brand-gold-deep dark:text-brand-gold-soft font-bold hover:underline">Cards</router-link>
         and upload your event artwork. Files matched to guests will show below with QR overlaid.
       </p>
 
+      <div v-if="samplerVariant" class="surface-card p-3 mb-5 flex items-center gap-3">
+        <img v-if="samplerThumbUrl" :src="samplerThumbUrl" class="w-16 h-20 object-contain rounded-md bg-surface-mist dark:bg-surface-fog" />
+        <div class="min-w-0 flex-1">
+          <p class="text-heading truncate">Active template: {{ samplerVariant.name || 'Untitled template' }}</p>
+          <p class="text-2xs text-surface-slate dark:text-surface-ash">
+            Variables auto-mapped: first name, last name, memberId, phone, seat type, date, venue.
+          </p>
+        </div>
+      </div>
+
       <p v-if="onlyOwnArtwork && hiddenCount" class="text-subtext mb-3">
         {{ hiddenCount }} guest{{ hiddenCount === 1 ? '' : 's' }} using the shared sampler hidden. Uncheck the filter to see them.
       </p>
 
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div v-if="samplerVariant || anyOwnArtwork" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         <div v-for="g in visibleGuests" :key="g._id"
              class="surface-card p-3 flex flex-col animate-slide-up">
           <label class="relative w-full aspect-[3/4] rounded-2xl overflow-hidden bg-surface-mist dark:bg-surface-fog mb-3 cursor-pointer group">
@@ -200,6 +235,22 @@ const toast = useToast();
 
 const guests = ref([]);
 const loading = ref(true);
+const page = ref(1);
+const PAGE_SIZE = 200;
+const totalGuests = ref(0);
+const totalPages = computed(() => Math.max(1, Math.ceil(totalGuests.value / PAGE_SIZE)));
+const searchInput = ref('');
+let searchTimer = null;
+function onSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page.value = 1; refresh(); }, 300);
+}
+function goToPage(n) {
+  const clamped = Math.min(totalPages.value, Math.max(1, n));
+  if (clamped === page.value) return;
+  page.value = clamped;
+  refresh();
+}
 const thumbs = reactive({});      // guestId → object URL
 const thumbErrors = reactive({}); // guestId → true if no artwork
 const coverage = reactive({});    // guestId → true if own artwork/variant
@@ -242,6 +293,8 @@ const visibleGuests = computed(() =>
 const hiddenCount = computed(() => guests.value.length - visibleGuests.value.length);
 
 const anyHasCard = computed(() => guests.value.some((g) => thumbs[g._id]));
+const anyOwnArtwork = computed(() => guests.value.some((g) => coverage[g._id] === 'own'));
+const samplerThumbUrl = ref(null);
 const allSelected = computed(() =>
   visibleGuests.value.length > 0 && selected.value.size === visibleGuests.value.length,
 );
@@ -269,12 +322,13 @@ async function loadThumb(g, bust) {
 async function refresh() {
   loading.value = true;
   try {
-    const [{ items }, cov, vs] = await Promise.all([
-      listGuests(route.params.id, { limit: 200 }),
+    const [{ items, meta }, cov, vs] = await Promise.all([
+      listGuests(route.params.id, { limit: PAGE_SIZE, page: page.value, q: searchInput.value.trim() || undefined }),
       cardCoverage(route.params.id).catch(() => ({})),
       listVariants(route.params.id).catch(() => []),
     ]);
     guests.value = items;
+    totalGuests.value = meta?.total ?? items.length;
     Object.assign(coverage, cov);
     // The sampler is the default variant if set, otherwise the first active
     // one — same rule the backend resolveBaseCard() uses.
@@ -282,11 +336,22 @@ async function refresh() {
     samplerVariant.value = vs.find((v) => v.isActive && v.isDefault)
       || vs.find((v) => v.isActive)
       || null;
-    // Only fetch thumbnails for guests who actually have artwork — saves the
-    // wasted round-trips (and 404s) for guests we're going to hide anyway.
-    items
-      .filter((g) => coverage[g._id] !== false)
-      .forEach((g, i) => setTimeout(() => loadThumb(g), i * 30));
+    // Show the active-template thumbnail chip.
+    if (samplerVariant.value?._id) {
+      try { samplerThumbUrl.value = await variantImageUrlById(route.params.id, samplerVariant.value._id); }
+      catch (_) { samplerThumbUrl.value = null; }
+    } else { samplerThumbUrl.value = null; }
+
+    // Only fetch thumbnails for guests who actually have artwork — and only
+    // once we have SOMETHING to render (a sampler variant or a guest with
+    // own artwork). Otherwise skip entirely so the page doesn't show N
+    // loading spinners while nothing is coming back.
+    const anyRenderable = !!samplerVariant.value || items.some((g) => coverage[g._id] === 'own');
+    if (anyRenderable) {
+      items
+        .filter((g) => coverage[g._id] !== false)
+        .forEach((g, i) => setTimeout(() => loadThumb(g), i * 30));
+    }
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { loading.value = false; }
 }

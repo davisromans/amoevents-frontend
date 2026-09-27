@@ -352,6 +352,40 @@
             <span class="text-heading">VIP only</span>
           </label>
         </div>
+        <!-- WhatsApp reachability — skip guests whose number was confirmed
+             not on WA. Requires a wa-check pass first; the button below
+             runs it now. -->
+        <div class="mt-2 surface-inset p-3 rounded-lg">
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" v-model="audience.whatsappOnly" class="accent-brand-gold w-4 h-4 mt-0.5" />
+            <div class="flex-1 min-w-0">
+              <p class="text-heading">Skip guests not on WhatsApp</p>
+              <p class="text-2xs text-surface-slate dark:text-surface-ash">
+                Uses cached wa-check results. Guests still marked "unknown" are kept in — run the check to be precise.
+              </p>
+            </div>
+            <button type="button" class="btn-ghost !text-xs shrink-0" :disabled="waCheckRunning" @click.stop.prevent="runWaCheck">
+              {{ waCheckRunning ? 'Checking…' : 'Run WA check' }}
+            </button>
+          </label>
+        </div>
+
+        <!-- Invitation state — filter by how many "mark-as-invited" runs a
+             guest has already received. Lets a follow-up run reach only the
+             not-yet-invited, or only those who got one and no reply, etc. -->
+        <div class="mt-2">
+          <label class="field-label">Invitation state</label>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="opt in INVITATION_STATE_OPTIONS" :key="opt.value" type="button"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-bold border transition"
+                    :class="audience.invitationState === opt.value
+                      ? 'bg-gradient-gold text-surface-charcoal border-transparent shadow-gold-soft'
+                      : 'border-surface-mist dark:border-surface-fog text-surface-slate dark:text-surface-ash'"
+                    @click="audience.invitationState = opt.value">
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
         <!-- Pledge audience — two independent filters that combine (AND):
              1) payment status (everyone / still owing / fully paid)
              2) tier reached (any / at-least-this-tier / exactly-this-tier) -->
@@ -482,6 +516,16 @@
           <span v-else-if="audienceCount === null" class="text-surface-slate dark:text-surface-ash">— guests will get this</span>
           <span v-else class="font-semibold"><span class="tabular-nums">{{ audienceCount }}</span> guest{{ audienceCount === 1 ? '' : 's' }} will get this</span>
         </div>
+        <label class="flex items-start gap-2 p-2 rounded-lg bg-brand-gold-glow border border-brand-gold/30 cursor-pointer">
+          <input type="checkbox" v-model="markAsInvited" class="accent-brand-gold w-4 h-4 mt-0.5" />
+          <div>
+            <p class="text-heading">Mark recipients as invited</p>
+            <p class="text-2xs text-surface-slate dark:text-surface-ash">
+              Bumps each guest's invitation count so follow-up cascades can skip / target them.
+              Tick this for your final invitation message only.
+            </p>
+          </div>
+        </label>
         <p v-if="serverError" class="text-sm text-state-danger font-medium">{{ serverError }}</p>
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="md" @click="composer = null">Discard</Button>
@@ -537,7 +581,7 @@ import { useRoute } from 'vue-router';
 import { LockClosedIcon, PaperAirplaneIcon, PlusIcon, TrashIcon, PencilSquareIcon, BookmarkIcon, CheckCircleIcon, ExclamationCircleIcon, ClockIcon, ArrowPathIcon, UsersIcon } from '@heroicons/vue/24/outline';
 import { listWhatsAppTemplates, syncWhatsAppTemplates, updateVarMap } from '@/services/whatsappTemplates.service';
 import { getEvent } from '@/services/events.service';
-import { startMessageJob, listMessageJobs, sendTestMessage, previewMessageCost } from '@/services/messaging.service';
+import { startMessageJob, listMessageJobs, sendTestMessage, previewMessageCost, checkAllWa } from '@/services/messaging.service';
 import PhoneInput from '@/components/common/PhoneInput.vue';
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate as apiDeleteTemplate, deleteTemplate, uploadTemplateImage } from '@/services/messageTemplates.service';
 import { useAuthStore } from '@/stores/auth';
@@ -564,6 +608,12 @@ const PLEDGE_STATUS_OPTIONS = [
   { value: 'any', label: 'Everyone' },
   { value: 'not_completed', label: 'Still owing' },
   { value: 'completed', label: 'Fully paid only' },
+];
+const INVITATION_STATE_OPTIONS = [
+  { value: 'any', label: 'Everyone' },
+  { value: 'never', label: 'Not yet invited' },
+  { value: 'once', label: 'Invited exactly once' },
+  { value: 'twice_plus', label: 'Invited 2+ times' },
 ];
 
 const CHANNELS = [
@@ -615,7 +665,27 @@ const channel = ref('auto');
 const audience = reactive({
   rsvpStatus: '', arrivalStatus: '', vipOnly: false, sendState: 'any', tags: [],
   pledgeStatus: 'any', tierMinTZS: '', tierMode: 'atLeast',
+  // Invitation-count filter — 'any' | 'never' | 'once' | 'twice_plus'
+  invitationState: 'any',
+  // When true, guests whose number was confirmed NOT to be on WhatsApp are
+  // dropped from the audience — no wasted credits on landlines / off-WA
+  // numbers. Requires a prior wa-check pass; guests still 'unknown' stay in.
+  whatsappOnly: false,
 });
+const waCheckRunning = ref(false);
+async function runWaCheck() {
+  if (!window.confirm('Check every guest\'s WhatsApp availability now? This can take a couple of minutes.')) return;
+  waCheckRunning.value = true;
+  try {
+    const s = await checkAllWa(route.params.id);
+    toast.success(`WA check done — ${s.available || 0} on WA, ${s.not_available || 0} off, ${s.unknown || 0} unknown.`);
+    refreshAudienceCount();
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { waCheckRunning.value = false; }
+}
+// Sticks with the compose panel — when true, every successful send in this
+// job bumps the target guest's invitationCount + adds an invitations entry.
+const markAsInvited = ref(false);
 const availableTags = ref([]);
 function toggleAudienceTag(id) {
   const i = audience.tags.indexOf(id);
@@ -1179,11 +1249,17 @@ function buildAudiencePayload() {
       tierMaxTZS = next ? next.minTZS : undefined;
     }
   }
+  let invitationCountMin, invitationCountMax;
+  if (audience.invitationState === 'never') { invitationCountMax = 0; }
+  else if (audience.invitationState === 'once') { invitationCountMin = 1; invitationCountMax = 1; }
+  else if (audience.invitationState === 'twice_plus') { invitationCountMin = 2; }
   return {
     rsvpStatus: audience.rsvpStatus || undefined,
     arrivalStatus: audience.arrivalStatus || undefined,
     vipOnly: audience.vipOnly || undefined,
     sendState: audience.sendState || undefined,
+    invitationCountMin, invitationCountMax,
+    whatsappOnly: audience.whatsappOnly || undefined,
     // Scopes "never/already messaged" to THIS saved template's own send
     // history — skip guests who already got the RSVP invite without also
     // excluding them from a separate Thank-you template. Only meaningful
@@ -1242,6 +1318,7 @@ async function send() {
     ] : (c.buttons?.filter((b) => b.title && b.id) || undefined);
     await startMessageJob(route.params.id, {
       channel: channel.value,
+      markAsInvited: markAsInvited.value,
       template: {
         body: c.body,
         language: c.language || 'sw',
