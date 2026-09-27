@@ -62,22 +62,21 @@
     </EmptyState>
 
     <div v-else>
-      <div v-if="!samplerVariant && !anyOwnArtwork" class="surface-card p-6 border-l-4 border-l-amber-500 mb-5">
-        <p class="text-lg font-bold text-surface-charcoal dark:text-surface-bone mb-1">No template selected yet</p>
+      <!-- Small helper banner ONLY when literally nothing is renderable
+           (no template AND no guest has uploaded artwork). Once even one
+           guest has their own card, the grid takes over and each tile
+           renders that guest's real card with the QR overlaid. -->
+      <div v-if="!samplerVariant && !anyOwnArtwork && !anyGuestHasCardImage"
+           class="surface-card p-6 border-l-4 border-l-amber-500 mb-5">
+        <p class="text-lg font-bold text-surface-charcoal dark:text-surface-bone mb-1">Nothing to render yet</p>
         <p class="text-md text-surface-charcoal dark:text-surface-bone mb-3">
-          Pick a card template (or upload your own artwork) to see the variants for each guest here.
-          Variables like <span v-pre class="chip">{{firstName}}</span> and <span v-pre class="chip">{{memberId}}</span> are auto-mapped from the design.
+          Upload guest artwork under Cards, or pick a card template. Uploaded cards show up here automatically with the QR baked in.
         </p>
         <div class="flex gap-2">
-          <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">Browse templates</router-link>
-          <router-link :to="`/app/events/${route.params.id}/cards`" class="btn-secondary !text-sm">Upload artwork</router-link>
+          <router-link :to="`/app/events/${route.params.id}/cards`" class="btn-primary !text-sm">Go to Cards</router-link>
+          <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-secondary !text-sm">Browse templates</router-link>
         </div>
       </div>
-      <p v-else-if="!anyHasCard" class="surface-card p-4 border-l-4 border-l-amber-500 mb-5 text-md text-surface-charcoal dark:text-surface-bone">
-        No card artwork uploaded yet. Head to
-        <router-link :to="`/app/events/${route.params.id}/cards`" class="text-brand-gold-deep dark:text-brand-gold-soft font-bold hover:underline">Cards</router-link>
-        and upload your event artwork. Files matched to guests will show below with QR overlaid.
-      </p>
 
       <div v-if="samplerVariant" class="surface-card p-3 mb-5 flex items-center gap-3">
         <img v-if="samplerThumbUrl" :src="samplerThumbUrl" class="w-16 h-20 object-contain rounded-md bg-surface-mist dark:bg-surface-fog" />
@@ -93,7 +92,7 @@
         {{ hiddenCount }} guest{{ hiddenCount === 1 ? '' : 's' }} using the shared sampler hidden. Uncheck the filter to see them.
       </p>
 
-      <div v-if="samplerVariant || anyOwnArtwork" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         <div v-for="g in visibleGuests" :key="g._id"
              class="surface-card p-3 flex flex-col animate-slide-up">
           <label class="relative w-full aspect-[3/4] rounded-2xl overflow-hidden bg-surface-mist dark:bg-surface-fog mb-3 cursor-pointer group">
@@ -294,6 +293,9 @@ const hiddenCount = computed(() => guests.value.length - visibleGuests.value.len
 
 const anyHasCard = computed(() => guests.value.some((g) => thumbs[g._id]));
 const anyOwnArtwork = computed(() => guests.value.some((g) => coverage[g._id] === 'own'));
+// Direct read off the Guest doc — reliable even when the /coverage endpoint
+// hasn't resolved yet, or the current page filters coverage out.
+const anyGuestHasCardImage = computed(() => guests.value.some((g) => !!g.cardImagePath));
 const samplerThumbUrl = ref(null);
 const allSelected = computed(() =>
   visibleGuests.value.length > 0 && selected.value.size === visibleGuests.value.length,
@@ -342,16 +344,16 @@ async function refresh() {
       catch (_) { samplerThumbUrl.value = null; }
     } else { samplerThumbUrl.value = null; }
 
-    // Only fetch thumbnails for guests who actually have artwork — and only
-    // once we have SOMETHING to render (a sampler variant or a guest with
-    // own artwork). Otherwise skip entirely so the page doesn't show N
-    // loading spinners while nothing is coming back.
-    const anyRenderable = !!samplerVariant.value || items.some((g) => coverage[g._id] === 'own');
-    if (anyRenderable) {
-      items
-        .filter((g) => coverage[g._id] !== false)
-        .forEach((g, i) => setTimeout(() => loadThumb(g), i * 30));
-    }
+    // Load a thumb for every guest that can render one — either they have
+    // their own uploaded artwork (guest.cardImagePath) or a sampler variant
+    // exists for the event. Guests with no path AND no sampler get a "No
+    // artwork" tile without a network call.
+    const hasSampler = !!samplerVariant.value;
+    items.forEach((g, i) => {
+      const canRender = !!g.cardImagePath || hasSampler;
+      if (canRender) setTimeout(() => loadThumb(g), i * 30);
+      else thumbErrors[g._id] = true;
+    });
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { loading.value = false; }
 }
