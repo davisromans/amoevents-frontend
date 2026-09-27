@@ -203,10 +203,16 @@ const progress = ref(0);
 const uploadFilesDone = ref(0);
 const uploadFilesTotal = ref(0);
 const uploadFilesFailed = ref(0);
-// One file per request, several in flight at once — a single request can
+// One file per request, a couple in flight at once — a single request can
 // never wait on 19 OTHER files before the operator sees any movement, and a
 // failed file only costs re-sending that one file, not a whole batch's MB.
-const UPLOAD_CONCURRENCY = 5;
+// Kept modest (not higher) and staggered — hundreds of rapid concurrent
+// POSTs from one IP is exactly the burst pattern Cloudflare's bot/rate-limit
+// protection flags, which can then reset THAT IP's connections for a while
+// afterward (confirmed happening: same "Connection reset by peer" symptom
+// reproduced independently against this domain after heavy rapid testing).
+const UPLOAD_CONCURRENCY = 3;
+const UPLOAD_STAGGER_MS = 120; // small gap between each request a worker fires
 const duplicateMode = ref('replace'); // 'replace' | 'skip' — see the upload-options row
 const loading = ref(true);
 const search = ref('');
@@ -345,6 +351,7 @@ async function uploadFiles(files) {
       }
       uploadFilesDone.value += 1;
       progress.value = Math.round((uploadFilesDone.value / uploadFilesTotal.value) * 100);
+      if (cursor < files.length) await new Promise((r) => setTimeout(r, UPLOAD_STAGGER_MS));
     }
   }
 
