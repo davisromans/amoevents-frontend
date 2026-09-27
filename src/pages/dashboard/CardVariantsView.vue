@@ -175,6 +175,18 @@
                draggable="false"
                :style="qrOverlayStyle(qrEditor.layout)"
                alt="" />
+          <!-- Short-code band above the QR + seat-type band below it,
+               positioned relative to the QR so they move with it. Uses the
+               live typography state so what you see is what gets baked. -->
+          <div class="absolute pointer-events-none text-center whitespace-nowrap tabular-nums"
+               :style="{ ...editorBandStyle(1), ...topBandPositionStyle(qrEditor.layout) }">
+            {{ previewShortCode }}
+          </div>
+          <div v-if="eventBranding.guestCodeShowSeatType !== false"
+               class="absolute pointer-events-none text-center whitespace-nowrap tabular-nums"
+               :style="{ ...editorBandStyle(1), ...bottomBandPositionStyle(qrEditor.layout) }">
+            {{ previewSeatType }}
+          </div>
         </div>
 
         <!-- Three sliders: X, Y, Size -->
@@ -191,6 +203,70 @@
                    class="field-input !py-1 !text-sm !w-24 text-right tabular-nums" />
             <span class="text-2xs text-surface-slate dark:text-surface-ash w-10 text-right tabular-nums">{{ pct(qrEditor.layout[s.key]) }}</span>
           </div>
+        </div>
+
+        <!-- Live typography controls — same fields as the Edit Event form.
+             Bound to eventBranding; PATCHed to the event on Save so this
+             modal is a shortcut instead of a separate config. -->
+        <div class="surface-inset p-3 rounded-lg space-y-2">
+          <p class="section-eyebrow">Guest-code typography</p>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Font</span>
+              <select v-model="eventBranding.guestCodeFont" class="field-input !py-1 !text-xs">
+                <option :value="null">Default (Inter)</option>
+                <option value="Inter">Inter</option>
+                <option value="Playfair Display">Playfair Display</option>
+                <option value="Cormorant Garamond">Cormorant Garamond</option>
+                <option value="Montserrat">Montserrat</option>
+                <option value="Poppins">Poppins</option>
+                <option value="Great Vibes">Great Vibes</option>
+                <option value="Cinzel">Cinzel</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Weight</span>
+              <select v-model.number="eventBranding.guestCodeWeight" class="field-input !py-1 !text-xs">
+                <option :value="null">Default (900)</option>
+                <option :value="300">300</option><option :value="400">400</option>
+                <option :value="500">500</option><option :value="700">700</option>
+                <option :value="900">900</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Style</span>
+              <select v-model="eventBranding.guestCodeStyle" class="field-input !py-1 !text-xs">
+                <option :value="null">Normal</option>
+                <option value="italic">Italic</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Text color</span>
+              <input type="color" :value="eventBranding.textColor || '#2A2417'"
+                     @input="eventBranding.textColor = $event.target.value"
+                     class="h-7 w-full rounded-md border border-surface-mist cursor-pointer" />
+            </label>
+            <label class="flex flex-col gap-1 col-span-2">
+              <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">
+                Size × {{ eventBranding.guestCodeSizeScale ?? 1 }} · Letter spacing {{ eventBranding.guestCodeLetterSpacing ?? 2 }}
+              </span>
+              <div class="grid grid-cols-2 gap-2">
+                <input type="range" min="0.5" max="2" step="0.05"
+                       :value="eventBranding.guestCodeSizeScale ?? 1"
+                       @input="eventBranding.guestCodeSizeScale = Number($event.target.value)"
+                       class="accent-brand-gold" />
+                <input type="range" min="0" max="16" step="1"
+                       :value="eventBranding.guestCodeLetterSpacing ?? 2"
+                       @input="eventBranding.guestCodeLetterSpacing = Number($event.target.value)"
+                       class="accent-brand-gold" />
+              </div>
+            </label>
+            <label class="flex items-center gap-2 col-span-2">
+              <input type="checkbox" v-model="eventBranding.guestCodeShowSeatType" class="accent-brand-gold w-4 h-4" />
+              <span class="text-xs text-surface-charcoal dark:text-surface-bone">Show seat-type strip below the QR</span>
+            </label>
+          </div>
+          <p class="text-2xs text-surface-slate dark:text-surface-ash">These settings also update the event's branding in Settings.</p>
         </div>
 
         <!-- Escape hatch for guests whose uploaded artwork already has a QR
@@ -219,7 +295,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   PhotoIcon, ArrowDownTrayIcon, DocumentArrowDownIcon, ExclamationTriangleIcon, QrCodeIcon, PencilSquareIcon,
@@ -230,6 +306,7 @@ import { updateGuest, getGuestQrUrl } from '@/services/guests.service';
 import { listVariants, updateVariant, variantImageUrlById } from '@/services/cardVariants.service';
 import { listGuests } from '@/services/guests.service';
 import { fetchPreviewUrl, cardCoverage, downloadGuestCardPng, downloadPdf as downloadPdfApi } from '@/services/cardVariants.service';
+import { getEvent, updateEvent } from '@/services/events.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
 import PageHeader from '@/components/layout/PageHeader.vue';
@@ -416,9 +493,60 @@ async function downloadAllPdf() {
 const variants = ref([]);
 const samplerVariant = ref(null);
 
+// Event branding — loaded on mount, mutated by the QR editor's typography
+// controls, and PATCHed back to the event on Save so the same knobs from
+// EventFormView are reachable right here without leaving the flow.
+const eventBranding = reactive({
+  qrColor: null, textColor: null, logoColor: null,
+  guestCodeFont: null, guestCodeWeight: null, guestCodeStyle: null,
+  guestCodeSizeScale: null, guestCodeLetterSpacing: null,
+  guestCodeShowSeatType: true,
+});
+async function loadEventBranding() {
+  try {
+    const { event } = await getEvent(route.params.id);
+    Object.assign(eventBranding, {
+      qrColor: event.branding?.qrColor || null,
+      textColor: event.branding?.textColor || null,
+      logoColor: event.branding?.logoColor || null,
+      guestCodeFont: event.branding?.guestCodeFont || null,
+      guestCodeWeight: event.branding?.guestCodeWeight || null,
+      guestCodeStyle: event.branding?.guestCodeStyle || null,
+      guestCodeSizeScale: event.branding?.guestCodeSizeScale ?? null,
+      guestCodeLetterSpacing: event.branding?.guestCodeLetterSpacing ?? null,
+      guestCodeShowSeatType: event.branding?.guestCodeShowSeatType !== false,
+    });
+    if (event.code) eventBranding._eventCode = event.code;
+  } catch (_) { /* silently — the editor still works, just without preview text */ }
+}
+// Sample values for the modal preview bands — real guest data when we have
+// a guest in scope, otherwise generic placeholders.
+const previewShortCode = computed(() => {
+  const g = qrEditor.guest;
+  const pubCode = g?.pubCode || 'A7X';
+  return eventBranding._eventCode ? `${eventBranding._eventCode}-${pubCode}` : pubCode;
+});
+const previewSeatType = computed(() => {
+  const t = qrEditor.guest?.type || 'single';
+  return t === 'family' ? `FAMILY (${qrEditor.guest?.familySize || 1})`
+    : t === 'double' ? 'DOUBLE' : 'SINGLE';
+});
+function editorBandStyle(sizeMul) {
+  const scale = Math.min(2, Math.max(0.5, Number(eventBranding.guestCodeSizeScale) || 1));
+  return {
+    fontFamily: eventBranding.guestCodeFont
+      ? `'${eventBranding.guestCodeFont}', sans-serif` : 'Inter, sans-serif',
+    fontWeight: eventBranding.guestCodeWeight || 900,
+    fontStyle: eventBranding.guestCodeStyle === 'italic' ? 'italic' : 'normal',
+    fontSize: `calc(${qrEditor.layout.size * 100}% * ${sizeMul * scale * 0.22})`,
+    letterSpacing: `${(eventBranding.guestCodeLetterSpacing ?? 2) * 0.5}px`,
+    color: eventBranding.textColor || '#2A2417',
+  };
+}
+
 const qrEditor = reactive({
   open: false,
-  mode: 'guest',            // 'guest' | 'variant'
+  mode: 'guest',            // 'guest' | 'variant' | 'bulk'
   guest: null,
   variant: null,
   artUrl: null,             // base card / variant image URL
@@ -451,6 +579,35 @@ function onArtLoad(e) {
 // QR is stamped SQUARE at the composite stage, sized as `size * cardWidth`.
 // Convert that into the overlay's on-canvas rectangle. left/top position the
 // TOP-LEFT corner; we adjust so (x,y) refers to the QR CENTER.
+// Position the short-code band directly above the QR square and the
+// seat-type band directly below it — mirrors the server compositor's
+// bandH = 22% of stampSize placement so the preview matches the render.
+function topBandPositionStyle(l) {
+  const s = clamp(l?.size ?? 0.2, 0.01, 1);
+  const x = clamp(l?.x ?? 0.5, 0, 1);
+  const y = clamp(l?.y ?? 0.75, 0, 1);
+  const aspect = qrEditor.cardAspect || (3 / 4);
+  const heightPct = s * aspect;
+  const bandHPct = s * 0.22 * aspect;
+  return {
+    left: `${(x - s / 2) * 100}%`, width: `${s * 100}%`,
+    top: `${(y - heightPct / 2 - bandHPct) * 100}%`,
+    lineHeight: `${bandHPct * 100}%`,
+  };
+}
+function bottomBandPositionStyle(l) {
+  const s = clamp(l?.size ?? 0.2, 0.01, 1);
+  const x = clamp(l?.x ?? 0.5, 0, 1);
+  const y = clamp(l?.y ?? 0.75, 0, 1);
+  const aspect = qrEditor.cardAspect || (3 / 4);
+  const heightPct = s * aspect;
+  const bandHPct = s * 0.22 * aspect;
+  return {
+    left: `${(x - s / 2) * 100}%`, width: `${s * 100}%`,
+    top: `${(y + heightPct / 2) * 100}%`,
+    lineHeight: `${bandHPct * 100}%`,
+  };
+}
 function qrOverlayStyle(l) {
   const s = clamp(l?.size ?? 0.2, 0.01, 1);
   const x = clamp(l?.x ?? 0.5, 0, 1);
@@ -574,9 +731,31 @@ function invalidateAllThumbs() {
   guests.value.forEach((g, i) => setTimeout(() => loadThumb(g, bust), i * 30));
 }
 
+// PATCH the event with the current typography state — same shape as
+// EventFormView's payload. Fires alongside every Save in the QR editor
+// so operators don't have to hop over to Settings.
+async function persistTypography() {
+  try {
+    await updateEvent(route.params.id, {
+      branding: {
+        qrColor: eventBranding.qrColor,
+        textColor: eventBranding.textColor,
+        logoColor: eventBranding.logoColor,
+        guestCodeFont: eventBranding.guestCodeFont,
+        guestCodeWeight: eventBranding.guestCodeWeight,
+        guestCodeStyle: eventBranding.guestCodeStyle,
+        guestCodeSizeScale: eventBranding.guestCodeSizeScale,
+        guestCodeLetterSpacing: eventBranding.guestCodeLetterSpacing,
+        guestCodeShowSeatType: eventBranding.guestCodeShowSeatType,
+      },
+    });
+  } catch (err) { toast.error(`Typography save failed: ${apiErrorMessage(err)}`); }
+}
+
 async function saveQrLayout() {
   qrEditor.saving = true;
   try {
+    await persistTypography();
     if (qrEditor.mode === 'bulk') {
       const layout = { ...qrEditor.layout };
       const targets = guests.value.filter((g) => !!g.cardImagePath && !g.skipQrOverlay);
@@ -647,7 +826,19 @@ async function resetQr() {
   finally { qrEditor.saving = false; }
 }
 
-onMounted(refresh);
+// Lazy-load the picked font from Google Fonts so the modal preview uses
+// the real typeface. Same mechanism as EventFormView; harmless dedupe.
+watch(() => eventBranding.guestCodeFont, (font) => {
+  if (!font || typeof document === 'undefined') return;
+  if (document.querySelector(`link[data-branding-font="${font}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g, '+')}:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&display=swap`;
+  link.setAttribute('data-branding-font', font);
+  document.head.appendChild(link);
+});
+
+onMounted(() => { refresh(); loadEventBranding(); });
 onBeforeUnmount(() => {
   Object.values(thumbs).forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
 });
