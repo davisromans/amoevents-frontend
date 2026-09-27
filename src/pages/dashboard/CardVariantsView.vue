@@ -161,7 +161,7 @@
         </p>
 
         <!-- Canvas: base card + real QR overlaid -->
-        <div class="relative mx-auto max-w-md w-full rounded-xl overflow-hidden bg-white cursor-crosshair select-none"
+        <div class="qr-editor-canvas relative mx-auto max-w-md w-full rounded-xl overflow-hidden bg-white cursor-crosshair select-none"
              :style="{ aspectRatio: canvasAspect }"
              @click="onCanvasClick"
              @pointerdown="onPointerDown">
@@ -533,12 +533,18 @@ const previewSeatType = computed(() => {
 });
 function editorBandStyle(sizeMul) {
   const scale = Math.min(2, Math.max(0.5, Number(eventBranding.guestCodeSizeScale) || 1));
+  // Pixel-based sizing computed from the measured canvas width. Mirrors the
+  // server compositor: stampSize ≈ layout.size * cardWidth, bandH = 22% of
+  // stampSize, font ≈ 78% of bandH. sizeMul lets us tune per band.
+  const stampPx = canvasPxWidth.value * (qrEditor.layout.size || 0.2);
+  const fontPx = Math.max(6, stampPx * 0.22 * 0.78 * scale * sizeMul);
   return {
     fontFamily: eventBranding.guestCodeFont
       ? `'${eventBranding.guestCodeFont}', sans-serif` : 'Inter, sans-serif',
     fontWeight: eventBranding.guestCodeWeight || 900,
     fontStyle: eventBranding.guestCodeStyle === 'italic' ? 'italic' : 'normal',
-    fontSize: `calc(${qrEditor.layout.size * 100}% * ${sizeMul * scale * 0.22})`,
+    fontSize: `${fontPx}px`,
+    lineHeight: '1',
     letterSpacing: `${(eventBranding.guestCodeLetterSpacing ?? 2) * 0.5}px`,
     color: eventBranding.textColor || '#2A2417',
   };
@@ -571,10 +577,22 @@ function setLayoutField(k, v) {
   qrEditor.layout = { ...qrEditor.layout, [k]: clamp(v, s.min, s.max) };
 }
 const canvasAspect = computed(() => `${Math.round(qrEditor.cardAspect * 1000) / 1000}`);
+// Measured on-screen width of the preview canvas, used to size the text
+// bands in real pixels — a % font-size resolves against parent font-size,
+// not width, so my earlier calc()/% approach rendered ~1px unreadable text.
+const canvasPxWidth = ref(0);
 function onArtLoad(e) {
   const w = e.target.naturalWidth || 0;
   const h = e.target.naturalHeight || 0;
   if (w > 0 && h > 0) qrEditor.cardAspect = w / h;
+  const canvas = e.target.parentElement;
+  if (canvas) canvasPxWidth.value = canvas.clientWidth;
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    const canvas = document.querySelector('.qr-editor-canvas');
+    if (canvas) canvasPxWidth.value = canvas.clientWidth;
+  });
 }
 // QR is stamped SQUARE at the composite stage, sized as `size * cardWidth`.
 // Convert that into the overlay's on-canvas rectangle. left/top position the
