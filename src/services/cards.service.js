@@ -1,17 +1,17 @@
 import http, { unwrap } from '@/services/http';
 
-export async function bulkUploadCards(eventId, files, onProgress) {
+// opts.onDuplicate: 'replace' (default — overwrite an existing card) |
+// 'skip' (leave the guest's current card untouched, drop the new file).
+export async function bulkUploadCards(eventId, files, opts = {}) {
   const form = new FormData();
   for (const f of files) form.append('files', f);
-  // Big invitation PNGs on a Tanzanian mobile link + a 1 vCPU sharp pass
-  // routinely blow past the 20 s global axios default — bump per-request.
-  // Scaled by file count so a 100-file batch has room to breathe.
-  const perFileMs = 8000;
-  const timeout = Math.max(60000, files.length * perFileMs);
+  if (opts.onDuplicate) form.append('onDuplicate', opts.onDuplicate);
+  // One file per request now (CardsView batches at the call site), so a
+  // flat generous timeout is enough — no need to scale by count anymore.
   const res = await http.post(`/events/${eventId}/cards/bulk`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    onUploadProgress: onProgress,
-    timeout,
+    onUploadProgress: opts.onProgress,
+    timeout: 45000,
   });
   return unwrap(res);
 }

@@ -7,6 +7,9 @@
                class="field-input !pl-9 !py-2 !text-sm w-full" />
       </div>
       <div class="flex gap-2">
+        <button class="btn-secondary !text-sm" @click="exportOpen = true">
+          Export names…
+        </button>
         <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">
           Browse templates
         </router-link>
@@ -15,10 +18,82 @@
         </router-link>
       </div>
     </div>
+
+    <!-- Photoshop data-merge export: pick which guests + how names are
+         cased, download a plain .txt ready for Variables/Data Sets. -->
+    <AppModal v-model="exportOpen" title="Export guest names" :maxWidth="480">
+      <div class="space-y-4">
+        <label class="flex flex-col gap-1">
+          <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">Header row (first line)</span>
+          <input v-model="exportOpts.header" type="text" class="field-input !text-sm" placeholder="PersonName" />
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span class="text-xs font-bold text-surface-charcoal dark:text-surface-bone">Name casing</span>
+          <select v-model="exportOpts.casing" class="field-input !text-sm">
+            <option value="asis">As stored</option>
+            <option value="upper">ALL CAPS</option>
+            <option value="title">Title Case</option>
+            <option value="firstword">Only first letter capitalized</option>
+          </select>
+        </label>
+
+        <div class="grid grid-cols-3 gap-2">
+          <label class="flex flex-col gap-1">
+            <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Artwork</span>
+            <select v-model="exportOpts.artwork" class="field-input !py-1.5 !text-xs">
+              <option value="any">Any</option>
+              <option value="with">With artwork</option>
+              <option value="without">Without artwork</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Invitation</span>
+            <select v-model="exportOpts.invitation" class="field-input !py-1.5 !text-xs">
+              <option value="any">Any</option>
+              <option value="invited">Marked invited</option>
+              <option value="not_invited">Not yet invited</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-2xs font-bold text-surface-charcoal dark:text-surface-bone">Pledge</span>
+            <select v-model="exportOpts.pledge" class="field-input !py-1.5 !text-xs">
+              <option value="any">Any</option>
+              <option value="full">Fully paid</option>
+              <option value="partial">Partial</option>
+              <option value="none">None paid</option>
+            </select>
+          </label>
+        </div>
+
+        <p class="text-2xs text-surface-slate dark:text-surface-ash">
+          {{ exportPreviewCount }} guest{{ exportPreviewCount === 1 ? '' : 's' }} match these filters.
+        </p>
+
+        <div class="flex justify-end gap-2 pt-2 border-t border-surface-mist dark:border-surface-fog">
+          <button class="btn-ghost" @click="exportOpen = false">Cancel</button>
+          <button class="btn-primary" :disabled="!exportPreviewCount" @click="downloadExport">Download .txt</button>
+        </div>
+      </div>
+    </AppModal>
     <p class="text-subtext mb-5">
       Filename should match <span class="chip">memberId</span>,
       <span class="chip">phone</span>, or <span class="chip">First Last</span>.
     </p>
+
+    <!-- What to do when a file matches a guest who already has a card.
+         Applies to the NEXT upload you start. -->
+    <div class="flex items-center gap-3 mb-4 text-sm">
+      <span class="text-subtext">If a guest already has a card:</span>
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="radio" value="replace" v-model="duplicateMode" class="accent-brand-gold" />
+        Replace it
+      </label>
+      <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="radio" value="skip" v-model="duplicateMode" class="accent-brand-gold" />
+        Skip (keep existing)
+      </label>
+    </div>
 
     <div
       class="surface-inset p-6 border-2 border-dashed rounded-2xl text-center transition-all cursor-pointer mb-6"
@@ -38,10 +113,11 @@
 
     <div v-if="uploading" class="mb-4">
       <div class="flex items-center justify-between text-sm mb-1">
-        <span class="text-surface-slate dark:text-surface-ash">
-          Uploading batch {{ uploadBatchIndex }} of {{ uploadBatchTotal }}…
+        <span class="text-surface-slate dark:text-surface-ash">Uploading…</span>
+        <span class="tabular-nums font-bold">
+          {{ uploadFilesDone }} / {{ uploadFilesTotal }} uploaded
+          <span v-if="uploadFilesFailed" class="text-state-danger">({{ uploadFilesFailed }} failed)</span>
         </span>
-        <span class="tabular-nums font-bold">{{ uploadFilesDone }} / {{ uploadFilesTotal }} uploaded</span>
       </div>
       <div class="h-1.5 bg-surface-mist dark:bg-surface-fog rounded-full overflow-hidden">
         <div class="h-full bg-gradient-gold transition-all" :style="{ width: `${progress}%` }" />
@@ -110,6 +186,7 @@ import { listGuests } from '@/services/guests.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
 import SummaryTile from '@/components/events/EventStat.vue';
+import AppModal from '@/components/common/AppModal.vue';
 
 const route = useRoute();
 const toast = useToast();
@@ -125,9 +202,12 @@ const progress = ref(0);
 // files the server has genuinely finished processing, not bytes in flight.
 const uploadFilesDone = ref(0);
 const uploadFilesTotal = ref(0);
-const uploadBatchIndex = ref(0);
-const uploadBatchTotal = ref(0);
-const UPLOAD_BATCH_SIZE = 20;
+const uploadFilesFailed = ref(0);
+// One file per request, several in flight at once — a single request can
+// never wait on 19 OTHER files before the operator sees any movement, and a
+// failed file only costs re-sending that one file, not a whole batch's MB.
+const UPLOAD_CONCURRENCY = 5;
+const duplicateMode = ref('replace'); // 'replace' | 'skip' — see the upload-options row
 const loading = ref(true);
 const search = ref('');
 const matched = ref([]);       // [{ guestId, name, memberId, phone, cardImagePath }]
@@ -188,36 +268,97 @@ async function upload(files) {
   uploading.value = true;
   progress.value = 0;
   uploadFilesDone.value = 0;
+  uploadFilesFailed.value = 0;
   uploadFilesTotal.value = files.length;
-  const batches = [];
-  for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) batches.push(files.slice(i, i + UPLOAD_BATCH_SIZE));
-  uploadBatchTotal.value = batches.length;
-  uploadBatchIndex.value = 0;
 
   let totalMatched = 0;
   let totalUnmatched = 0;
-  let hadError = false;
-  try {
-    for (const batch of batches) {
-      uploadBatchIndex.value += 1;
+  const failedNames = [];
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < files.length) {
+      const file = files[cursor];
+      cursor += 1;
       try {
-        const res = await bulkUploadCards(route.params.id, batch);
+        const res = await bulkUploadCards(route.params.id, [file], { onDuplicate: duplicateMode.value });
         totalMatched += res.summary?.matched || 0;
         totalUnmatched += res.summary?.unmatched || 0;
       } catch (err) {
-        hadError = true;
-        toast.error(`Batch ${uploadBatchIndex.value}/${batches.length} failed: ${apiErrorMessage(err)}`);
-        // Keep going with the remaining batches instead of abandoning the
-        // whole queue over one bad batch (e.g. a single corrupt file).
+        uploadFilesFailed.value += 1;
+        failedNames.push(file.name);
       }
-      uploadFilesDone.value = Math.min(files.length, uploadFilesDone.value + batch.length);
+      uploadFilesDone.value += 1;
       progress.value = Math.round((uploadFilesDone.value / uploadFilesTotal.value) * 100);
     }
+  }
+
+  try {
+    // A handful of workers pull from the same cursor — real parallelism
+    // without ever having more than UPLOAD_CONCURRENCY requests in flight,
+    // so one slow file never blocks the whole queue's progress the way a
+    // single strictly-sequential loop would.
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
     const summary = `${totalMatched} matched, ${totalUnmatched} need assignment`;
-    if (hadError) toast.error(`${summary} — some batches failed, see above`);
-    else toast.success(summary);
+    if (failedNames.length) {
+      toast.error(`${summary} — ${failedNames.length} failed: ${failedNames.slice(0, 5).join(', ')}${failedNames.length > 5 ? '…' : ''}`);
+    } else {
+      toast.success(summary);
+    }
     await refresh();
   } finally { uploading.value = false; }
+}
+
+// ---- Photoshop name-list export ----
+const exportOpen = ref(false);
+const exportOpts = reactive({
+  header: 'PersonName',
+  casing: 'asis',
+  artwork: 'any',
+  invitation: 'any',
+  pledge: 'any',
+});
+function applyCasing(name, mode) {
+  if (mode === 'upper') return name.toUpperCase();
+  if (mode === 'title') return name.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
+  if (mode === 'firstword') return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+  return name;
+}
+function guestPledgeState(g) {
+  const amount = g.pledge?.amount || 0;
+  const received = g.pledge?.receivedTZS || 0;
+  if (amount <= 0 || received <= 0) return 'none';
+  if (received >= amount) return 'full';
+  return 'partial';
+}
+const filteredForExport = computed(() => {
+  return guestOptions.value.filter((g) => {
+    if (exportOpts.artwork === 'with' && !g.cardImagePath) return false;
+    if (exportOpts.artwork === 'without' && g.cardImagePath) return false;
+    const invited = (g.invitationCount || 0) > 0;
+    if (exportOpts.invitation === 'invited' && !invited) return false;
+    if (exportOpts.invitation === 'not_invited' && invited) return false;
+    if (exportOpts.pledge !== 'any' && guestPledgeState(g) !== exportOpts.pledge) return false;
+    return true;
+  });
+});
+const exportPreviewCount = computed(() => filteredForExport.value.length);
+function downloadExport() {
+  const lines = [exportOpts.header || 'PersonName'];
+  for (const g of filteredForExport.value) {
+    const name = `${g.firstName || ''} ${g.lastName || ''}`.trim().replace(/\s+/g, ' ');
+    lines.push(applyCasing(name, exportOpts.casing));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `guest_names_${route.params.id}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  exportOpen.value = false;
 }
 
 async function assignOne(u) {
