@@ -941,6 +941,16 @@ async function saveQrLayout() {
   qrEditor.saving = true;
   try {
     await persistTypography();
+    // BULLETPROOF cache clear: wipe every rendered thumbnail on the
+    // origin AND reset skipQrOverlay in one shot. Without this, colors /
+    // typography / positions change on the DB but the rendered cache
+    // still serves the old composite, and operators see nothing update.
+    await repairCards(route.params.id).catch(() => {});
+    // Force local + browser cache miss on EVERY thumbnail (not just the
+    // one guest, not just when in variant/bulk mode) so any branding
+    // change on the event repaints every card. Redundant for
+    // variant/bulk paths below but cheap and correct for all three.
+    invalidateAllThumbs();
     if (qrEditor.mode === 'bulk') {
       const layout = { ...qrEditor.layout };
       // Every guest with uploaded artwork, INCLUDING those previously
