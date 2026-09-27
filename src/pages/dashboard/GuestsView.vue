@@ -220,7 +220,7 @@
             </template>
           </Field>
         </div>
-        <Field label="Phone" required>
+        <Field label="Phone" help="Leave blank if you don't have it yet — you can add it later.">
           <template #default="{ id }">
             <PhoneInput v-model="form.phone" :id="id" />
           </template>
