@@ -3,9 +3,15 @@ import http, { unwrap } from '@/services/http';
 export async function bulkUploadCards(eventId, files, onProgress) {
   const form = new FormData();
   for (const f of files) form.append('files', f);
+  // Big invitation PNGs on a Tanzanian mobile link + a 1 vCPU sharp pass
+  // routinely blow past the 20 s global axios default — bump per-request.
+  // Scaled by file count so a 100-file batch has room to breathe.
+  const perFileMs = 8000;
+  const timeout = Math.max(60000, files.length * perFileMs);
   const res = await http.post(`/events/${eventId}/cards/bulk`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: onProgress,
+    timeout,
   });
   return unwrap(res);
 }
