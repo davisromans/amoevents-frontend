@@ -59,6 +59,41 @@
           Reset to default gold
         </button>
 
+        <!-- Live preview — updates as colors / font / weight / size change,
+             so the operator sees exactly how the guest code + seat-type strip
+             will render on the composited card. Uses a mock QR (checkerboard)
+             tinted with qrColor + the real fonts loaded from Google Fonts. -->
+        <div class="mt-4 pt-4 border-t border-surface-mist dark:border-surface-fog">
+          <p class="section-eyebrow mb-2">Preview</p>
+          <div class="flex justify-center bg-surface-cream dark:bg-surface-night rounded-xl p-4">
+            <div class="relative w-40 h-56 rounded-lg overflow-hidden shadow-md"
+                 :style="{ background: `linear-gradient(135deg, ${form.branding.logoColor || DEFAULT_LOGO_COLOR}22, ${form.branding.qrColor || DEFAULT_QR_COLOR}22)` }">
+              <div class="absolute inset-x-3 top-3 flex justify-center">
+                <div class="w-8 h-8 rounded-full border-2"
+                     :style="{ borderColor: form.branding.logoColor || DEFAULT_LOGO_COLOR }"></div>
+              </div>
+              <div class="absolute inset-x-0 flex flex-col items-center"
+                   :style="{ top: '38%' }">
+                <div class="tabular-nums leading-none mb-1"
+                     :style="previewLabelStyle(0.9)">
+                  DAV-A7X
+                </div>
+                <div class="grid grid-cols-6 gap-[1px] p-1 rounded"
+                     :style="{ background: '#fff' }">
+                  <div v-for="(cell, i) in previewQrCells" :key="i"
+                       class="w-2 h-2"
+                       :style="{ background: cell ? (form.branding.qrColor || DEFAULT_QR_COLOR) : '#fff' }"></div>
+                </div>
+                <div v-if="form.branding.guestCodeShowSeatType !== false"
+                     class="tabular-nums leading-none mt-1"
+                     :style="previewLabelStyle(0.75)">
+                  SINGLE
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Guest-code typography — controls the SHORT-CODE text drawn above
              the QR and the SINGLE/DOUBLE/FAMILY strip below it. -->
         <div class="mt-4 pt-4 border-t border-surface-mist dark:border-surface-fog space-y-3">
@@ -236,7 +271,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createEvent, updateEvent, getEvent } from '@/services/events.service';
 import { apiErrorMessage } from '@/services/http';
@@ -388,6 +423,42 @@ function applyTypeDefaults(slug) {
   if (!form.hostText && def.defaultHostText) form.hostText = def.defaultHostText;
   if (def.hasChurch) form.church.enabled = true;
 }
+
+// Preview helpers. previewLabelStyle turns the current branding fields into
+// CSS the mock card labels render with — same knobs the server-side SVG
+// renderer honors (variants.service.js), so what the operator sees here is
+// what actually ships on the card.
+function previewLabelStyle(sizeMul) {
+  const scale = Math.min(2, Math.max(0.5, Number(form.branding.guestCodeSizeScale) || 1));
+  return {
+    fontFamily: form.branding.guestCodeFont
+      ? `'${form.branding.guestCodeFont}', sans-serif` : 'Inter, sans-serif',
+    fontWeight: form.branding.guestCodeWeight || 900,
+    fontStyle: form.branding.guestCodeStyle === 'italic' ? 'italic' : 'normal',
+    fontSize: `${9 * sizeMul * scale}px`,
+    letterSpacing: `${(form.branding.guestCodeLetterSpacing ?? 2) * 0.5}px`,
+    color: form.branding.textColor || DEFAULT_TEXT_COLOR,
+  };
+}
+// Static 6x6 checkerboard mock QR — enough visual weight to make the
+// qrColor selection feel real without importing a QR lib for a preview.
+const previewQrCells = [
+  1,1,1,0,1,1, 1,0,0,1,0,1, 1,0,1,0,1,1,
+  0,1,0,1,0,0, 1,0,1,1,0,1, 1,1,1,0,1,1,
+];
+// Lazy-load the chosen Google Font so the preview renders with the real
+// typeface instead of a generic fallback. One <link> per family; re-picking
+// injects another link but the browser deduplicates identical hrefs.
+watch(() => form.branding.guestCodeFont, (font) => {
+  if (!font || typeof document === 'undefined') return;
+  const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g, '+')}:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&display=swap`;
+  if (document.querySelector(`link[data-branding-font="${font}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  link.setAttribute('data-branding-font', font);
+  document.head.appendChild(link);
+}, { immediate: true });
 
 async function submit() {
   serverError.value = '';
