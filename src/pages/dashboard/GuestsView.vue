@@ -41,6 +41,11 @@
                placeholder="Search name, phone, or member ID…"
                class="field-input !pl-10 w-full" />
       </div>
+      <select v-model="sortMode" class="field-input !py-2 !text-sm !w-auto" title="Sort order">
+        <option value="import">Import order (default)</option>
+        <option value="az">Name A → Z</option>
+        <option value="za">Name Z → A</option>
+      </select>
     </div>
 
     <div v-if="loading" class="flex justify-center py-16"><LoadingSpinner /></div>
@@ -498,6 +503,9 @@ const rsvpCounts = computed(() => {
   return c;
 });
 
+// 'import' keeps the server order (same as pledges — mirrors the excel
+// the sheet was imported from). 'az' / 'za' resort by full name.
+const sortMode = ref('import');
 const filtered = computed(() => {
   let list = items.value;
   if (rsvpFilter.value !== 'all') list = list.filter((g) => (g.rsvpStatus || 'pending') === rsvpFilter.value);
@@ -510,14 +518,15 @@ const filtered = computed(() => {
       || (g.memberId || '').toLowerCase().includes(s),
     );
   }
-  // Sort A→Z by full name so it's easy to track a guest — same ordering
-  // the pledge page rows read as (numbered, scannable list). Rendered rows
-  // pick up the row index next to each row.
-  return [...list].sort((a, b) => {
-    const an = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
-    const bn = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
-    return an.localeCompare(bn);
-  });
+  if (sortMode.value === 'az' || sortMode.value === 'za') {
+    const dir = sortMode.value === 'az' ? 1 : -1;
+    list = [...list].sort((a, b) => {
+      const an = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
+      const bn = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
+      return an.localeCompare(bn) * dir;
+    });
+  }
+  return list;
 });
 
 async function refresh() {
