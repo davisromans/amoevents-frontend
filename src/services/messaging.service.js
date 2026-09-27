@@ -25,7 +25,7 @@ export async function guestMessageHistory(eventId, guestId) {
   return unwrap(res);
 }
 export async function retryFailedFromJob(jobId, guestIds = []) {
-  const { data } = await http.post(`/messaging/jobs/${jobId}/retry-failed`, { guestIds });
+  const { data } = await http.post(`/messages/${jobId}/retry-failed`, { guestIds });
   return data?.data || data;
 }
 
