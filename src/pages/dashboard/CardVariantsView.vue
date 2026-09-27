@@ -471,9 +471,14 @@ async function refresh() {
     // exists for the event. Guests with no path AND no sampler get a "No
     // artwork" tile without a network call.
     const hasSampler = !!samplerVariant.value;
+    // Bust on initial page load so a browser that held a pre-fix
+    // "stamp=false" response can't reuse it — the server sends
+    // Cache-Control: no-store but disk/HTTP layers between us and the
+    // client sometimes ignore that.
+    const initialBust = Date.now();
     items.forEach((g, i) => {
       const canRender = !!g.cardImagePath || hasSampler;
-      if (canRender) setTimeout(() => loadThumb(g), i * 30);
+      if (canRender) setTimeout(() => loadThumb(g, initialBust), i * 30);
       else thumbErrors[g._id] = true;
     });
   } catch (err) { toast.error(apiErrorMessage(err)); }
@@ -891,10 +896,15 @@ async function saveQrLayout() {
     await persistTypography();
     if (qrEditor.mode === 'bulk') {
       const layout = { ...qrEditor.layout };
-      const targets = guests.value.filter((g) => !!g.cardImagePath && !g.skipQrOverlay);
+      // Every guest with uploaded artwork, INCLUDING those previously
+      // opted out of the QR overlay — Position-QR-for-all is a hard reset:
+      // it explicitly re-enables the stamp for every card in the batch.
+      const targets = guests.value.filter((g) => !!g.cardImagePath);
       await Promise.allSettled(
-        targets.map((g) => updateGuest(route.params.id, g._id, { qrLayout: layout })
-          .then(() => { g.qrLayout = { ...layout }; })
+        targets.map((g) => updateGuest(route.params.id, g._id, {
+          qrLayout: layout,
+          skipQrOverlay: false,
+        }).then(() => { g.qrLayout = { ...layout }; g.skipQrOverlay = false; })
           .catch(() => {})),
       );
       invalidateAllThumbs();
