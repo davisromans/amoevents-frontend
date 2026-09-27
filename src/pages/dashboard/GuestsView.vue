@@ -42,7 +42,8 @@
                class="field-input !pl-10 w-full" />
       </div>
       <select v-model="sortMode" class="field-input !py-2 !text-sm !w-auto" title="Sort order">
-        <option value="import">Import order (default)</option>
+        <option value="import">Import order — first row first</option>
+        <option value="import-reversed">Newest first (most recently added)</option>
         <option value="az">Name A → Z</option>
         <option value="za">Name Z → A</option>
       </select>
@@ -503,8 +504,13 @@ const rsvpCounts = computed(() => {
   return c;
 });
 
-// 'import' keeps the server order (same as pledges — mirrors the excel
-// the sheet was imported from). 'az' / 'za' resort by full name.
+// Sort modes:
+//  - 'import'          — mirrors the imported excel: FIRST row of the sheet
+//                        at the top. The API returns newest-first
+//                        (createdAt desc), so we reverse it here.
+//  - 'import-reversed' — server order (newest inserted first) if the operator
+//                        wants to flip.
+//  - 'az' / 'za'       — alphabetical.
 const sortMode = ref('import');
 const filtered = computed(() => {
   let list = items.value;
@@ -525,6 +531,8 @@ const filtered = computed(() => {
       const bn = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
       return an.localeCompare(bn) * dir;
     });
+  } else if (sortMode.value === 'import') {
+    list = [...list].reverse();
   }
   return list;
 });
