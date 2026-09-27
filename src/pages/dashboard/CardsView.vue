@@ -275,7 +275,11 @@ function onPick(e) {
 // decides for real), just an optimization so "skip" mode never transfers
 // a file over the network only to have the server throw it away. A file
 // this can't confidently match still gets uploaded and handled normally.
-function nameKeyClient(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+// Same punctuation-stripping as the backend's matchGuest() (cards.service.js)
+// — a guest stored as "MR. MASOUD" must normalize the same way the cleaned
+// filename "mr masoud" does, or this pre-filter silently disagrees with the
+// server's own matcher.
+function nameKeyClient(s) { return String(s || '').trim().toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' '); }
 function phoneKeyClient(p) { return String(p || '').replace(/\D/g, ''); }
 function findGuestForFilename(base, guests) {
   const clean = base.replace(/[._-]+/g, ' ').trim();
