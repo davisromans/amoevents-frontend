@@ -100,7 +100,7 @@ onUnmounted(() => { if (pollTimer) window.clearInterval(pollTimer); });
       <div class="flex-1 overflow-y-auto">
         <button v-for="c in conversations" :key="c._id" @click="openConversation(c)" class="w-full text-left px-4 py-3 border-b border-surface-line/70 dark:border-surface-line-dark hover:bg-brand-gold/10" :class="selected?._id === c._id ? 'bg-brand-gold/15' : ''">
           <div class="flex items-center justify-between"><strong class="truncate text-sm text-surface-ink dark:text-white">{{ c.displayName }}</strong><span class="text-[10px] text-surface-slate">{{ time(c.lastMessageAt) }}</span></div>
-          <div class="flex items-center justify-between gap-2 mt-1"><span class="truncate text-xs text-surface-slate">{{ c.lastMessageText || c.phone }}</span><span v-if="c.unreadCount" class="rounded-full bg-brand-gold px-2 py-0.5 text-[10px] font-bold">{{ c.unreadCount }}</span></div>
+          <div class="flex items-center justify-between gap-2 mt-1"><span class="truncate text-xs text-surface-slate">{{ c.lastMessageText || c.phone }}</span><span class="flex items-center gap-2 shrink-0"><span v-if="c.lastMessageType === 'template' && c.lastMessageMediaUrl" class="text-[10px] text-surface-slate">▧</span><span v-if="c.lastMessageStatus" :class="tickClass(c.lastMessageStatus)" class="text-sm font-black">{{ ticks(c.lastMessageStatus) }}</span><span v-if="c.unreadCount" class="rounded-full bg-brand-gold px-2 py-0.5 text-[10px] font-bold">{{ c.unreadCount }}</span></span></div>
         </button>
         <p v-if="!loading && !conversations.length" class="p-6 text-sm text-surface-slate">No conversations for this event yet.</p>
       </div>
