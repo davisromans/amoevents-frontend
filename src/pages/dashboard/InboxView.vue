@@ -93,7 +93,9 @@ onUnmounted(() => { if (pollTimer) window.clearInterval(pollTimer); });
       <div class="p-4 border-b border-surface-line dark:border-surface-line-dark">
         <div class="flex items-center justify-between mb-3"><h1 class="text-lg font-black text-surface-ink dark:text-white">WhatsApp Inbox</h1><span class="text-xs text-surface-slate">This event only</span></div>
         <input v-model="search" @keyup.enter="loadList" class="field-input mb-2" placeholder="Search name or phone…" />
-        <select v-model="filter" @change="loadList" class="field-input text-xs"><option value="all">All conversations</option><option value="unread">Unread</option><option value="sent">Sent</option><option value="delivered">Delivered</option><option value="read">Read</option><option value="failed">Failed</option></select>
+        <div class="flex gap-1.5 overflow-x-auto pb-1">
+          <button v-for="item in [{ value: 'all', label: 'All' }, { value: 'unread', label: 'Unread' }, { value: 'sent', label: 'Sent' }, { value: 'delivered', label: 'Delivered' }, { value: 'read', label: 'Read' }, { value: 'failed', label: 'Failed' }]" :key="item.value" @click="filter = item.value; loadList()" class="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors" :class="filter === item.value ? 'bg-brand-gold text-surface-ink shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-surface-slate hover:bg-slate-200 dark:hover:bg-slate-700'">{{ item.label }}</button>
+        </div>
       </div>
       <div class="flex-1 overflow-y-auto">
         <button v-for="c in conversations" :key="c._id" @click="openConversation(c)" class="w-full text-left px-4 py-3 border-b border-surface-line/70 dark:border-surface-line-dark hover:bg-brand-gold/10" :class="selected?._id === c._id ? 'bg-brand-gold/15' : ''">
