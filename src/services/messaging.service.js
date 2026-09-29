@@ -64,3 +64,7 @@ export async function replyToInbox(eventId, conversationId, text) {
   const res = await http.post(`/events/${eventId}/inbox/${conversationId}/reply`, { text });
   return unwrap(res);
 }
+export async function replyToInboxTemplate(eventId, conversationId, payload) {
+  const res = await http.post(`/events/${eventId}/inbox/${conversationId}/reply-template`, payload);
+  return unwrap(res);
+}
