@@ -48,8 +48,8 @@ export async function checkAllWa(eventId, force = false) {
   return unwrap(res);
 }
 
-export async function listInbox(eventId, q = '') {
-  const res = await http.get(`/events/${eventId}/inbox`, { params: q ? { q } : {} });
+export async function listInbox(eventId, q = '', filters = {}) {
+  const res = await http.get(`/events/${eventId}/inbox`, { params: { ...(q ? { q } : {}), ...filters } });
   return unwrap(res);
 }
 export async function inboxConversation(eventId, conversationId) {

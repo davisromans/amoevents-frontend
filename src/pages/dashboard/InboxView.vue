@@ -10,6 +10,7 @@ const conversations = ref([]);
 const selected = ref(null);
 const messages = ref([]);
 const search = ref('');
+const filter = ref('all');
 const draft = ref('');
 const loading = ref(false);
 const sending = ref(false);
@@ -22,7 +23,8 @@ const templateParams = ref('');
 let pollTimer;
 
 async function loadList() {
-  const fresh = await listInbox(eventId.value, search.value);
+  const filters = filter.value === 'unread' ? { unread: 'true' } : (filter.value === 'all' ? {} : { status: filter.value });
+  const fresh = await listInbox(eventId.value, search.value, filters);
   conversations.value = fresh;
   if (selected.value) {
     const current = fresh.find((c) => c._id === selected.value._id);
@@ -59,6 +61,19 @@ async function sendTemplateReply() {
 }
 function time(value) { return value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
 function windowLabel(value) { return value && new Date(value) > new Date() ? `Free reply until ${new Date(value).toLocaleString()}` : 'Template required'; }
+const displayMessages = computed(() => {
+  const rank = { failed: 5, read: 4, delivered: 3, sent: 2, queued: 1 };
+  const result = [];
+  for (const message of messages.value) {
+    const previous = result[result.length - 1];
+    const same = previous && previous.direction === message.direction && previous.text === message.text && Math.abs(new Date(previous.receivedAt) - new Date(message.receivedAt)) < 120000;
+    if (same) { if ((rank[message.providerStatus] || 0) > (rank[previous.providerStatus] || 0)) previous.providerStatus = message.providerStatus; continue; }
+    result.push({ ...message });
+  }
+  return result;
+});
+function ticks(status) { if (status === 'failed') return '×'; if (status === 'read') return '✓✓'; if (status === 'delivered') return '✓✓'; return '✓'; }
+function tickClass(status) { return status === 'failed' ? 'text-red-500' : status === 'read' ? 'text-sky-500' : 'text-slate-400'; }
 async function pollInbox() {
   try {
     await loadList();
@@ -77,7 +92,8 @@ onUnmounted(() => { if (pollTimer) window.clearInterval(pollTimer); });
     <aside class="w-[330px] shrink-0 border-r border-surface-line dark:border-surface-line-dark flex flex-col">
       <div class="p-4 border-b border-surface-line dark:border-surface-line-dark">
         <div class="flex items-center justify-between mb-3"><h1 class="text-lg font-black text-surface-ink dark:text-white">WhatsApp Inbox</h1><span class="text-xs text-surface-slate">This event only</span></div>
-        <input v-model="search" @keyup.enter="loadList" class="field-input" placeholder="Search name or phone…" />
+        <input v-model="search" @keyup.enter="loadList" class="field-input mb-2" placeholder="Search name or phone…" />
+        <select v-model="filter" @change="loadList" class="field-input text-xs"><option value="all">All conversations</option><option value="unread">Unread</option><option value="sent">Sent</option><option value="delivered">Delivered</option><option value="read">Read</option><option value="failed">Failed</option></select>
       </div>
       <div class="flex-1 overflow-y-auto">
         <button v-for="c in conversations" :key="c._id" @click="openConversation(c)" class="w-full text-left px-4 py-3 border-b border-surface-line/70 dark:border-surface-line-dark hover:bg-brand-gold/10" :class="selected?._id === c._id ? 'bg-brand-gold/15' : ''">
@@ -94,9 +110,9 @@ onUnmounted(() => { if (pollTimer) window.clearInterval(pollTimer); });
           <span class="text-xs" :class="selected.freeWindowExpiresAt && new Date(selected.freeWindowExpiresAt) > new Date() ? 'text-emerald-600' : 'text-amber-600'">{{ windowLabel(selected.freeWindowExpiresAt) }}</span>
         </header>
         <section class="flex-1 overflow-y-auto p-5 space-y-3 bg-surface-mist/40 dark:bg-surface-night/60">
-          <div v-for="m in messages" :key="m._id" class="flex" :class="m.direction === 'outbound' ? 'justify-end' : 'justify-start'"><div class="max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm" :class="m.direction === 'outbound' ? 'bg-brand-gold text-surface-ink rounded-br-sm' : 'bg-white dark:bg-surface-ash text-surface-ink dark:text-white rounded-bl-sm'"><p class="whitespace-pre-wrap">{{ m.text }}</p><p class="text-[10px] opacity-60 text-right mt-1">{{ time(m.receivedAt) }} <span v-if="m.providerStatus"> · {{ m.providerStatus }}</span></p></div></div>
+          <div v-for="m in displayMessages" :key="m._id" class="flex" :class="m.direction === 'outbound' ? 'justify-end' : 'justify-start'"><div class="max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-sm" :class="m.direction === 'outbound' ? 'bg-white dark:bg-surface-ash text-surface-ink dark:text-white rounded-br-sm border border-slate-200 dark:border-slate-700' : 'bg-emerald-50 dark:bg-emerald-950/30 text-surface-ink dark:text-white rounded-bl-sm'"><img v-if="m.mediaUrl" :src="m.mediaUrl" class="max-h-64 rounded-xl mb-2 object-contain" /><img v-if="!m.mediaUrl && m.direction === 'outbound' && selected.cardMediaUrl && m.messageType === 'whatsapp'" :src="selected.cardMediaUrl" class="max-h-64 rounded-xl mb-2 object-contain" /><p class="whitespace-pre-wrap">{{ m.text }}</p><p class="text-[10px] opacity-60 text-right mt-1">{{ time(m.receivedAt) }} <span v-if="m.direction === 'outbound'" :class="tickClass(m.providerStatus)" class="font-black ml-1">{{ ticks(m.providerStatus) }}</span></p></div></div>
         </section>
-        <footer class="p-4 border-t border-surface-line dark:border-surface-line-dark"><p v-if="error" class="mb-2 text-xs text-red-600">{{ error }}</p><div class="flex gap-2 mb-2"><button class="text-xs font-bold underline" @click="templateMode = !templateMode">{{ templateMode ? 'Use free reply' : 'Use approved template' }}</button><span v-if="selected.freeWindowExpiresAt && new Date(selected.freeWindowExpiresAt) <= new Date()" class="text-xs text-amber-600">Free window closed</span></div><div v-if="templateMode" class="space-y-2"><select v-model="selectedTemplate" class="field-input"><option value="">Choose approved template…</option><option v-for="t in waTemplates" :key="t.name + t.language" :value="t.name">{{ t.name }} [{{ t.language }}]</option></select><input v-model="templateParams" class="field-input" placeholder="Variables in order, separated by | (optional)" /><button @click="sendTemplateReply" :disabled="sending || !selectedTemplate" class="btn-primary w-full">{{ sending ? 'Sending…' : 'Send approved template' }}</button></div><div v-else class="flex gap-2"><textarea v-model="draft" @keydown.enter.exact.prevent="sendReply" rows="2" class="field-input flex-1 resize-none" placeholder="Type a reply…" /><button @click="sendReply" :disabled="sending || !draft.trim()" class="btn-primary px-5">{{ sending ? 'Sending…' : 'Send' }}</button></div></footer>
+        <footer class="p-4 border-t border-surface-line dark:border-surface-line-dark"><p v-if="error" class="mb-2 text-xs text-red-600">{{ error }}</p><div class="flex items-center justify-between mb-2"><div class="flex gap-1 rounded-lg bg-slate-100 dark:bg-slate-800 p-1"><button class="px-3 py-1 rounded-md text-xs font-bold" :class="!templateMode ? 'bg-white dark:bg-slate-700 shadow' : ''" @click="templateMode = false">Message</button><button class="px-3 py-1 rounded-md text-xs font-bold" :class="templateMode ? 'bg-white dark:bg-slate-700 shadow' : ''" @click="templateMode = true">Template</button></div><span v-if="selected.freeWindowExpiresAt && new Date(selected.freeWindowExpiresAt) <= new Date()" class="text-xs text-amber-600">Template required</span></div><div v-if="templateMode" class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3 space-y-2"><select v-model="selectedTemplate" class="field-input"><option value="">Choose an approved template…</option><option v-for="t in waTemplates" :key="t.name + t.language" :value="t.name">{{ t.name }} [{{ t.language }}]</option></select><input v-model="templateParams" class="field-input" placeholder="Template values in order, separate with |" /><button @click="sendTemplateReply" :disabled="sending || !selectedTemplate" class="btn-primary w-full">{{ sending ? 'Sending…' : 'Send template' }}</button></div><div v-else class="flex gap-2"><textarea v-model="draft" @keydown.enter.exact.prevent="sendReply" rows="2" class="field-input flex-1 resize-none" placeholder="Type a reply…" /><button @click="sendReply" :disabled="sending || !draft.trim()" class="btn-primary px-5">{{ sending ? 'Sending…' : 'Send' }}</button></div></footer>
       </template>
       <div v-else class="m-auto text-center text-surface-slate"><p class="text-lg font-bold">Select a conversation</p><p class="text-sm mt-1">Messages from other events will never appear here.</p></div>
     </main>
