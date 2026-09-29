@@ -11,6 +11,9 @@
           Reminders
         </Button>
       </router-link>
+      <router-link :to="`/app/events/${route.params.id}/inbox`">
+        <Button variant="secondary" size="md">💬 Inbox</Button>
+      </router-link>
     </template>
 
     <WatermarkBanner :event="event" audience="owner" />
