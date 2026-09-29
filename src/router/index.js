@@ -40,6 +40,7 @@ const routes = [
       { path: 'events/:id/cards/variants', component: () => import('@/pages/dashboard/CardVariantsView.vue') },
       { path: 'events/:id/cards/templates', component: () => import('@/pages/dashboard/CardTemplatesPickView.vue') },
       { path: 'events/:id/messaging', component: () => import('@/pages/dashboard/MessagingView.vue') },
+      { path: 'events/:id/inbox', component: () => import('@/pages/dashboard/InboxView.vue') },
       { path: 'events/:id/reminders', component: () => import('@/pages/dashboard/RemindersView.vue') },
       { path: 'events/:id/gallery', component: () => import('@/pages/dashboard/GalleryView.vue') },
       { path: 'events/:id/tags', component: () => import('@/pages/dashboard/TagsView.vue') },

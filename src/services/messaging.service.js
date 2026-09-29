@@ -47,3 +47,20 @@ export async function checkAllWa(eventId, force = false) {
   const res = await http.post(`/events/${eventId}/wa-check/all`, { force }, { timeout: 180000 });
   return unwrap(res);
 }
+
+export async function listInbox(eventId, q = '') {
+  const res = await http.get(`/events/${eventId}/inbox`, { params: q ? { q } : {} });
+  return unwrap(res);
+}
+export async function inboxConversation(eventId, conversationId) {
+  const res = await http.get(`/events/${eventId}/inbox/${conversationId}/messages`);
+  return unwrap(res);
+}
+export async function markInboxRead(eventId, conversationId) {
+  const res = await http.post(`/events/${eventId}/inbox/${conversationId}/read`);
+  return unwrap(res);
+}
+export async function replyToInbox(eventId, conversationId, text) {
+  const res = await http.post(`/events/${eventId}/inbox/${conversationId}/reply`, { text });
+  return unwrap(res);
+}
