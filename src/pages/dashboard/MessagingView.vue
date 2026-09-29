@@ -11,9 +11,6 @@
           Reminders
         </Button>
       </router-link>
-      <router-link :to="`/app/events/${route.params.id}/inbox`">
-        <Button variant="secondary" size="md">💬 Inbox</Button>
-      </router-link>
     </template>
 
     <WatermarkBanner :event="event" audience="owner" />
@@ -27,6 +24,7 @@
                          ? 'bg-surface-ivory dark:bg-surface-coal shadow-elev-1 text-surface-charcoal dark:text-surface-bone'
                          : 'text-surface-slate dark:text-surface-ash hover:text-surface-charcoal dark:hover:text-surface-bone']"
               @click="channel = c.value">{{ c.label }}</button>
+      <router-link :to="`/app/events/${route.params.id}/inbox`" class="px-4 py-1.5 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 whitespace-nowrap">💬 Inbox</router-link>
     </div>
 
     <!-- Template picker: custom list (native <select> replaced so rows can be

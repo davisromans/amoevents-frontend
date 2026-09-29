@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { listInbox, inboxConversation, markInboxRead, replyToInbox, replyToInboxTemplate } from '@/services/messaging.service';
 import { listWhatsAppTemplates } from '@/services/whatsappTemplates.service';
@@ -19,9 +19,15 @@ const templateMode = ref(false);
 const selectedTemplate = ref('');
 const templateLanguage = ref('sw');
 const templateParams = ref('');
+let pollTimer;
 
 async function loadList() {
-  conversations.value = await listInbox(eventId.value, search.value);
+  const fresh = await listInbox(eventId.value, search.value);
+  conversations.value = fresh;
+  if (selected.value) {
+    const current = fresh.find((c) => c._id === selected.value._id);
+    if (current) selected.value = { ...selected.value, ...current };
+  }
   if (!selected.value && conversations.value.length) await openConversation(conversations.value[0]);
 }
 async function openConversation(item) {
@@ -53,7 +59,17 @@ async function sendTemplateReply() {
 }
 function time(value) { return value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
 function windowLabel(value) { return value && new Date(value) > new Date() ? `Free reply until ${new Date(value).toLocaleString()}` : 'Template required'; }
-onMounted(async () => { loading.value = true; try { const data = await listWhatsAppTemplates(); waTemplates.value = data.items || []; await loadList(); } finally { loading.value = false; } });
+async function pollInbox() {
+  try {
+    await loadList();
+    if (selected.value) {
+      const data = await inboxConversation(eventId.value, selected.value._id);
+      messages.value = data.messages || [];
+    }
+  } catch (_) { /* transient network errors are retried on the next poll */ }
+}
+onMounted(async () => { loading.value = true; try { const data = await listWhatsAppTemplates(); waTemplates.value = data.items || []; await loadList(); pollTimer = window.setInterval(pollInbox, 5000); } finally { loading.value = false; } });
+onUnmounted(() => { if (pollTimer) window.clearInterval(pollTimer); });
 </script>
 
 <template>
