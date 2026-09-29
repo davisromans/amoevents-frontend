@@ -82,6 +82,7 @@ const sections = computed(() => {
         { label: 'Guests',         to: `/app/events/${eid}/guests`,        icon: UsersIcon },
         { label: 'Pledges',        to: `/app/events/${eid}/pledges`,       icon: BanknotesIcon },
         { label: 'Messaging',      to: `/app/events/${eid}/messaging`,     icon: ChatBubbleLeftRightIcon },
+        { label: 'Inbox',           to: `/app/events/${eid}/inbox`,         icon: ChatBubbleLeftRightIcon },
         { label: 'Reminders',      to: `/app/events/${eid}/reminders`,     icon: EnvelopeIcon },
         { label: 'Cards',          to: `/app/events/${eid}/cards`,         icon: DocumentTextIcon },
         { label: 'Tags',           to: `/app/events/${eid}/tags`,          icon: TagIcon },
