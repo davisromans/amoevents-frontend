@@ -161,10 +161,11 @@
             <span v-if="g.arrivalStatus === 'arrived'" class="chip text-2xs !py-0 !px-2 !bg-amber-500/15 !text-amber-600">Arrived</span>
           </button>
         </div>
-        <AppInput v-if="mSelected" v-model="mReason" label="Reason (required)" placeholder="e.g. Lost phone / VIP" />
         <div class="flex justify-end gap-2">
           <button class="btn-ghost" @click="manualOpen = false">Cancel</button>
-          <AppButton :loading="mSubmitting" :disabled="!mSelected || mReason.length < 3" @click="submitManual">Admit</AppButton>
+          <AppButton :loading="mSubmitting" :disabled="!mSelected || mSelected.arrivalStatus === 'arrived'" @click="submitManual">
+            {{ mSelected?.arrivalStatus === 'arrived' ? 'Checked in' : 'Check in' }}
+          </AppButton>
         </div>
       </div>
     </AppModal>
@@ -430,7 +431,7 @@ onBeforeUnmount(() => {
 // Manual entry
 const manualOpen = ref(false);
 const mQ = ref(''); const mResults = ref([]); const mLoading = ref(false);
-const mSelected = ref(null); const mReason = ref(''); const mSubmitting = ref(false);
+const mSelected = ref(null); const mSubmitting = ref(false);
 let mSearchT = 0;
 watch(mQ, (v) => {
   clearTimeout(mSearchT);
@@ -443,13 +444,18 @@ watch(mQ, (v) => {
   }, 250);
 });
 async function submitManual() {
-  if (!mSelected.value || mReason.value.length < 3) return;
+  if (!mSelected.value || mSelected.value.arrivalStatus === 'arrived') return;
   mSubmitting.value = true;
   try {
-    const res = await manualEntry(route.params.eventId, mSelected.value._id, mReason.value);
-    manualOpen.value = false;
-    showResult({ result: 'manual', guest: res.guest });
-    mSelected.value = null; mReason.value = ''; mQ.value = ''; mResults.value = [];
+    const res = await manualEntry(route.params.eventId, mSelected.value._id);
+    const updated = { ...mSelected.value, ...(res.guest || {}), arrivalStatus: 'arrived' };
+    mResults.value = mResults.value.map((g) => g._id === updated._id ? updated : g);
+    mSelected.value = updated;
+    recent.value = [{
+      name: `${updated.firstName || ''} ${updated.lastName || ''}`.trim(),
+      ok: true, warn: false, timeAgo: 'now', _id: res.scanId || Math.random(),
+    }, ...recent.value.slice(0, 4)];
+    toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim() + ' checked in');
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { mSubmitting.value = false; }
 }

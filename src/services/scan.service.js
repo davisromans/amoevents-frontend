@@ -22,8 +22,8 @@ export async function submitScanImage(blob, expectedEventId) {
   return unwrap(res);
 }
 
-export async function manualEntry(eventId, guestId, reason) {
-  const res = await http.post(`/events/${eventId}/scan/manual`, { guestId, reason });
+export async function manualEntry(eventId, guestId, reason = '') {
+  const res = await http.post(`/events/${eventId}/scan/manual`, { guestId, ...(reason ? { reason } : {}) });
   return unwrap(res);
 }
 
