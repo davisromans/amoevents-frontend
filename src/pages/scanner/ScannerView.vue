@@ -81,63 +81,59 @@
       </div>
     </div>
 
-    <!-- Result bottom sheet. It owns the scanner lock: while this is open
-         neither local jsQR nor server-assisted decoding is allowed to submit
-         another scan. Dismissal is an explicit return to the camera. -->
-    <div v-if="resultOpen" class="fixed inset-0 z-[100] bg-black/65 backdrop-blur-[2px]"
-         @click.self="dismissResult">
-      <section class="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-[2rem] bg-surface-ivory dark:bg-surface-coal text-surface-charcoal dark:text-surface-bone shadow-2xl p-5 pb-safe select-none touch-none"
-               :style="resultSheetStyle"
-               role="dialog" aria-modal="true" aria-label="Scan result"
-               @pointerdown="startSheetDrag" @pointermove="moveSheetDrag"
-               @pointerup="endSheetDrag" @pointercancel="endSheetDrag">
-        <div class="mx-auto mb-4 h-1.5 w-12 rounded-full bg-surface-mist dark:bg-surface-fog" />
-        <div v-if="lastResult" class="space-y-4">
-          <div class="flex items-center gap-3">
-            <div class="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" :class="resultTone.bg">
-              <CheckIcon v-if="resultTone.kind === 'ok'" class="w-8 h-8 text-white" />
-              <ExclamationTriangleIcon v-else-if="resultTone.kind === 'warn'" class="w-8 h-8 text-white" />
-              <XMarkIcon v-else class="w-8 h-8 text-white" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <p class="text-xl font-black">{{ headline }}</p>
-              <p v-if="lastResult.guest" class="text-md text-surface-slate dark:text-surface-ash truncate">
-                {{ lastResult.guest.firstName }} {{ lastResult.guest.lastName }}
-              </p>
-            </div>
-          </div>
-
-          <div v-if="lastResult.guest" class="grid grid-cols-2 gap-2 text-sm">
-            <div class="rounded-xl bg-surface-mist/70 dark:bg-surface-fog/70 px-3 py-2">
-              <p class="text-2xs uppercase tracking-widest font-black text-surface-slate dark:text-surface-ash">Code</p>
-              <p class="font-mono font-black mt-0.5">{{ lastResult.guest.shortCode || lastResult.guest.pubCode || lastResult.guest.memberId || '—' }}</p>
-            </div>
-            <div class="rounded-xl bg-surface-mist/70 dark:bg-surface-fog/70 px-3 py-2">
-              <p class="text-2xs uppercase tracking-widest font-black text-surface-slate dark:text-surface-ash">Type</p>
-              <p class="font-black mt-0.5">{{ seatLabel || lastResult.guest.type || 'single' }}</p>
-            </div>
-            <div class="col-span-2 rounded-xl bg-surface-mist/70 dark:bg-surface-fog/70 px-3 py-2 flex items-center justify-between">
-              <span class="text-surface-slate dark:text-surface-ash">Already scanned</span>
-              <strong>{{ lastResult.guest.admittedCount || 0 }}<span v-if="lastResult.guest.familySize"> / {{ lastResult.guest.familySize }}</span></strong>
-            </div>
-          </div>
-
-          <div v-if="lastResult.guest?.tags?.length" class="flex flex-wrap gap-1.5">
-            <span v-for="(t, i) in lastResult.guest.tags" :key="i" class="chip text-2xs">{{ t.name }}</span>
-          </div>
-          <p v-if="lastResult.warning" class="text-2xs font-bold text-amber-700 dark:text-amber-400">⚠ {{ lastResult.warning }}</p>
-
-          <div class="flex gap-2 pt-1">
-            <button class="btn-ghost flex-1" @click="undoLast" :disabled="undoing || undoDone">
-              <ArrowUturnLeftIcon class="w-4 h-4" /> {{ undoDone ? 'Undone' : 'Undo' }}
-            </button>
-            <button class="btn-primary flex-1" @click="resumeScanning" autofocus>
-              <CameraIcon class="w-4 h-4" /> Okay, scan next
-            </button>
-          </div>
+    <!-- Scan-result modal: shows automatically on every scan, pauses camera -->
+    <AppModal v-model="resultOpen" :closable="false" title="" :maxWidth="440">
+      <div v-if="lastResult" class="text-center space-y-4">
+        <!-- Big status badge -->
+        <div class="mx-auto w-16 h-16 rounded-full flex items-center justify-center"
+             :class="resultTone.bg">
+          <CheckIcon v-if="resultTone.kind === 'ok'" class="w-9 h-9 text-white" />
+          <ExclamationTriangleIcon v-else-if="resultTone.kind === 'warn'" class="w-9 h-9 text-white" />
+          <XMarkIcon v-else class="w-9 h-9 text-white" />
         </div>
-      </section>
-    </div>
+        <div>
+          <p class="text-2xl font-black text-surface-charcoal dark:text-surface-bone">{{ headline }}</p>
+          <p v-if="lastResult.guest" class="text-md text-surface-slate dark:text-surface-ash mt-1">
+            {{ lastResult.guest.firstName }} {{ lastResult.guest.lastName }}
+          </p>
+        </div>
+
+        <!-- Details row -->
+        <div v-if="lastResult.guest" class="flex flex-wrap items-center justify-center gap-2">
+          <span v-if="lastResult.guest.isVip" class="chip-gold !text-2xs">★ VIP</span>
+          <span class="chip text-2xs">{{ seatLabel }}</span>
+          <span v-if="lastResult.guest.type === 'family'" class="chip text-2xs">
+            {{ lastResult.guest.admittedCount }}/{{ lastResult.guest.familySize }} admitted
+          </span>
+          <span v-if="lastResult.guest.memberId" class="text-2xs font-mono text-brand-gold-deep dark:text-brand-gold-soft">
+            {{ lastResult.guest.memberId }}
+          </span>
+        </div>
+
+        <div v-if="lastResult.guest?.tags?.length" class="flex flex-wrap justify-center gap-1.5">
+          <span v-for="(t, i) in lastResult.guest.tags" :key="i"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-bold uppercase tracking-widest"
+                :style="t.color ? { background: t.color + '22', color: t.color } : {}"
+                :class="t.color ? '' : 'bg-surface-mist dark:bg-surface-fog text-surface-charcoal dark:text-surface-bone'">
+            <span v-if="t.color" class="inline-block w-2 h-2 rounded-full" :style="{ background: t.color }" />
+            {{ t.name }}
+          </span>
+        </div>
+
+        <p v-if="lastResult.warning" class="text-2xs font-bold text-amber-700 dark:text-amber-400">
+          ⚠ {{ lastResult.warning }}
+        </p>
+
+        <div class="flex gap-2 pt-2">
+          <button class="btn-ghost flex-1" @click="undoLast" :disabled="undoing || undoDone">
+            <ArrowUturnLeftIcon class="w-4 h-4" /> {{ undoDone ? 'Undone' : 'Undo' }}
+          </button>
+          <button class="btn-primary flex-1" @click="resumeScanning" autofocus>
+            <CameraIcon class="w-4 h-4" /> Scan next guest
+          </button>
+        </div>
+      </div>
+    </AppModal>
 
     <!-- Manual entry -->
     <AppModal v-model="manualOpen" title="Manual gate entry" :maxWidth="480">
@@ -209,10 +205,6 @@ const scanning = ref(true);              // pauses when result modal is open
 const serverAssistActive = ref(false);
 const lastResult = ref(null);
 const resultOpen = ref(false);
-const scanInFlight = ref(false);
-const sheetDragY = ref(0);
-const sheetDragging = ref(false);
-let sheetPointerStartY = 0;
 const undoing = ref(false);
 const undoDone = ref(false);
 const recent = ref([]);                  // last 5 scans, most recent first
@@ -243,10 +235,6 @@ const seatLabel = computed(() => {
   const g = lastResult.value?.guest; if (!g) return '';
   return seatTypeLabel(g);
 });
-const resultSheetStyle = computed(() => ({
-  transform: `translateY(${sheetDragY.value}px)`,
-  transition: sheetDragging.value ? 'none' : 'transform 180ms ease-out',
-}));
 
 async function loadEvent() {
   try { const { event: e } = await getEvent(route.params.eventId); event.value = e; }
@@ -297,18 +285,15 @@ function scanLoop() {
 
 async function onLocalDecode(text) {
   const now = Date.now();
-  if (!scanning.value || scanInFlight.value || now - scanCooldown < 1500) return;
-  scanInFlight.value = true;
+  if (now - scanCooldown < 1500) return;
   scanCooldown = now;
   try {
     const scan = await submitScan(text, route.params.eventId);
     showResult(scan);
   } catch (err) { toast.error(apiErrorMessage(err)); }
-  finally { scanInFlight.value = false; }
 }
 
 function showResult(scan) {
-  if (resultOpen.value) return;
   lastResult.value = scan;
   scanning.value = false;                // PAUSE — user must press Scan next
   resultOpen.value = true;
@@ -344,27 +329,7 @@ function showResult(scan) {
 function resumeScanning() {
   resultOpen.value = false;
   scanning.value = true;
-  sheetDragY.value = 0;
-  sheetDragging.value = false;
   scanCooldown = Date.now();              // 1.5s guard so the same QR still in view doesn't fire
-}
-
-function dismissResult() { resumeScanning(); }
-function startSheetDrag(event) {
-  sheetDragging.value = true;
-  sheetPointerStartY = event.clientY;
-  event.currentTarget?.setPointerCapture?.(event.pointerId);
-}
-function moveSheetDrag(event) {
-  if (!sheetDragging.value) return;
-  sheetDragY.value = Math.max(0, event.clientY - sheetPointerStartY);
-}
-function endSheetDrag() {
-  if (!sheetDragging.value) return;
-  const shouldDismiss = sheetDragY.value > 90;
-  sheetDragging.value = false;
-  if (shouldDismiss) dismissResult();
-  else sheetDragY.value = 0;
 }
 
 async function undoLast() {
@@ -383,7 +348,7 @@ async function undoLast() {
 function startServerAssistWatch() {
   clearInterval(assistTimer);
   assistTimer = setInterval(async () => {
-    if (assistInFlight || scanInFlight.value || !scanning.value || resultOpen.value) return;
+    if (assistInFlight || !scanning.value) return;
     const idleMs = Date.now() - Math.max(cameraStartedAt, lastLocalDecodeAt, scanCooldown);
     if (idleMs < 2500) return;
     serverAssistActive.value = true;
