@@ -38,6 +38,8 @@
         <p class="section-eyebrow mb-3">Messaging costs</p>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatTile label="Total sent" :value="data.messages.total" />
+          <StatTile label="Delivered" :value="messageDelivered" tone="success" />
+          <StatTile label="Failed" :value="messageFailed" :tone="messageFailed ? 'warn' : 'default'" />
           <StatTile label="WA sent" :value="data.messages.whatsapp.sent" />
           <StatTile label="SMS sent" :value="data.messages.sms.sent" />
           <StatTile label="Cost / msg" :value="`${data.messages.costPerDeliveredTZS} TZS`" tone="gold" />
@@ -47,12 +49,24 @@
           <p class="text-lg font-black tabular-nums text-brand-gold-deep dark:text-brand-gold-soft">{{ formatTZS(data.messages.totalCostTZS) }}</p>
         </div>
       </section>
+
+      <section class="surface-card p-6">
+        <p class="section-eyebrow mb-3">Gate scanning</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <StatTile label="Admission scans" :value="data.scans.totalAdmissions" />
+          <StatTile label="Guests admitted" :value="data.scans.uniqueGuests" tone="success" />
+          <StatTile label="People admitted" :value="data.scans.admittedPeople" tone="gold" />
+        </div>
+        <p class="text-xs text-surface-slate dark:text-surface-ash mt-3">
+          Admission scans include each person scanned from a family card; guests are unique admitted records.
+        </p>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, defineComponent, h } from 'vue';
+import { computed, onMounted, ref, defineComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { eventOverview } from '@/services/analytics.service';
@@ -83,6 +97,8 @@ const route = useRoute();
 const toast = useToast();
 const data = ref(null);
 const loading = ref(true);
+const messageDelivered = computed(() => (data.value?.messages?.whatsapp?.delivered || 0) + (data.value?.messages?.sms?.delivered || 0));
+const messageFailed = computed(() => (data.value?.messages?.whatsapp?.failed || 0) + (data.value?.messages?.sms?.failed || 0));
 
 onMounted(async () => {
   try { data.value = await eventOverview(route.params.id); }
