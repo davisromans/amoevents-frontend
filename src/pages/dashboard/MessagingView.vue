@@ -452,12 +452,34 @@
                edit form, and it applies to whichever channel you send
                through), the operator just had no way to discover it from
                here. -->
-          <p v-else class="text-subtext">
+        <p v-else class="text-subtext">
             No tags yet —
             <router-link :to="`/app/events/${route.params.id}/tags`" class="text-brand-gold-deep dark:text-brand-gold-soft font-bold hover:underline">create some</router-link>,
             then tag guests from the
             <router-link :to="`/app/events/${route.params.id}/guests`" class="text-brand-gold-deep dark:text-brand-gold-soft font-bold hover:underline">Guests page</router-link>'s edit form.
           </p>
+        </div>
+
+        <div class="mt-4 rounded-xl border border-brand-gold/30 bg-brand-gold-glow p-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <div>
+              <p class="text-heading">Choose specific recipients</p>
+              <p class="text-2xs text-surface-slate dark:text-surface-ash">Leave empty to use the filters above. Select one or more guests to send only to them.</p>
+            </div>
+            <span class="text-xs font-black text-brand-gold-deep dark:text-brand-gold-soft">{{ selectedGuestIds.length }} selected</span>
+          </div>
+          <input v-model="recipientSearch" class="field-input mb-2" placeholder="Search guests by name, phone, or code…" />
+          <div class="max-h-52 overflow-y-auto divide-y divide-brand-gold/20 rounded-lg bg-white/60 dark:bg-surface-coal/50">
+            <label v-for="g in visibleRecipients" :key="g._id" class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-brand-gold/10">
+              <input type="checkbox" :checked="selectedGuestIds.includes(g._id)" class="accent-brand-gold w-4 h-4" @change="toggleRecipient(g._id)" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold truncate">{{ g.firstName }} {{ g.lastName || '' }}</span>
+                <span class="block text-2xs text-surface-slate dark:text-surface-ash">{{ g.phone }} · {{ g.memberId || g.pubCode || 'No code' }}</span>
+              </span>
+            </label>
+            <p v-if="!visibleRecipients.length" class="px-3 py-4 text-xs text-surface-slate">No matching guests.</p>
+          </div>
+          <button v-if="selectedGuestIds.length" type="button" class="btn-ghost !text-xs mt-2" @click="selectedGuestIds = []">Clear selected recipients</button>
         </div>
       </div>
 
@@ -736,6 +758,18 @@ const eventPledgeTiers = computed(() => {
 // real broadcast. allGuests backs the picker; sampleGuest stays the
 // single source of truth every preview computed already reads from.
 const allGuests = ref([]);
+const recipientSearch = ref('');
+const selectedGuestIds = ref([]);
+const visibleRecipients = computed(() => {
+  const q = recipientSearch.value.trim().toLowerCase();
+  if (!q) return allGuests.value;
+  return allGuests.value.filter((g) => [g.firstName, g.lastName, g.phone, g.memberId, g.pubCode].filter(Boolean).join(' ').toLowerCase().includes(q));
+});
+function toggleRecipient(id) {
+  selectedGuestIds.value = selectedGuestIds.value.includes(id)
+    ? selectedGuestIds.value.filter((x) => x !== id)
+    : [...selectedGuestIds.value, id];
+}
 const sampleGuestId = ref('');
 const sampleGuest = computed(() => allGuests.value.find((g) => g._id === sampleGuestId.value) || allGuests.value[0] || null);
 const sampleCardUrl = ref('');
@@ -787,6 +821,7 @@ function scheduleAudienceCount() {
   audienceCountTimer = setTimeout(refreshAudienceCount, 400);
 }
 watch([audience, channel, () => composer.value?._id, () => composer.value?.waTemplate], scheduleAudienceCount, { deep: true });
+watch(selectedGuestIds, scheduleAudienceCount, { deep: true });
 watch(() => composer.value, (c) => { if (c) scheduleAudienceCount(); else audienceCount.value = null; });
 
 const waTemplates = ref([]);
@@ -1341,6 +1376,7 @@ function buildAudiencePayload() {
     tags: audience.tags?.length ? audience.tags : undefined,
     pledgeStatus: audience.pledgeStatus !== 'any' ? audience.pledgeStatus : undefined,
     tierMinTZS, tierMaxTZS,
+    guestIds: selectedGuestIds.value.length ? selectedGuestIds.value : undefined,
   };
 }
 
