@@ -14,6 +14,14 @@
         <ThemeToggle />
         <LanguageSwitcher />
 
+        <!-- Event-scoped scan action belongs in the app bar, beside the
+             global controls, instead of taking space inside the event page. -->
+        <router-link v-if="eventId" :to="`/scanner/${eventId}`"
+                     class="btn-ghost !h-9 !px-3 gap-1.5" title="Open event scanner">
+          <QrCodeIcon class="w-4 h-4" />
+          <span class="hidden sm:inline text-xs font-bold">Scan</span>
+        </router-link>
+
         <!-- Pending invites indicator (owner/collaborator) — see PendingInvitesBanner.
              Keeps the banner but also surfaces a top-bar affordance. -->
         <router-link v-if="auth.isAuthed" to="/app/my-invitations"
@@ -44,10 +52,13 @@ import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import LanguageSwitcher from '@/components/common/LanguageSwitcher.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import Menu from '@/components/ui/Menu.vue';
-import { Cog6ToothIcon, ArrowRightOnRectangleIcon, UserIcon } from '@heroicons/vue/24/outline';
+import { Cog6ToothIcon, ArrowRightOnRectangleIcon, UserIcon, QrCodeIcon } from '@heroicons/vue/24/outline';
+import { useRoute } from 'vue-router';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+const eventId = computed(() => route.path.startsWith('/app/events/') ? route.params.id : null);
 
 const modKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 
