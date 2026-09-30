@@ -59,7 +59,14 @@ async function sendTemplateReply() {
   } catch (e) { error.value = e?.response?.data?.error?.message || e?.response?.data?.error?.code || e.message || 'Template send failed'; }
   finally { sending.value = false; }
 }
-function time(value) { return value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; }
+function time(value) {
+  return value
+    ? new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      }).format(new Date(value))
+    : '';
+}
 function windowLabel(value) { return value && new Date(value) > new Date() ? `Free reply until ${new Date(value).toLocaleString()}` : 'Template required'; }
 const displayMessages = computed(() => {
   const rank = { failed: 5, read: 4, delivered: 3, sent: 2, queued: 1 };
