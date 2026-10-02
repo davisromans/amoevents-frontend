@@ -426,6 +426,8 @@ onMounted(async () => { await loadEvent(); await startCamera(); });
 onBeforeUnmount(() => {
   cancelAnimationFrame(rafHandle);
   clearInterval(assistTimer);
+  clearTimeout(mSearchT);
+  mSearchController?.abort();
   stream?.getTracks?.().forEach((t) => t.stop());
   if (videoEl.value) videoEl.value.srcObject = null;
 });
@@ -435,6 +437,8 @@ const manualOpen = ref(false);
 const mQ = ref(''); const mResults = ref([]); const mLoading = ref(false);
 const mSelected = ref(null); const mSubmitting = ref(false);
 let mSearchT = 0;
+let mSearchController = null;
+let mSearchSeq = 0;
 function allowedEntries(guest) {
   const type = String(guest?.type || 'single').toLowerCase();
   if (type === 'family') return Math.max(1, Number(guest?.familySize) || 1);
@@ -448,13 +452,24 @@ function isFullyCheckedIn(guest) {
 }
 watch(mQ, (v) => {
   clearTimeout(mSearchT);
-  if (!v || v.length < 2) { mResults.value = []; return; }
+  mSearchController?.abort();
+  mSelected.value = null;
+  const query = String(v || '').trim();
+  if (query.length < 2) { mResults.value = []; return; }
+  const seq = ++mSearchSeq;
   mSearchT = setTimeout(async () => {
+    const controller = new AbortController();
+    mSearchController = controller;
     mLoading.value = true;
-    try { mResults.value = await searchGuestsAtGate(route.params.eventId, v); }
-    catch (err) { toast.error(apiErrorMessage(err)); }
-    finally { mLoading.value = false; }
-  }, 250);
+    try {
+      const results = await searchGuestsAtGate(route.params.eventId, query, { signal: controller.signal });
+      if (seq === mSearchSeq && !controller.signal.aborted) mResults.value = results;
+    } catch (err) {
+      if (err?.code !== 'ERR_CANCELED' && seq === mSearchSeq) toast.error(apiErrorMessage(err));
+    } finally {
+      if (seq === mSearchSeq) mLoading.value = false;
+    }
+  }, 300);
 });
 async function submitManual() {
   if (!mSelected.value || isFullyCheckedIn(mSelected.value)) return;

@@ -27,8 +27,8 @@ export async function manualEntry(eventId, guestId, reason = '') {
   return unwrap(res);
 }
 
-export async function searchGuestsAtGate(eventId, q) {
-  const res = await http.get(`/events/${eventId}/scan/search`, { params: { q } });
+export async function searchGuestsAtGate(eventId, q, config = {}) {
+  const res = await http.get(`/events/${eventId}/scan/search`, { params: { q }, ...config });
   return unwrap(res);
 }
 
