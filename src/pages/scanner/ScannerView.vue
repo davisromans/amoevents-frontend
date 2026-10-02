@@ -87,11 +87,16 @@
     <div v-if="resultOpen" class="fixed inset-0 z-[100] bg-black/65 backdrop-blur-[2px]"
          @click.self="dismissResult">
       <section class="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-[2rem] bg-surface-ivory dark:bg-surface-coal text-surface-charcoal dark:text-surface-bone shadow-2xl p-5 pb-safe select-none touch-none"
-               :style="resultSheetStyle"
+        :style="resultSheetStyle"
                role="dialog" aria-modal="true" aria-label="Scan result"
                @pointerdown="startSheetDrag" @pointermove="moveSheetDrag"
                @pointerup="endSheetDrag" @pointercancel="endSheetDrag">
         <div class="mx-auto mb-4 h-1.5 w-12 rounded-full bg-surface-mist dark:bg-surface-fog" />
+        <div v-if="scanPending" class="py-8 text-center space-y-3">
+          <LoadingSpinner class="mx-auto !w-10 !h-10 !border-4" />
+          <p class="text-lg font-black">Reading QR code…</p>
+          <p class="text-sm text-surface-slate dark:text-surface-ash">The camera is locked while we verify this guest.</p>
+        </div>
         <div v-if="lastResult" class="space-y-4">
           <div class="flex items-center gap-3">
             <div class="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" :class="resultTone.bg">
@@ -212,6 +217,7 @@ const scanning = ref(true);              // pauses when result modal is open
 const serverAssistActive = ref(false);
 const lastResult = ref(null);
 const resultOpen = ref(false);
+const scanPending = ref(false);
 const scanInFlight = ref(false);
 const sheetDragY = ref(0);
 const sheetDragging = ref(false);
@@ -226,6 +232,9 @@ let lastLocalDecodeAt = 0;
 let rafHandle = 0;
 let assistTimer = null;
 let assistInFlight = false;
+let barcodeDetector = null;
+let nativeDetectInFlight = false;
+let lastNativeDetectAt = 0;
 
 // Tone the result badge + headline per scan outcome.
 const resultTone = computed(() => {
@@ -267,6 +276,13 @@ async function startCamera() {
     videoEl.value.srcObject = stream;
     videoEl.value.setAttribute('playsinline', 'true');
     await videoEl.value.play().catch(() => {});
+    barcodeDetector = null;
+    if ('BarcodeDetector' in window) {
+      try {
+        const formats = await window.BarcodeDetector.getSupportedFormats();
+        if (formats.includes('qr_code')) barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      } catch (_) { /* use jsQR fallback */ }
+    }
     cameraStartedAt = Date.now();
     detectTorch();
     scanLoop();
@@ -282,7 +298,22 @@ function scanLoop() {
     const v = videoEl.value; const c = canvasEl.value;
     if (!v || !c) return;
     if (v.readyState >= 2 && v.videoWidth > 0) {
-      const w = v.videoWidth, h = v.videoHeight;
+      if (barcodeDetector) {
+        const now = performance.now();
+        if (!nativeDetectInFlight && now - lastNativeDetectAt >= 90) {
+          nativeDetectInFlight = true;
+          lastNativeDetectAt = now;
+          barcodeDetector.detect(v).then((codes) => {
+            if (scanning.value && codes?.[0]?.rawValue) onLocalDecode(codes[0].rawValue);
+          }).catch(() => {}).finally(() => { nativeDetectInFlight = false; });
+        }
+        rafHandle = requestAnimationFrame(tick);
+        return;
+      }
+      // jsQR is CPU-heavy on full HD frames; 720px is enough for a gate card
+      // and keeps the fallback responsive on desktop webcams.
+      const w = Math.min(720, v.videoWidth);
+      const h = Math.round((v.videoHeight / v.videoWidth) * w);
       if (c.width !== w) c.width = w;
       if (c.height !== h) c.height = h;
       const ctx = c.getContext('2d', { willReadFrequently: true });
@@ -303,15 +334,27 @@ async function onLocalDecode(text) {
   if (!scanning.value || scanInFlight.value || now - scanCooldown < 1500) return;
   scanInFlight.value = true;
   scanCooldown = now;
+  // Lock and show feedback immediately; the API verification fills the
+  // guest details into the already-visible result sheet.
+  scanPending.value = true;
+  scanning.value = false;
+  resultOpen.value = true;
+  lastResult.value = null;
   try {
     const scan = await submitScan(text, route.params.eventId);
+    scanPending.value = false;
     showResult(scan);
-  } catch (err) { toast.error(apiErrorMessage(err)); }
+  } catch (err) {
+    scanPending.value = false;
+    resultOpen.value = false;
+    scanning.value = true;
+    toast.error(apiErrorMessage(err));
+  }
   finally { scanInFlight.value = false; }
 }
 
 function showResult(scan) {
-  if (resultOpen.value) return;
+  if (resultOpen.value && !scanPending.value && lastResult.value) return;
   lastResult.value = scan;
   scanning.value = false;                // PAUSE — user must press Scan next
   resultOpen.value = true;
@@ -352,7 +395,10 @@ function resumeScanning() {
   scanCooldown = Date.now();              // 1.5s guard so the same QR still in view doesn't fire
 }
 
-function dismissResult() { resumeScanning(); }
+function dismissResult() {
+  if (scanPending.value) return;
+  resumeScanning();
+}
 function startSheetDrag(event) {
   sheetDragging.value = true;
   sheetPointerStartY = event.clientY;

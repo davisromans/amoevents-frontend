@@ -89,7 +89,7 @@
               <th class="text-left px-4 py-2 hidden sm:table-cell">Phone</th>
               <th class="text-left px-4 py-2 hidden md:table-cell">Tags</th>
               <th class="text-left px-4 py-2">RSVP</th>
-              <th class="text-left px-4 py-2 hidden lg:table-cell">Arrival</th>
+              <th class="text-left px-4 py-2">Check-in</th>
               <th class="px-4 py-2 w-8"></th>
             </tr>
           </thead>
@@ -148,9 +148,15 @@
                   </span>
                 </div>
               </td>
-              <td class="px-4 py-3 hidden lg:table-cell">
-                <Badge v-if="g.arrivalStatus === 'arrived'" tone="success" size="sm">✓ Arrived</Badge>
-                <span v-else class="text-2xs text-surface-slate dark:text-surface-ash">—</span>
+              <td class="px-4 py-3" @click.stop>
+                <button v-if="!isFullyCheckedIn(g)" type="button"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-2.5 py-1.5 text-2xs font-black text-white shadow-primary-soft disabled:opacity-60"
+                        :disabled="checkInPending.has(g._id)"
+                        @click="checkInGuest(g)">
+                  <LoadingSpinner v-if="checkInPending.has(g._id)" class="!w-3 !h-3 !border-2" />
+                  {{ checkInPending.has(g._id) ? 'Saving…' : `Check in ${admittedEntries(g)}/${allowedEntries(g)}` }}
+                </button>
+                <Badge v-else tone="success" size="sm">✓ {{ admittedEntries(g) }}/{{ allowedEntries(g) }}</Badge>
               </td>
               <td class="px-4 py-3 text-right" @click.stop>
                 <button class="btn-ghost !p-1.5" @click="removeGuest(g)" aria-label="Delete" title="Delete">
@@ -312,6 +318,7 @@ import { listTags } from '@/services/tags.service';
 import SmartImportModal from '@/components/guests/SmartImportModal.vue';
 import GuestDetailSheet from '@/components/guests/GuestDetailSheet.vue';
 import { checkAllWa } from '@/services/messaging.service';
+import { manualEntry } from '@/services/scan.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
 import PhoneInput from '@/components/common/PhoneInput.vue';
@@ -344,6 +351,7 @@ const rsvpFilter = ref('all');
 const availableTags = ref([]);
 
 const openSmartImport = ref(false);
+const checkInPending = ref(new Set());
 
 // ── Detail sheet (read-only) ─────────────────────────────────────────
 const detailOpen = ref(false);
@@ -510,6 +518,30 @@ function gradientFor(g) {
 }
 function rsvpLabel(s) { return ({ yes: 'Yes', no: 'No', maybe: 'Maybe', pending: 'Pending' })[s] || 'Pending'; }
 function rsvpTone(s)  { return ({ yes: 'success', no: 'danger', maybe: 'warning' })[s] || 'neutral'; }
+function allowedEntries(g) {
+  const type = String(g?.type || 'single').toLowerCase();
+  if (type === 'family') return Math.max(1, Number(g?.familySize) || 1);
+  return type === 'double' ? 2 : 1;
+}
+function admittedEntries(g) { return Math.max(0, Number(g?.admittedCount) || 0); }
+function isFullyCheckedIn(g) { return admittedEntries(g) >= allowedEntries(g); }
+async function checkInGuest(g) {
+  if (isFullyCheckedIn(g) || checkInPending.value.has(g._id)) return;
+  checkInPending.value = new Set(checkInPending.value).add(g._id);
+  try {
+    const res = await manualEntry(route.params.id, g._id);
+    const updated = { ...g, ...(res.guest || {}) };
+    items.value = items.value.map((item) => item._id === updated._id ? updated : item);
+    stats.value = await guestStats(route.params.id);
+    toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim()
+      + ` checked in (${admittedEntries(updated)}/${allowedEntries(updated)})`);
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally {
+    const next = new Set(checkInPending.value);
+    next.delete(g._id);
+    checkInPending.value = next;
+  }
+}
 function timeAgo(iso) {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   return days < 1 ? 'today' : days === 1 ? '1d ago' : `${days}d ago`;
