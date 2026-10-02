@@ -158,13 +158,15 @@
                 {{ g.phone }}<span v-if="g.firstName || g.lastName"> · {{ g.firstName }} {{ g.lastName }}</span>
               </p>
             </div>
-            <span v-if="g.arrivalStatus === 'arrived'" class="chip text-2xs !py-0 !px-2 !bg-amber-500/15 !text-amber-600">Arrived</span>
+            <span class="chip text-2xs !py-0 !px-2 !bg-amber-500/15 !text-amber-600">
+              {{ admittedEntries(g) }}/{{ allowedEntries(g) }} checked in
+            </span>
           </button>
         </div>
         <div class="flex justify-end gap-2">
           <button class="btn-ghost" @click="manualOpen = false">Cancel</button>
-          <AppButton :loading="mSubmitting" :disabled="!mSelected || mSelected.arrivalStatus === 'arrived'" @click="submitManual">
-            {{ mSelected?.arrivalStatus === 'arrived' ? 'Checked in' : 'Check in' }}
+          <AppButton :loading="mSubmitting" :disabled="!mSelected || isFullyCheckedIn(mSelected)" @click="submitManual">
+            {{ mSelected && isFullyCheckedIn(mSelected) ? 'Fully checked in' : `Check in (${admittedEntries(mSelected)}/${allowedEntries(mSelected)})` }}
           </AppButton>
         </div>
       </div>
@@ -433,6 +435,17 @@ const manualOpen = ref(false);
 const mQ = ref(''); const mResults = ref([]); const mLoading = ref(false);
 const mSelected = ref(null); const mSubmitting = ref(false);
 let mSearchT = 0;
+function allowedEntries(guest) {
+  const type = String(guest?.type || 'single').toLowerCase();
+  if (type === 'family') return Math.max(1, Number(guest?.familySize) || 1);
+  return type === 'double' ? 2 : 1;
+}
+function admittedEntries(guest) {
+  return Math.max(0, Number(guest?.admittedCount) || 0);
+}
+function isFullyCheckedIn(guest) {
+  return admittedEntries(guest) >= allowedEntries(guest);
+}
 watch(mQ, (v) => {
   clearTimeout(mSearchT);
   if (!v || v.length < 2) { mResults.value = []; return; }
@@ -444,18 +457,19 @@ watch(mQ, (v) => {
   }, 250);
 });
 async function submitManual() {
-  if (!mSelected.value || mSelected.value.arrivalStatus === 'arrived') return;
+  if (!mSelected.value || isFullyCheckedIn(mSelected.value)) return;
   mSubmitting.value = true;
   try {
     const res = await manualEntry(route.params.eventId, mSelected.value._id);
-    const updated = { ...mSelected.value, ...(res.guest || {}), arrivalStatus: 'arrived' };
+    const updated = { ...mSelected.value, ...(res.guest || {}) };
     mResults.value = mResults.value.map((g) => g._id === updated._id ? updated : g);
     mSelected.value = updated;
     recent.value = [{
       name: `${updated.firstName || ''} ${updated.lastName || ''}`.trim(),
       ok: true, warn: false, timeAgo: 'now', _id: res.scanId || Math.random(),
     }, ...recent.value.slice(0, 4)];
-    toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim() + ' checked in');
+    toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim()
+      + ` checked in (${admittedEntries(updated)}/${allowedEntries(updated)})`);
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { mSubmitting.value = false; }
 }
