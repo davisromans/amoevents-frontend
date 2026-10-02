@@ -298,7 +298,10 @@
           <div class="rounded-xl bg-white dark:bg-[#075e54] p-3 shadow max-w-full">
             <div v-if="selectedWaMeta?.hasImageHeader"
                  class="mb-2 rounded-md aspect-[4/5] bg-surface-mist dark:bg-black/30 overflow-hidden flex items-center justify-center">
-              <img v-if="sampleCardUrl" :src="sampleCardUrl" alt="Personalised guest card preview" class="w-full h-full object-contain" />
+              <img v-if="pickedAssetUrl || sampleCardUrl"
+                   :src="pickedAssetUrl || sampleCardUrl"
+                   :alt="pickedAssetUrl ? 'Event image preview' : 'Personalised guest card preview'"
+                   class="w-full h-full object-contain" />
               <span v-else class="text-4xl">🖼️</span>
             </div>
             <pre v-if="selectedWaTemplatePreview"
