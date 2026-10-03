@@ -302,7 +302,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { askConfirm } from '@/composables/useConfirm';
 import { useRoute } from 'vue-router';
 import {
@@ -678,33 +678,56 @@ const filtered = computed(() => {
   return list;
 });
 
-async function refresh() {
-  loading.value = true;
-  try {
-    const [g, s] = await Promise.all([
-      listGuests(route.params.id, { limit: 2000 }),
-      guestStats(route.params.id),
-    ]);
-    items.value = g.items;
-    stats.value = s;
-    await saveGuestSnapshot();
-    // Keep the sheet's guest reference fresh if it's open (post-edit
-    // reflows into the same sheet without re-fetching).
-    if (detailGuest.value) {
-      const still = items.value.find((x) => x._id === detailGuest.value._id);
-      if (still) detailGuest.value = still;
-      else { detailOpen.value = false; detailGuest.value = null; }
+let refreshInFlight = null;
+async function refresh(options = {}) {
+  // Polling and offline reconciliation must be silent. Replacing the whole
+  // page with the loading spinner was causing a visible flash and made the
+  // browser restore the document at scrollY=0 after every background sync.
+  const background = !!options?.background;
+  const scrollElement = typeof document !== 'undefined'
+    ? (document.scrollingElement || document.documentElement)
+    : null;
+  const savedScrollTop = scrollElement?.scrollTop || 0;
+  const savedScrollLeft = scrollElement?.scrollLeft || 0;
+  const preserveScroll = !!scrollElement && (items.value.length > 0 || background);
+
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    // Keep the existing table visible during a refresh. Only the first load
+    // (when there is no cached/current list) is allowed to show the spinner.
+    if (!background && !items.value.length) loading.value = true;
+    try {
+      const [g, s] = await Promise.all([
+        listGuests(route.params.id, { limit: 2000 }),
+        guestStats(route.params.id),
+      ]);
+      items.value = g.items;
+      stats.value = s;
+      await saveGuestSnapshot();
+      // Keep the sheet's guest reference fresh if it's open (post-edit
+      // reflows into the same sheet without re-fetching).
+      if (detailGuest.value) {
+        const still = items.value.find((x) => x._id === detailGuest.value._id);
+        if (still) detailGuest.value = still;
+        else { detailOpen.value = false; detailGuest.value = null; }
+      }
+    } catch (err) {
+      const cached = await getGuestSnapshot(eventId.value);
+      if (cached?.items) {
+        items.value = cached.items;
+        stats.value = cached.stats || null;
+        eventName.value = cached.eventName || eventName.value;
+        availableTags.value = cached.availableTags || availableTags.value;
+      } else if (!background) toast.error(apiErrorMessage(err));
+    } finally {
+      loading.value = false;
+      if (preserveScroll) {
+        await nextTick();
+        scrollElement.scrollTo({ top: savedScrollTop, left: savedScrollLeft, behavior: 'auto' });
+      }
     }
-  } catch (err) {
-    const cached = await getGuestSnapshot(eventId.value);
-    if (cached?.items) {
-      items.value = cached.items;
-      stats.value = cached.stats || null;
-      eventName.value = cached.eventName || eventName.value;
-      availableTags.value = cached.availableTags || availableTags.value;
-    } else toast.error(apiErrorMessage(err));
-  }
-  finally { loading.value = false; }
+  })().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
 }
 
 async function saveGuestSnapshot() {
@@ -718,8 +741,10 @@ async function saveGuestSnapshot() {
 
 let reconcileTimer = null;
 function onOfflineSyncFinished(event) {
-  if (event.detail?.synced) refresh();
+  if (event.detail?.synced) refresh({ background: true });
 }
+
+function onOnline() { refresh({ background: true }); }
 
 onMounted(async () => {
   await refresh();
@@ -727,16 +752,18 @@ onMounted(async () => {
   try { const { event } = await getEvent(route.params.id); eventName.value = event?.name || 'Event'; } catch (_) { /* ignore */ }
   await saveGuestSnapshot();
   window.addEventListener('offline:sync-finished', onOfflineSyncFinished);
-  window.addEventListener('online', refresh);
+  window.addEventListener('online', onOnline);
   // Reconcile updates made by a second organiser while this page is open.
   // The server remains authoritative; the interval only refreshes when online.
-  reconcileTimer = setInterval(() => { if (navigator.onLine && !createOpen.value) refresh(); }, 15000);
+  reconcileTimer = setInterval(() => {
+    if (navigator.onLine && !createOpen.value) refresh({ background: true });
+  }, 15000);
 });
 
 onUnmounted(() => {
   clearInterval(reconcileTimer);
   window.removeEventListener('offline:sync-finished', onOfflineSyncFinished);
-  window.removeEventListener('online', refresh);
+  window.removeEventListener('online', onOnline);
 });
 
 // Clear bulk selection when filters change so users don't accidentally
