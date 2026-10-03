@@ -51,6 +51,17 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: { cacheName: 'fonts', expiration: { maxEntries: 30, maxAgeSeconds: 365 * 24 * 3600 } },
           },
+          {
+            // Event covers, signed uploaded cards, QR artwork, and variant
+            // images remain available after they have been viewed online.
+            urlPattern: ({ request }) => request.destination === 'image',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'event-images',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 600, maxAgeSeconds: 30 * 24 * 3600 },
+            },
+          },
         ],
       },
       includeAssets: ['icon-192.png', 'icon-512.png', 'icon-512-maskable.png', 'apple-touch-icon.png', 'favicon-32.png', 'favicon-16.png', 'logo.png'],

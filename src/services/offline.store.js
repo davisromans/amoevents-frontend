@@ -9,6 +9,7 @@ const DB_VERSION = 1;
 const CACHE_STORE = 'api-cache';
 const SNAPSHOT_STORE = 'guest-snapshots';
 const MUTATION_STORE = 'mutations';
+const MEDIA_CACHE = 'amoevents-offline-media-v1';
 
 let dbPromise;
 
@@ -85,6 +86,34 @@ export async function putApiCache(key, data) {
   try {
     await request(CACHE_STORE, 'readwrite', (store) => store.put({ data, cachedAt: Date.now() }, key));
   } catch (_) { /* private browsing / quota errors must not break the app */ }
+}
+
+function mediaCacheKey(key) {
+  const base = typeof location !== 'undefined' ? location.origin : 'https://events.amoview.com';
+  return `${base}/__amoevents_offline_media__/${encodeURIComponent(key)}`;
+}
+
+// Card previews are returned as authenticated blobs, so they do not pass
+// through the JSON API cache. Keep the last successfully loaded preview in
+// Cache Storage; the service worker handles direct <img> URLs such as event
+// covers and signed card artwork.
+export async function getOfflineMedia(key) {
+  if (typeof caches === 'undefined') return null;
+  try {
+    const cache = await caches.open(MEDIA_CACHE);
+    const response = await cache.match(mediaCacheKey(key));
+    return response ? await response.blob() : null;
+  } catch (_) { return null; }
+}
+
+export async function putOfflineMedia(key, blob) {
+  if (typeof caches === 'undefined' || !blob) return;
+  try {
+    const cache = await caches.open(MEDIA_CACHE);
+    await cache.put(mediaCacheKey(key), new Response(blob, {
+      headers: { 'Content-Type': blob.type || 'image/jpeg' },
+    }));
+  } catch (_) { /* cache is best effort */ }
 }
 
 export async function getGuestSnapshot(eventId) {

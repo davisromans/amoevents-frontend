@@ -1,4 +1,5 @@
 import http, { unwrap } from '@/services/http';
+import { getOfflineMedia, isOfflineError, makeApiCacheKey, putOfflineMedia } from '@/services/offline.store';
 
 export const listVariants = (eventId) => http.get(`/events/${eventId}/card-variants`).then(unwrap);
 export const variantImageUrlById = (eventId, variantId) =>
@@ -67,12 +68,22 @@ export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp =
   // gives real headroom without masking an actual hang (the server-side
   // MAX_CONCURRENT_RENDERS + sharp concurrency fixes make this the rare
   // case, not the common one).
-  const res = await http.get(`/events/${eventId}/card-variants/preview/${guestId}`, {
-    responseType: 'blob',
-    params,
-    timeout: 120000,
-  });
-  return URL.createObjectURL(res.data);
+  const url = `/events/${eventId}/card-variants/preview/${guestId}`;
+  const cacheKey = makeApiCacheKey({ baseURL: '/api', url, params });
+  try {
+    const res = await http.get(url, {
+      responseType: 'blob',
+      params,
+      timeout: 120000,
+    });
+    await putOfflineMedia(cacheKey, res.data);
+    return URL.createObjectURL(res.data);
+  } catch (error) {
+    if (!isOfflineError(error)) throw error;
+    const cached = await getOfflineMedia(cacheKey);
+    if (!cached) throw error;
+    return URL.createObjectURL(cached);
+  }
 }
 
 // Map of guestId → true|false (has own artwork or matching variant).
