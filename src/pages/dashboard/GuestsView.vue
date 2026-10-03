@@ -643,7 +643,33 @@ async function checkInGuest(g) {
   }
   void saveGuestSnapshot();
   const clientMutationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  const rollback = () => {
+    checkInFloors.delete(g._id);
+    items.value = items.value.map((item) => item._id === previous._id ? previous : item);
+    if (stats.value && optimistic.admittedCount > current) {
+      stats.value = {
+        ...stats.value,
+        arrived: Math.max(0, (stats.value.arrived || 0) - (optimistic.admittedCount - current)),
+      };
+    }
+  };
   try {
+    // The browser already knows it is offline. Do not wait for an API
+    // timeout, retry a request, or refresh aggregate stats here: the local
+    // optimistic state is authoritative until connectivity returns, and the
+    // idempotent mutation is persisted in IndexedDB for background sync.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      void queueHttpMutation({
+        method: 'post', url: `/events/${eventId.value}/scan/manual`,
+        data: { guestId: g._id, clientMutationId }, kind: 'guest.check-in',
+      }).then(() => saveGuestSnapshot()).catch(() => {
+        rollback();
+        toast.error('Could not save this offline check-in. Please try again.');
+      });
+      toast.info(`${g.firstName || ''} ${g.lastName || ''}`.trim() + ' checked in offline — it will sync automatically.');
+      return;
+    }
+
     const res = await manualEntry(route.params.id, g._id, '', clientMutationId);
     const serverUpdated = { ...g, ...(res.guest || {}) };
     // Keep the floor until a list refresh observes the new count. The
@@ -678,14 +704,7 @@ async function checkInGuest(g) {
       toast.info(`${g.firstName || ''} ${g.lastName || ''}`.trim() + ' checked in offline — it will sync automatically.');
     } else {
       // A definitive server error must undo the optimistic display.
-      checkInFloors.delete(g._id);
-      items.value = items.value.map((item) => item._id === previous._id ? previous : item);
-      if (stats.value && optimistic.admittedCount > current) {
-        stats.value = {
-          ...stats.value,
-          arrived: Math.max(0, (stats.value.arrived || 0) - (optimistic.admittedCount - current)),
-        };
-      }
+      rollback();
       toast.error(apiErrorMessage(err));
     }
   }
