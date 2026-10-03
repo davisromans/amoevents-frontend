@@ -355,6 +355,12 @@ const availableTags = ref([]);
 
 const openSmartImport = ref(false);
 const checkInPending = ref(new Set());
+// A list refresh can overlap a check-in request and briefly return the old
+// guest document while the write is still propagating through MongoDB. Keep
+// the locally confirmed count as a floor until a refresh observes it, so a
+// background reconciliation cannot make a just-updated button jump back to
+// 0/2.
+const checkInFloors = new Map();
 
 // ── Detail sheet (read-only) ─────────────────────────────────────────
 const detailOpen = ref(false);
@@ -591,39 +597,89 @@ function allowedEntries(g) {
 }
 function admittedEntries(g) { return Math.max(0, Number(g?.admittedCount) || 0); }
 function isFullyCheckedIn(g) { return admittedEntries(g) >= allowedEntries(g); }
+function mergeCheckInState(serverGuest, currentGuest) {
+  if (!currentGuest) return serverGuest;
+  const id = serverGuest?._id;
+  const serverCount = admittedEntries(serverGuest);
+  const floor = id ? checkInFloors.get(id) : null;
+  const pendingCount = id && checkInPending.value.has(id)
+    ? admittedEntries(currentGuest)
+    : 0;
+  const mergedCount = Math.max(serverCount, Number(floor) || 0, pendingCount);
+  if (floor != null && serverCount >= floor) checkInFloors.delete(id);
+  if (mergedCount <= serverCount) return serverGuest;
+  return {
+    ...serverGuest,
+    admittedCount: mergedCount,
+    scanCount: Math.max(Number(serverGuest.scanCount) || 0, Number(currentGuest.scanCount) || 0),
+    arrivalStatus: mergedCount >= allowedEntries(serverGuest) ? 'arrived' : 'not_arrived',
+    arrivedAt: serverGuest.arrivedAt || currentGuest.arrivedAt,
+  };
+}
 async function checkInGuest(g) {
   if (isFullyCheckedIn(g) || checkInPending.value.has(g._id)) return;
+  const previous = g;
+  const current = admittedEntries(g);
+  const allowed = allowedEntries(g);
+  const optimistic = {
+    ...g,
+    admittedCount: Math.min(current + 1, allowed),
+    scanCount: (Number(g.scanCount) || 0) + 1,
+    arrivalStatus: current + 1 >= allowed ? 'arrived' : 'not_arrived',
+    arrivedAt: g.arrivedAt || new Date().toISOString(),
+  };
+  checkInFloors.set(g._id, optimistic.admittedCount);
   checkInPending.value = new Set(checkInPending.value).add(g._id);
+  // Update the row before waiting for the network. The button now changes
+  // immediately to 1/2 (or the next count) while the server confirms it.
+  items.value = items.value.map((item) => item._id === g._id ? optimistic : item);
+  if (stats.value && current === 0) {
+    stats.value = { ...stats.value, arrived: (stats.value.arrived || 0) + 1 };
+  }
+  void saveGuestSnapshot();
   const clientMutationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   try {
     const res = await manualEntry(route.params.id, g._id, '', clientMutationId);
-    const updated = { ...g, ...(res.guest || {}) };
+    const serverUpdated = { ...g, ...(res.guest || {}) };
+    // Keep the floor until a list refresh observes the new count. The
+    // manual response is fresh, but an overlapping list request can still
+    // be reading the previous MongoDB snapshot for a moment.
+    const updated = {
+      ...serverUpdated,
+      admittedCount: Math.max(admittedEntries(serverUpdated), optimistic.admittedCount),
+    };
     items.value = items.value.map((item) => item._id === updated._id ? updated : item);
-    stats.value = await guestStats(route.params.id);
-    await saveGuestSnapshot();
+    // Reconcile the header count in the background; never hold the button or
+    // success feedback hostage to this secondary request.
+    void guestStats(route.params.id).then((nextStats) => {
+      const optimisticArrived = Number(stats.value?.arrived) || 0;
+      stats.value = {
+        ...nextStats,
+        arrived: Math.max(Number(nextStats?.arrived) || 0, optimisticArrived),
+      };
+    }).catch(() => { /* the next scheduled refresh will reconcile it */ });
+    void saveGuestSnapshot();
     toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim()
       + ` checked in (${admittedEntries(updated)}/${allowedEntries(updated)})`);
   } catch (err) {
-    if (!isOfflineError(err)) { toast.error(apiErrorMessage(err)); return; }
-    const allowed = allowedEntries(g);
-    const current = admittedEntries(g);
-    if (current < allowed) {
-      const updated = {
-        ...g,
-        admittedCount: current + 1,
-        scanCount: (Number(g.scanCount) || 0) + 1,
-        arrivalStatus: current + 1 >= allowed ? 'arrived' : 'not_arrived',
-        arrivedAt: g.arrivedAt || new Date().toISOString(),
-      };
-      items.value = items.value.map((item) => item._id === g._id ? updated : item);
-      if (stats.value && current === 0) stats.value = { ...stats.value, arrived: (stats.value.arrived || 0) + 1 };
+    if (isOfflineError(err)) {
+      // The optimistic row is already visible; queue the same mutation for
+      // delivery when the connection returns.
+      await queueHttpMutation({
+        method: 'post', url: `/events/${eventId.value}/scan/manual`,
+        data: { guestId: g._id, clientMutationId }, kind: 'guest.check-in',
+      });
+      await saveGuestSnapshot();
+      toast.info(`${g.firstName || ''} ${g.lastName || ''}`.trim() + ' checked in offline — it will sync automatically.');
+    } else {
+      // A definitive server error must undo the optimistic display.
+      checkInFloors.delete(g._id);
+      items.value = items.value.map((item) => item._id === previous._id ? previous : item);
+      if (stats.value && current === 0) {
+        stats.value = { ...stats.value, arrived: Math.max(0, (stats.value.arrived || 0) - 1) };
+      }
+      toast.error(apiErrorMessage(err));
     }
-    await queueHttpMutation({
-      method: 'post', url: `/events/${eventId.value}/scan/manual`,
-      data: { guestId: g._id, clientMutationId }, kind: 'guest.check-in',
-    });
-    await saveGuestSnapshot();
-    toast.info(`${g.firstName || ''} ${g.lastName || ''}`.trim() + ' checked in offline — it will sync automatically.');
   }
   finally {
     const next = new Set(checkInPending.value);
@@ -701,8 +757,19 @@ async function refresh(options = {}) {
         listGuests(route.params.id, { limit: 2000 }),
         guestStats(route.params.id),
       ]);
-      items.value = g.items;
-      stats.value = s;
+      const protectLocalArrived = checkInFloors.size > 0 || checkInPending.value.size > 0;
+      const currentById = new Map(items.value.map((item) => [item._id, item]));
+      items.value = g.items.map((serverGuest) =>
+        mergeCheckInState(serverGuest, currentById.get(serverGuest._id)));
+      const localArrived = Number(stats.value?.arrived) || 0;
+      stats.value = {
+        ...s,
+        // Do not let a stale aggregate response briefly undo the optimistic
+        // count while the guest document is still propagating.
+        arrived: protectLocalArrived
+          ? Math.max(Number(s?.arrived) || 0, localArrived)
+          : Number(s?.arrived) || 0,
+      };
       await saveGuestSnapshot();
       // Keep the sheet's guest reference fresh if it's open (post-edit
       // reflows into the same sheet without re-fetching).
