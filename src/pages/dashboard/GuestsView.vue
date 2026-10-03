@@ -233,7 +233,7 @@
         </Field>
         <Field label="WhatsApp number" help="Leave blank if same as phone." optional>
           <template #default="{ id }">
-            <TextInput v-model="form.whatsapp" :id="id" />
+            <TextInput v-model="form.whatsapp" :id="id" @blur="form.whatsapp = normalizePhoneInput(form.whatsapp)" />
           </template>
         </Field>
         <div class="grid grid-cols-2 gap-3">
@@ -328,6 +328,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PageShell from '@/components/shell/PageShell.vue';
 import { Badge, Button, EmptyState, Field, Modal, Select, TextInput } from '@/components/ui';
 import { seatTypeLabel } from '@/utils/seatType';
+import { normalizePhoneInput } from '@/utils/phone';
 
 const TYPES = [
   { value: 'single', label: 'Single' },
@@ -424,7 +425,8 @@ async function submit() {
   serverError.value = ''; saving.value = true;
   const payload = {
     ...form,
-    whatsapp: form.whatsapp || undefined,
+    phone: normalizePhoneInput(form.phone),
+    whatsapp: normalizePhoneInput(form.whatsapp) || undefined,
     familySize: form.type === 'family' ? form.familySize : undefined,
     pledge: form.pledge?.amount > 0 ? form.pledge : undefined,
   };
