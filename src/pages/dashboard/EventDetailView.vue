@@ -28,7 +28,7 @@
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <StatTile label="Guests"    :value="(event.guestCount || 0).toLocaleString()"    :meta="capacityMeta" />
       <StatTile label="RSVP yes"  :value="(event.rsvpYesCount || 0).toLocaleString()"  :meta="`${event.rsvpPendingCount || 0} awaiting`" />
-      <StatTile label="Arrived"   :value="(event.arrivedCount || 0).toLocaleString()"  :meta="`${arrivalPct}% of confirmed`" />
+      <StatTile label="Arrived"   :value="(event.arrivedCount || 0).toLocaleString()"  :meta="`${arrivalPct}% of invited people`" />
       <StatTile label="Declined"  :value="(event.rsvpNoCount || 0).toLocaleString()"   :meta="`${event.rsvpMaybeCount || 0} maybe`" />
     </div>
 
@@ -282,8 +282,10 @@ const yesPct   = computed(() => total.value ? Math.round(((event.value.rsvpYesCo
 const noPct    = computed(() => total.value ? Math.round(((event.value.rsvpNoCount || 0)    / total.value) * 100) : 0);
 const maybePct = computed(() => total.value ? Math.round(((event.value.rsvpMaybeCount || 0) / total.value) * 100) : 0);
 const arrivalPct = computed(() => {
-  const confirmed = event.value?.rsvpYesCount || 0;
-  return confirmed ? Math.round(((event.value.arrivedCount || 0) / confirmed) * 100) : 0;
+  const invitedPeople = event.value?.peopleCount || event.value?.guestCount || 0;
+  return invitedPeople
+    ? Math.min(100, Math.round(((event.value.arrivedCount || 0) / invitedPeople) * 100))
+    : 0;
 });
 const capacityMeta = computed(() => {
   const cap = event.value?.venueCapacity || 0;

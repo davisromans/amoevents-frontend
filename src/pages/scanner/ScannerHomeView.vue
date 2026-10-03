@@ -37,7 +37,7 @@
               <!-- Arrival progress bar -->
               <div class="mt-3">
                 <div class="flex items-center justify-between text-2xs text-white/70 mb-1">
-                  <span><span class="tabular-nums font-black text-white">{{ e.arrivedCount || 0 }}</span> / {{ e.guestCount || 0 }} arrived</span>
+                  <span><span class="tabular-nums font-black text-white">{{ e.arrivedCount || 0 }}</span> / {{ e.peopleCount || e.guestCount || 0 }} people arrived</span>
                   <span class="tabular-nums">{{ arrivalPct(e) }}%</span>
                 </div>
                 <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -97,7 +97,7 @@ function gradientFor(e) {
 }
 
 function arrivalPct(e) {
-  const total = e.guestCount || 0;
+  const total = e.peopleCount || e.guestCount || 0;
   return total ? Math.min(100, Math.round(((e.arrivedCount || 0) / total) * 100)) : 0;
 }
 

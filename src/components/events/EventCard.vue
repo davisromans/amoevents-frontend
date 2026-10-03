@@ -99,7 +99,9 @@ const eventTypeLabel = computed(() => {
 // Progress meter shows the most useful metric for the event's stage:
 // upcoming events show RSVP-response rate; past events show arrival rate.
 const progress = computed(() => {
-  const total = props.event.guestCount || 0;
+  const total = statusLabel.value === 'Past'
+    ? (props.event.peopleCount || props.event.guestCount || 0)
+    : (props.event.guestCount || 0);
   if (!total) return null;
   const past = statusLabel.value === 'Past';
   const responded = (props.event.rsvpYesCount || 0) + (props.event.rsvpNoCount || 0) + (props.event.rsvpMaybeCount || 0);

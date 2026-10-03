@@ -633,8 +633,11 @@ async function checkInGuest(g) {
   // Update the row before waiting for the network. The button now changes
   // immediately to 1/2 (or the next count) while the server confirms it.
   items.value = items.value.map((item) => item._id === g._id ? optimistic : item);
-  if (stats.value && current === 0) {
-    stats.value = { ...stats.value, arrived: (stats.value.arrived || 0) + 1 };
+  if (stats.value && optimistic.admittedCount > current) {
+    stats.value = {
+      ...stats.value,
+      arrived: (stats.value.arrived || 0) + (optimistic.admittedCount - current),
+    };
   }
   void saveGuestSnapshot();
   const clientMutationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -675,8 +678,11 @@ async function checkInGuest(g) {
       // A definitive server error must undo the optimistic display.
       checkInFloors.delete(g._id);
       items.value = items.value.map((item) => item._id === previous._id ? previous : item);
-      if (stats.value && current === 0) {
-        stats.value = { ...stats.value, arrived: Math.max(0, (stats.value.arrived || 0) - 1) };
+      if (stats.value && optimistic.admittedCount > current) {
+        stats.value = {
+          ...stats.value,
+          arrived: Math.max(0, (stats.value.arrived || 0) - (optimistic.admittedCount - current)),
+        };
       }
       toast.error(apiErrorMessage(err));
     }

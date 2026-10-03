@@ -34,13 +34,13 @@
           <p class="text-[120px] sm:text-[200px] lg:text-[280px] font-black tabular-nums leading-none bg-gradient-to-b from-white to-brand-primary-soft bg-clip-text text-transparent">
             {{ (stats.arrived || 0).toLocaleString() }}
           </p>
-          <p class="text-xl sm:text-3xl lg:text-4xl font-black text-white/40 tabular-nums">/ {{ (stats.total || 0).toLocaleString() }}</p>
+          <p class="text-xl sm:text-3xl lg:text-4xl font-black text-white/40 tabular-nums">/ {{ (stats.peopleTotal || stats.total || 0).toLocaleString() }}</p>
         </div>
 
         <!-- Big progress bar. High contrast for far-back viewing. -->
         <div class="mt-8 sm:mt-12 w-full max-w-4xl">
           <div class="flex items-center justify-between text-lg sm:text-xl font-black text-white mb-3">
-            <span class="tabular-nums">{{ arrivalPct }}% of confirmed guests</span>
+            <span class="tabular-nums">{{ arrivalPct }}% of invited people</span>
             <span class="tabular-nums text-white/60">{{ stats.rsvpYes || 0 }} yes · {{ stats.rsvpPending || 0 }} pending</span>
           </div>
           <div class="h-3 sm:h-4 rounded-full bg-white/10 overflow-hidden">
@@ -118,7 +118,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 const route = useRoute();
 const loading = ref(true);
 const event = ref(null);
-const stats = ref({ total: 0, arrived: 0, rsvpYes: 0, rsvpNo: 0, rsvpMaybe: 0, rsvpPending: 0 });
+const stats = ref({ total: 0, peopleTotal: 0, arrived: 0, rsvpYes: 0, rsvpNo: 0, rsvpMaybe: 0, rsvpPending: 0 });
 const recentArrivals = ref([]);
 let pollTimer = null;
 let clockTimer = null;
@@ -126,7 +126,7 @@ const now = ref(Date.now());
 const clock = computed(() => new Date(now.value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
 
 const arrivalPct = computed(() => {
-  const confirmed = stats.value.rsvpYes || stats.value.total || 0;
+  const confirmed = stats.value.peopleTotal || stats.value.rsvpYes || stats.value.total || 0;
   return confirmed ? Math.min(100, Math.round(((stats.value.arrived || 0) / confirmed) * 100)) : 0;
 });
 
