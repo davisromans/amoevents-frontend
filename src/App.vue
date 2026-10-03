@@ -1,5 +1,6 @@
 <template>
   <RouteProgressBar />
+  <OfflineStatusBar />
   <router-view />
   <ToastStack />
   <ConfirmDialog />
@@ -17,6 +18,7 @@ import ToastStack from '@/components/common/ToastStack.vue';
 import InstallPromptBanner from '@/components/common/InstallPromptBanner.vue';
 import UpdateBanner from '@/components/common/UpdateBanner.vue';
 import RouteProgressBar from '@/components/common/RouteProgressBar.vue';
+import OfflineStatusBar from '@/components/common/OfflineStatusBar.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import CompleteProfileGate from '@/components/common/CompleteProfileGate.vue';
 import { currentBrand } from '@/composables/useBrand';

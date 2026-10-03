@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getApiCache, isOfflineError, makeApiCacheKey, putApiCache } from '@/services/offline.store';
 
 const http = axios.create({
   baseURL: '/api',
@@ -17,11 +18,41 @@ http.interceptors.request.use((config) => {
 });
 
 http.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    // Every successful JSON GET becomes an offline-readable snapshot. This
+    // gives event pages and other already-visited pages a durable fallback
+    // after a refresh with no connection.
+    if (r.config?.method?.toLowerCase() === 'get'
+      && r.config.offlineCache !== false
+      && r.config.responseType !== 'blob'
+      && !(typeof Blob !== 'undefined' && r.data instanceof Blob)) {
+      putApiCache(makeApiCacheKey(r.config), r.data);
+    }
+    return r;
+  },
   async (err) => {
     const original = err.config;
     const status = err.response?.status;
-    if (status === 401 && !original._retry && !original.url.includes('/auth/refresh')) {
+    // If the browser is offline (or the connection dropped), turn a cached
+    // GET back into a normal-looking Axios response. Existing pages can then
+    // render their last known data without every view having to duplicate
+    // fallback logic.
+    if (original?.method?.toLowerCase() === 'get' && isOfflineError(err) && original.offlineCache !== false) {
+      const cached = await getApiCache(makeApiCacheKey(original));
+      if (cached) {
+        window.dispatchEvent(new CustomEvent('offline:cache-used'));
+        return {
+          data: cached.data,
+          status: 200,
+          statusText: 'OK (offline cache)',
+          headers: {},
+          config: { ...original, fromOfflineCache: true },
+          request: null,
+          fromOfflineCache: true,
+        };
+      }
+    }
+    if (original && status === 401 && !original._retry && !original.url?.includes('/auth/refresh')) {
       original._retry = true;
       const refreshToken = localStorage.getItem('gc.refreshToken');
       if (!refreshToken) {

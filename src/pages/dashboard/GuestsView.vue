@@ -302,7 +302,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { askConfirm } from '@/composables/useConfirm';
 import { useRoute } from 'vue-router';
 import {
@@ -321,6 +321,8 @@ import { checkAllWa } from '@/services/messaging.service';
 import { manualEntry } from '@/services/scan.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
+import { getGuestSnapshot, isOfflineError, putGuestSnapshot } from '@/services/offline.store';
+import { queueHttpMutation } from '@/services/offline-sync.service';
 import PhoneInput from '@/components/common/PhoneInput.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PageShell from '@/components/shell/PageShell.vue';
@@ -342,6 +344,7 @@ const RSVP_FILTERS = [
 
 const route = useRoute();
 const toast = useToast();
+const eventId = computed(() => String(route.params.id));
 const items = ref([]);
 const stats = ref(null);
 const eventName = ref('Event');
@@ -413,13 +416,13 @@ function closeGuestModal() {
 }
 async function submit() {
   serverError.value = ''; saving.value = true;
+  const payload = {
+    ...form,
+    whatsapp: form.whatsapp || undefined,
+    familySize: form.type === 'family' ? form.familySize : undefined,
+    pledge: form.pledge?.amount > 0 ? form.pledge : undefined,
+  };
   try {
-    const payload = {
-      ...form,
-      whatsapp: form.whatsapp || undefined,
-      familySize: form.type === 'family' ? form.familySize : undefined,
-      pledge: form.pledge?.amount > 0 ? form.pledge : undefined,
-    };
     if (editingId.value) {
       await updateGuest(route.params.id, editingId.value, payload);
       toast.success('Guest updated');
@@ -429,7 +432,49 @@ async function submit() {
     }
     closeGuestModal();
     await refresh();
-  } catch (err) { serverError.value = apiErrorMessage(err); }
+  } catch (err) {
+    if (!isOfflineError(err)) {
+      serverError.value = apiErrorMessage(err);
+      return;
+    }
+    const id = editingId.value;
+    if (id) {
+      const current = items.value.find((g) => g._id === id);
+      if (current) {
+        const updated = {
+          ...current,
+          ...payload,
+          pledge: payload.pledge ? { ...(current.pledge || {}), ...payload.pledge } : current.pledge,
+        };
+        items.value = items.value.map((g) => g._id === id ? updated : g);
+      }
+      await queueHttpMutation({ method: 'patch', url: `/events/${eventId.value}/guests/${id}`, data: payload, kind: 'guest.update' });
+    } else {
+      const tempId = `offline-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
+      const tempGuest = {
+        ...payload,
+        _id: tempId,
+        memberId: `OFFLINE-${Date.now().toString(36).toUpperCase()}`,
+        pubCode: null,
+        createdAt: new Date().toISOString(),
+        rsvpStatus: 'pending',
+        arrivalStatus: 'not_arrived',
+        admittedCount: 0,
+        scanCount: 0,
+        invitationCount: 0,
+      };
+      items.value = [tempGuest, ...items.value];
+      if (stats.value) stats.value = {
+        ...stats.value,
+        total: (stats.value.total || 0) + 1,
+        rsvpPending: (stats.value.rsvpPending || 0) + 1,
+      };
+      await queueHttpMutation({ method: 'post', url: `/events/${eventId.value}/guests`, data: payload, tempId, kind: 'guest.create' });
+    }
+    await saveGuestSnapshot();
+    closeGuestModal();
+    toast.info('Saved offline — it will sync automatically when internet returns.');
+  }
   finally { saving.value = false; }
 }
 
@@ -441,7 +486,15 @@ async function removeGuest(g) {
     items.value = items.value.filter((x) => x._id !== g._id);
     selected.value.delete(g._id);
     toast.success('Deleted');
-  } catch (err) { toast.error(apiErrorMessage(err)); }
+    await saveGuestSnapshot();
+  } catch (err) {
+    if (!isOfflineError(err)) { toast.error(apiErrorMessage(err)); return; }
+    items.value = items.value.filter((x) => x._id !== g._id);
+    selected.value.delete(g._id);
+    await queueHttpMutation({ method: 'delete', url: `/events/${eventId.value}/guests/${g._id}`, kind: 'guest.delete' });
+    await saveGuestSnapshot();
+    toast.info('Deletion saved offline — it will sync automatically.');
+  }
 }
 async function deleteFromSheet(g) {
   detailOpen.value = false;
@@ -476,9 +529,22 @@ async function bulkDelete() {
   // Fire deletes in parallel — API endpoint is per-guest today. Bulk
   // endpoint can replace this in a future backend batch.
   const results = await Promise.allSettled(ids.map((id) => deleteGuest(route.params.id, id)));
-  const failed = results.filter((r) => r.status === 'rejected').length;
+  let failed = 0;
+  let queued = 0;
+  for (let i = 0; i < results.length; i += 1) {
+    const result = results[i];
+    if (result.status !== 'rejected') continue;
+    if (isOfflineError(result.reason)) {
+      await queueHttpMutation({ method: 'delete', url: `/events/${eventId.value}/guests/${ids[i]}`, kind: 'guest.delete' });
+      queued += 1;
+    } else failed += 1;
+  }
   if (failed) toast.error(`${failed} guest${failed === 1 ? '' : 's'} could not be deleted`);
-  else toast.success(`Deleted ${n} guest${n === 1 ? '' : 's'}`);
+  if (queued) toast.info(`${queued} deletion${queued === 1 ? '' : 's'} saved offline — waiting to sync.`);
+  if (!failed && !queued) toast.success(`Deleted ${n} guest${n === 1 ? '' : 's'}`);
+  const removed = new Set(ids);
+  items.value = items.value.filter((g) => !removed.has(g._id));
+  await saveGuestSnapshot();
   selected.value = new Set();
   await refresh();
 }
@@ -528,14 +594,37 @@ function isFullyCheckedIn(g) { return admittedEntries(g) >= allowedEntries(g); }
 async function checkInGuest(g) {
   if (isFullyCheckedIn(g) || checkInPending.value.has(g._id)) return;
   checkInPending.value = new Set(checkInPending.value).add(g._id);
+  const clientMutationId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   try {
-    const res = await manualEntry(route.params.id, g._id);
+    const res = await manualEntry(route.params.id, g._id, '', clientMutationId);
     const updated = { ...g, ...(res.guest || {}) };
     items.value = items.value.map((item) => item._id === updated._id ? updated : item);
     stats.value = await guestStats(route.params.id);
+    await saveGuestSnapshot();
     toast.success(`${updated.firstName || ''} ${updated.lastName || ''}`.trim()
       + ` checked in (${admittedEntries(updated)}/${allowedEntries(updated)})`);
-  } catch (err) { toast.error(apiErrorMessage(err)); }
+  } catch (err) {
+    if (!isOfflineError(err)) { toast.error(apiErrorMessage(err)); return; }
+    const allowed = allowedEntries(g);
+    const current = admittedEntries(g);
+    if (current < allowed) {
+      const updated = {
+        ...g,
+        admittedCount: current + 1,
+        scanCount: (Number(g.scanCount) || 0) + 1,
+        arrivalStatus: current + 1 >= allowed ? 'arrived' : 'not_arrived',
+        arrivedAt: g.arrivedAt || new Date().toISOString(),
+      };
+      items.value = items.value.map((item) => item._id === g._id ? updated : item);
+      if (stats.value && current === 0) stats.value = { ...stats.value, arrived: (stats.value.arrived || 0) + 1 };
+    }
+    await queueHttpMutation({
+      method: 'post', url: `/events/${eventId.value}/scan/manual`,
+      data: { guestId: g._id, clientMutationId }, kind: 'guest.check-in',
+    });
+    await saveGuestSnapshot();
+    toast.info(`${g.firstName || ''} ${g.lastName || ''}`.trim() + ' checked in offline — it will sync automatically.');
+  }
   finally {
     const next = new Set(checkInPending.value);
     next.delete(g._id);
@@ -598,6 +687,7 @@ async function refresh() {
     ]);
     items.value = g.items;
     stats.value = s;
+    await saveGuestSnapshot();
     // Keep the sheet's guest reference fresh if it's open (post-edit
     // reflows into the same sheet without re-fetching).
     if (detailGuest.value) {
@@ -605,14 +695,48 @@ async function refresh() {
       if (still) detailGuest.value = still;
       else { detailOpen.value = false; detailGuest.value = null; }
     }
-  } catch (err) { toast.error(apiErrorMessage(err)); }
+  } catch (err) {
+    const cached = await getGuestSnapshot(eventId.value);
+    if (cached?.items) {
+      items.value = cached.items;
+      stats.value = cached.stats || null;
+      eventName.value = cached.eventName || eventName.value;
+      availableTags.value = cached.availableTags || availableTags.value;
+    } else toast.error(apiErrorMessage(err));
+  }
   finally { loading.value = false; }
+}
+
+async function saveGuestSnapshot() {
+  await putGuestSnapshot(eventId.value, {
+    items: items.value,
+    stats: stats.value,
+    eventName: eventName.value,
+    availableTags: availableTags.value,
+  });
+}
+
+let reconcileTimer = null;
+function onOfflineSyncFinished(event) {
+  if (event.detail?.synced) refresh();
 }
 
 onMounted(async () => {
   await refresh();
   try { availableTags.value = await listTags(route.params.id); } catch (_) { /* ignore */ }
   try { const { event } = await getEvent(route.params.id); eventName.value = event?.name || 'Event'; } catch (_) { /* ignore */ }
+  await saveGuestSnapshot();
+  window.addEventListener('offline:sync-finished', onOfflineSyncFinished);
+  window.addEventListener('online', refresh);
+  // Reconcile updates made by a second organiser while this page is open.
+  // The server remains authoritative; the interval only refreshes when online.
+  reconcileTimer = setInterval(() => { if (navigator.onLine && !createOpen.value) refresh(); }, 15000);
+});
+
+onUnmounted(() => {
+  clearInterval(reconcileTimer);
+  window.removeEventListener('offline:sync-finished', onOfflineSyncFinished);
+  window.removeEventListener('online', refresh);
 });
 
 // Clear bulk selection when filters change so users don't accidentally

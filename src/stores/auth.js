@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import http, { unwrap } from '@/services/http';
+import { isOfflineError } from '@/services/offline.store';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -38,8 +39,12 @@ export const useAuthStore = defineStore('auth', {
         this.tenant = tenant;
         localStorage.setItem('gc.user', JSON.stringify(user));
         if (tenant) localStorage.setItem('gc.tenant', JSON.stringify(tenant));
-      } catch (_) {
-        this.logout();
+      } catch (error) {
+        // A cached authenticated session must survive a temporary outage so
+        // the dashboard can open from IndexedDB. Only a real auth rejection
+        // logs the user out; network failures leave the saved identity in
+        // place and the global offline bar explains the state.
+        if (!isOfflineError(error)) this.logout();
       } finally {
         this.ready = true;
       }

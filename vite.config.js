@@ -33,11 +33,12 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
-        // NO PRECACHE — every deploy previously blocked page navigation while
-        // the SW re-downloaded 19 shell files from Chennai. That's the "5min
-        // reload after deploy" behavior. Cloudflare + browser HTTP cache do
-        // the job. SW only runtime-caches chunks + fonts on first fetch.
-        globPatterns: [],
+        // The app shell must be available after a refresh with no signal.
+        // Guest/event data is stored separately in IndexedDB; these files
+        // only make the Vue application itself boot offline.
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
         runtimeCaching: [
           {
