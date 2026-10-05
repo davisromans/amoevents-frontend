@@ -10,7 +10,7 @@
         <ArrowUpTrayIcon class="w-6 h-6 text-brand-gold-deep dark:text-brand-gold-soft mx-auto mb-2" />
         <p class="text-md font-bold text-surface-charcoal dark:text-surface-bone">Drop a PDF, CSV, or Excel file</p>
         <p class="text-xs text-surface-slate dark:text-surface-ash mt-1">
-          Pledge sheets, contribution lists, guest lists — we'll detect names, phones, and pledge amounts.
+          Pledge sheets, contribution lists, guest lists — we'll detect names, phones, card status/type, and pledge amounts.
         </p>
         <input ref="fileEl" type="file" accept=".pdf,.csv,.xlsx,.xlsm" class="hidden" @change="onPick" />
       </div>
@@ -78,6 +78,24 @@
               </p>
             </div>
             <button class="col-span-1 text-red-500 hover:text-red-700 flex justify-center" @click="rows.splice(i, 1)"><TrashIcon class="w-4 h-4" /></button>
+            <div class="col-span-12 flex flex-wrap items-center gap-2 border-t border-surface-mist/60 dark:border-surface-fog/60 pt-2">
+              <label class="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wide text-surface-slate dark:text-surface-ash">
+                Card status/type
+                <select v-model="r.type" class="field-input !py-1 !text-sm normal-case tracking-normal font-normal">
+                  <option value="">Auto / keep existing</option>
+                  <option value="single">Single</option>
+                  <option value="double">Double</option>
+                  <option value="family">Family</option>
+                </select>
+              </label>
+              <label class="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wide text-surface-slate dark:text-surface-ash">
+                Seats
+                <input v-model.number="r.familySize" type="number" min="1" max="20" placeholder="1" class="field-input !py-1 !text-sm normal-case tracking-normal font-normal w-20" />
+              </label>
+              <span class="text-2xs text-surface-slate dark:text-surface-ash">
+                DOUBLE imports as 2 seats; FAMILY imports as 3–20 seats.
+              </span>
+            </div>
           </div>
         </div>
 
@@ -130,6 +148,8 @@ const FIELD_OPTIONS = [
   { value: 'firstName', label: 'First name' },
   { value: 'lastName', label: 'Last name' },
   { value: 'phone', label: 'Phone' },
+  { value: 'type', label: 'Card status / type' },
+  { value: 'familySize', label: 'Seats / invite count' },
   { value: 'pledgeAmount', label: 'Pledged amount' },
   { value: 'pledgeReceived', label: 'Amount paid' },
 ];
@@ -176,6 +196,21 @@ function splitName(full) {
   return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
 }
 
+function normalizeImportedType(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return '';
+  if (/^(double|couple|pair|2)$/.test(text)) return 'double';
+  if (/^(family|group|triple|3)$/.test(text)) return 'family';
+  if (/^(single|individual|1)$/.test(text)) return 'single';
+  if (/^\d+$/.test(text)) {
+    const seats = Number(text);
+    if (seats >= 3) return 'family';
+    if (seats === 2) return 'double';
+    if (seats === 1) return 'single';
+  }
+  return '';
+}
+
 function onDrop(e) {
   dragging.value = false;
   const file = e.dataTransfer?.files?.[0];
@@ -194,7 +229,15 @@ async function handleFile(file) {
     if (parsed.sourceType === 'pdf-pledge-sheet') {
       rows.value = parsed.rows.map((r) => {
         const { firstName, lastName } = splitName(r.fullName);
-        return { firstName, lastName, phone: r.phone || '', pledgeAmount: r.pledgeAmount || 0, pledgeReceived: r.pledgeReceived || 0 };
+        return {
+          firstName,
+          lastName,
+          phone: r.phone || '',
+          type: normalizeImportedType(r.type),
+          familySize: r.familySize || '',
+          pledgeAmount: r.pledgeAmount || 0,
+          pledgeReceived: r.pledgeReceived || 0,
+        };
       });
       step.value = 'preview';
     } else {
@@ -217,7 +260,7 @@ function sampleValue(i) {
 
 function buildWorkingRows() {
   rows.value = rawRows.value.map((raw) => {
-    const out = { firstName: '', lastName: '', phone: '', pledgeAmount: 0, pledgeReceived: 0 };
+    const out = { firstName: '', lastName: '', phone: '', type: '', familySize: '', pledgeAmount: 0, pledgeReceived: 0 };
     headers.value.forEach((h, i) => {
       const field = mapping.value[i];
       if (!field) return;
@@ -227,6 +270,10 @@ function buildWorkingRows() {
         out.firstName = firstName; out.lastName = lastName;
       } else if (field === 'pledgeAmount' || field === 'pledgeReceived') {
         out[field] = Number(String(val || '0').replace(/,/g, '')) || 0;
+      } else if (field === 'type') {
+        out.type = normalizeImportedType(val);
+      } else if (field === 'familySize') {
+        out.familySize = Number(String(val || '').replace(/,/g, '')) || '';
       } else {
         out[field] = String(val ?? '').trim();
       }
@@ -255,6 +302,8 @@ async function doCommit() {
   try {
     const payload = rows.value.map((r) => ({
       firstName: r.firstName, lastName: r.lastName, phone: r.phone,
+      ...(r.type ? { type: r.type } : {}),
+      ...(r.familySize ? { familySize: Number(r.familySize) } : {}),
       pledgeAmount: r.pledgeAmount, pledgeReceived: r.pledgeReceived,
     }));
     const layout = rememberLayout.value ? { headers: headers.value, mapping: mapping.value } : undefined;
