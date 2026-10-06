@@ -127,6 +127,12 @@
 
         <div v-else-if="obj.type === 'image'" class="space-y-3">
           <p class="section-eyebrow">Crop & style</p>
+          <button v-if="obj.get('data')?.sourceLayer?.convertedFromText"
+                  class="btn-ghost !text-2xs !py-1.5 w-full"
+                  title="Restore editable text; advanced Photoshop effects may look different"
+                  @click="$emit('restore-text', obj)">
+            Make PSD text editable
+          </button>
           <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('start-crop', obj)">Crop</button>
           <div>
             <p class="field-label mb-1">Straighten — {{ obj.angle?.toFixed(0) }}°</p>
@@ -287,7 +293,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'rasterize']);
+defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'rasterize', 'restore-text']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which

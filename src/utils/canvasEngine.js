@@ -7,6 +7,7 @@
 // what keeps the editor and the eventual server-side renderer able to
 // share the exact same document shape.
 import * as fabric from 'fabric';
+import { rebuildFilterStack } from './filtersGallery';
 
 const BLEND_MODE_TO_COMPOSITE = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -82,7 +83,7 @@ export function createEngineCanvas(canvasEl, { width, height, background }) {
 // unconditionally), so a highlighted-text font change would "work," then
 // vanish the moment the document was saved and reloaded — including in the
 // server-rendered thumbnail, which reads from the very same saved document.
-const CHAR_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fill'];
+const CHAR_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fill', 'stroke', 'strokeWidth', 'underline', 'linethrough'];
 
 function charStylesEqual(a, b) {
   return CHAR_STYLE_KEYS.every((k) => a[k] === b[k]);
@@ -116,6 +117,28 @@ function applyCharStyles(textbox, charStyles) {
   }
 }
 
+function clonePlain(value) {
+  if (value == null) return value;
+  try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
+}
+
+function sourceLayerMetadata(layer) {
+  const source = clonePlain(layer) || {};
+  delete source.children;
+  return source;
+}
+
+function applyLayerEffects(fabricObj, layer) {
+  const effect = (layer.effects || []).find((item) => item?.type === 'dropShadow' || item?.type === 'outerGlow');
+  if (!effect) return;
+  fabricObj.set('shadow', new fabric.Shadow({
+    color: effect.color || 'rgba(0,0,0,0.5)',
+    blur: effect.blur || 0,
+    offsetX: effect.type === 'outerGlow' ? 0 : (effect.offsetX || 0),
+    offsetY: effect.type === 'outerGlow' ? 0 : (effect.offsetY || 0),
+  }));
+}
+
 function applyCommon(fabricObj, layer, { skipPosition } = {}) {
   fabricObj.set({
     ...(skipPosition ? {} : { left: layer.x, top: layer.y }),
@@ -135,29 +158,30 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     evented: !layer.locked,
     globalCompositeOperation: BLEND_MODE_TO_COMPOSITE[layer.blendMode] || 'source-over',
   });
-  fabricObj.set('data', { layerId: layer.id, binding: layer.binding || null, locked: !!layer.locked, name: layer.name });
+  fabricObj.set('data', {
+    layerId: layer.id,
+    binding: layer.binding || null,
+    locked: !!layer.locked,
+    name: layer.name,
+    sourceLayer: sourceLayerMetadata(layer),
+    adjustments: clonePlain(layer.adjustments || {}),
+    galleryFilters: clonePlain(layer.galleryFilters || {}),
+  });
+  applyLayerEffects(fabricObj, layer);
 }
 
 async function layerToFabric(layer, { resolveAssetUrl }) {
   if (layer.type === 'group') {
-    // Real Fabric.Group for PSD nested folders. Every child was imported
-    // with ABSOLUTE canvas coordinates; Fabric's LayoutManager on
-    // INITIALIZATION shifts each by `-bboxCenter` (traced through
-    // fabric/dist/index.js's commitLayout/layoutObject) so children end
-    // up in a plane where the group center is (0,0). Group.left/top
-    // (with originX='left'/'top') then equal the bbox's top-left. The
-    // math composes correctly across nesting levels ONLY when we don't
-    // pass options.left/top to the constructor — passing them overrides
-    // the LayoutManager's calculated center and desyncs the offset from
-    // the children's shift. Previously the code passed both, which is
-    // why nested groups miscomposed. Recursive children may already be
-    // fabric.Groups themselves; that's fine, LayoutManager treats them
-    // like any other object with a bounding box.
+    // Version 2 documents store every child relative to its group's top
+    // left, matching PSD folders and avoiding the old absolute-coordinate
+    // drift on each load/save. Version 1 documents retain the legacy
+    // no-position constructor so existing templates keep their placement.
     const children = (await Promise.all(layer.children.map((c) => layerToFabric(c, { resolveAssetUrl }))))
       .flatMap((c) => Array.isArray(c) ? c : [c])
       .filter(Boolean);
     if (!children.length) return null;
     const group = new fabric.Group(children, {
+      ...(layer.coordinateSpace === 'local' ? { left: layer.x, top: layer.y } : {}),
       originX: 'left', originY: 'top',
       opacity: layer.opacity ?? 1,
       visible: layer.visible !== false,
@@ -169,13 +193,14 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       // subTargets to drill straight to the clicked leaf layer instead.
       subTargetCheck: true,
     });
-    group.set('data', { layerId: layer.id, binding: null, locked: !!layer.locked, name: layer.name });
+    applyCommon(group, layer, { skipPosition: layer.coordinateSpace !== 'local' });
     return group;
   }
 
   if (layer.type === 'text') {
-    const textbox = new fabric.Textbox(layer.text || '', {
-      width: layer.width,
+    const TextClass = layer.textMode === 'point' ? fabric.FabricText : fabric.Textbox;
+    const textbox = new TextClass(layer.text || '', {
+      ...(layer.textMode === 'point' ? {} : { width: layer.width }),
       fontFamily: layer.fontFamily || 'Arial',
       fontSize: layer.fontSize || 24,
       fontWeight: layer.fontWeight || 400,
@@ -184,6 +209,10 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       textAlign: layer.align || 'left',
       lineHeight: layer.lineHeight || 1.16,
       charSpacing: (layer.letterSpacing || 0) * 10, // Fabric's charSpacing is in 1/1000 em units
+      stroke: layer.stroke || null,
+      strokeWidth: layer.strokeWidth || 0,
+      underline: !!layer.underline,
+      linethrough: !!layer.linethrough,
     });
     applyCommon(textbox, layer);
     applyCharStyles(textbox, layer.charStyles);
@@ -195,9 +224,17 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     const url = await resolveAssetUrl(layer.assetId);
     if (!url) return null;
     const img = await fabric.FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+    const sourceWidth = img.width || 1;
+    const sourceHeight = img.height || 1;
+    const crop = layer.cropRect || { x: 0, y: 0, w: 1, h: 1 };
+    const cropX = Math.max(0, Math.min(sourceWidth - 1, (crop.x || 0) * sourceWidth));
+    const cropY = Math.max(0, Math.min(sourceHeight - 1, (crop.y || 0) * sourceHeight));
+    const cropWidth = Math.max(1, Math.min(sourceWidth - cropX, (crop.w || 1) * sourceWidth));
+    const cropHeight = Math.max(1, Math.min(sourceHeight - cropY, (crop.h || 1) * sourceHeight));
     img.set({
-      scaleX: layer.width / img.width,
-      scaleY: layer.height / img.height,
+      cropX, cropY, width: cropWidth, height: cropHeight,
+      scaleX: layer.width / cropWidth,
+      scaleY: layer.height / cropHeight,
     });
     applyCommon(img, layer);
     // CRITICAL: applyCommon's data object doesn't include assetId — it was
@@ -210,7 +247,8 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // `if (!layer.assetId) return null` then dropped it entirely. This is
     // almost certainly the actual cause behind most of the "content
     // disappeared after I edited something else" reports.
-    img.set('data', { ...img.get('data'), assetId: layer.assetId });
+    img.set('data', { ...img.get('data'), assetId: layer.assetId, sourceWidth, sourceHeight });
+    rebuildFilterStack(img);
     return img;
   }
 
@@ -294,7 +332,22 @@ export async function loadDocument(canvas, document, { resolveAssetUrl }) {
 
 function fabricToLayer(obj) {
   const data = obj.get('data') || {};
+  const preserved = clonePlain(data.sourceLayer || {});
+  delete preserved.children;
+  const preservedEffects = (preserved.effects || []).filter((effect) => !['dropShadow', 'outerGlow'].includes(effect?.type));
+  if (obj.shadow) {
+    preservedEffects.push({
+      type: 'dropShadow',
+      color: obj.shadow.color || 'rgba(0,0,0,0.5)',
+      blur: obj.shadow.blur || 0,
+      offsetX: obj.shadow.offsetX || 0,
+      offsetY: obj.shadow.offsetY || 0,
+      opacity: 1,
+      blendMode: 'normal',
+    });
+  }
   const base = {
+    ...preserved,
     id: data.layerId || `layer_${Math.random().toString(36).slice(2, 10)}`,
     name: data.name || obj.type,
     x: Math.round(obj.left),
@@ -307,14 +360,17 @@ function fabricToLayer(obj) {
     locked: !!data.locked,
     blendMode: Object.keys(BLEND_MODE_TO_COMPOSITE).find((k) => BLEND_MODE_TO_COMPOSITE[k] === obj.globalCompositeOperation) || 'normal',
     binding: data.binding || null,
-    effects: [], // populated once batch 14 (layer styles) lands
+    effects: preservedEffects,
   };
 
-  if (obj.type === 'textbox') {
+  if (obj.type === 'textbox' || obj.type === 'text') {
     return {
       ...base, type: 'text', text: obj.text,
+      textMode: obj.type === 'text' ? 'point' : 'box',
       fontFamily: obj.fontFamily, fontSize: obj.fontSize, fontWeight: obj.fontWeight,
       fontStyle: obj.fontStyle, fill: obj.fill, align: obj.textAlign,
+      stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
+      underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
     };
   }
@@ -323,7 +379,23 @@ function fabricToLayer(obj) {
     if (imgData.isQr) {
       return { ...base, type: 'qr', bindingSource: 'guest_qr_payload', fg: imgData.fg || '#000000', bg: imgData.bg || '#FFFFFF', errorCorrection: 'M' };
     }
-    return { ...base, type: 'image', assetId: imgData.assetId || null, fit: 'cover', cropRect: { x: 0, y: 0, w: 1, h: 1 }, mask: null };
+    const sourceWidth = imgData.sourceWidth || obj.getElement?.()?.naturalWidth || obj.width || 1;
+    const sourceHeight = imgData.sourceHeight || obj.getElement?.()?.naturalHeight || obj.height || 1;
+    return {
+      ...base,
+      type: 'image',
+      assetId: imgData.assetId || null,
+      fit: preserved.fit || 'fill',
+      cropRect: {
+        x: (obj.cropX || 0) / sourceWidth,
+        y: (obj.cropY || 0) / sourceHeight,
+        w: (obj.width || sourceWidth) / sourceWidth,
+        h: (obj.height || sourceHeight) / sourceHeight,
+      },
+      mask: preserved.mask || null,
+      adjustments: clonePlain(imgData.adjustments || {}),
+      galleryFilters: clonePlain(imgData.galleryFilters || {}),
+    };
   }
   if (obj.type === 'rect') {
     return { ...base, type: 'rect', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, strokeDashArray: obj.strokeDashArray, rx: obj.rx, ry: obj.ry };
@@ -335,24 +407,22 @@ function fabricToLayer(obj) {
     return { ...base, type: 'path', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
   }
   if (obj.type === 'group') {
-    // Children inside a Fabric group have positions RELATIVE to the
-    // group's center (see layerToFabric's group comment — LayoutManager
-    // shifts them by -bboxCenter on construction). Saving those relative
-    // positions verbatim would put them at the wrong absolute location on
-    // next load, since we reconstruct the group fresh from absolute coords.
-    // getBoundingRect returns an axis-aligned box in ABSOLUTE canvas
-    // coordinates including all ancestor group transforms; use its
-    // left/top as the child's true canvas origin.
+    const groupBounds = obj.getBoundingRect();
     return {
       ...base,
       type: 'group',
+      coordinateSpace: 'local',
+      x: Math.round(groupBounds.left),
+      y: Math.round(groupBounds.top),
+      width: Math.round(groupBounds.width),
+      height: Math.round(groupBounds.height),
       children: obj.getObjects().map((child) => {
         const childLayer = fabricToLayer(child);
         if (!childLayer) return null;
         try {
           const bbox = child.getBoundingRect();
-          childLayer.x = Math.round(bbox.left);
-          childLayer.y = Math.round(bbox.top);
+          childLayer.x = Math.round(bbox.left - groupBounds.left);
+          childLayer.y = Math.round(bbox.top - groupBounds.top);
         } catch { /* leave as-is on any bbox failure — better a slightly-off position than a dropped layer */ }
         return childLayer;
       }).filter(Boolean),
@@ -392,13 +462,57 @@ export function serializeDocument(canvas, { previousDocument }) {
   // resolution but the canvas had shrunk to a fraction of it.
   const layers = canvas.getObjects().map(fabricToLayer).filter(Boolean);
   return {
-    version: (previousDocument?.version || 1) + 1,
+    ...(clonePlain(previousDocument) || {}),
+    version: Math.max(2, previousDocument?.version || 1),
+    coordinateSpace: 'local-groups',
     width: previousDocument?.width ?? canvas.width,
     height: previousDocument?.height ?? canvas.height,
     background: canvas.backgroundColor || '#FFFFFF',
     fontFamilies: [...collectFontFamilies(layers)],
     layers,
   };
+}
+
+/**
+ * Complex PSD text is imported as exact pixels when its font/effects cannot
+ * be reproduced faithfully. This explicit conversion restores the preserved
+ * text metadata only when the editor chooses editability over pixel fidelity.
+ */
+export async function restoreConvertedText(canvas, imageObject) {
+  if (!canvas || imageObject?.type !== 'image') return null;
+  const data = imageObject.get('data') || {};
+  const converted = data.sourceLayer?.convertedFromText;
+  if (!converted) return null;
+  const restoredLayer = {
+    ...clonePlain(converted),
+    id: data.layerId,
+    name: data.name || converted.name,
+    x: imageObject.left,
+    y: imageObject.top,
+    width: imageObject.getScaledWidth(),
+    height: imageObject.getScaledHeight(),
+    rotation: imageObject.angle || 0,
+    opacity: imageObject.opacity ?? 1,
+    visible: imageObject.visible !== false,
+    locked: !!data.locked,
+  };
+  const textObject = await layerToFabric(restoredLayer, { resolveAssetUrl: async () => null });
+  if (!textObject) return null;
+  const parent = imageObject.group;
+  if (parent) {
+    const index = parent.getObjects().indexOf(imageObject);
+    parent.remove(imageObject);
+    parent.insertAt(Math.max(0, index), textObject);
+    parent.setCoords();
+  } else {
+    const index = canvas.getObjects().indexOf(imageObject);
+    canvas.remove(imageObject);
+    canvas.insertAt(Math.max(0, index), textObject);
+  }
+  canvas.setActiveObject(textObject);
+  canvas.requestRenderAll();
+  canvas.fire('object:modified', { target: textObject });
+  return textObject;
 }
 
 export { BLEND_MODE_TO_COMPOSITE };

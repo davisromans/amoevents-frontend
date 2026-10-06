@@ -43,6 +43,16 @@
           </button>
         </div>
       </div>
+      <details v-if="psdImport.completedTemplate.importWarnings?.length" class="mt-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3">
+        <summary class="text-xs font-bold text-amber-800 dark:text-amber-300 cursor-pointer">
+          {{ psdImport.completedTemplate.importWarnings.length }} fidelity note{{ psdImport.completedTemplate.importWarnings.length === 1 ? '' : 's' }} — review before publishing
+        </summary>
+        <ul class="mt-2 space-y-1 text-2xs text-amber-900 dark:text-amber-200">
+          <li v-for="(warning, index) in uniqueImportWarnings" :key="`${warning.code}-${index}`">
+            <strong v-if="warning.layer">{{ warning.layer }}:</strong> {{ warning.message }}
+          </li>
+        </ul>
+      </details>
     </div>
 
     <!-- Import error — persistent card (not a toast that vanishes) so a
@@ -173,6 +183,15 @@ const draft = reactive({ name: '', category: 'wedding', file: null });
 const psdInput = ref(null);
 const psdImport = usePsdImportStore();
 const creatingBlank = ref(false);
+const uniqueImportWarnings = computed(() => {
+  const seen = new Set();
+  return (psdImport.completedTemplate?.importWarnings || []).filter((warning) => {
+    const key = `${warning.layer || ''}|${warning.code || ''}|${warning.message || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+});
 
 // The import runs in the store, independent of this component's own
 // lifecycle — this just reacts to it finishing while the admin may be on

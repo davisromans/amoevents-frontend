@@ -297,6 +297,7 @@
           @send-backward="onSendBackward"
           @delete="(obj) => onDeleteLayer(obj, selectedParent)"
           @rasterize="onRasterizeLayer"
+          @restore-text="onRestoreText"
           @clip-mask="onClipMask"
           @paint-mask="onPaintMask"
           @remove-mask="onRemoveMask"
@@ -340,7 +341,7 @@ import { loadFont } from '@/utils/fontLoader';
 import { resolveAssetUrl, listSharedAssets, setAssetShared, replaceAsset, uploadAsset } from '@/services/templateAssets.service';
 import {
   createEngineCanvas, loadDocument, serializeDocument,
-  bringForward, sendBackward, setLayerLocked, setLayerVisible, rasterizeObject,
+  bringForward, sendBackward, setLayerLocked, setLayerVisible, rasterizeObject, restoreConvertedText,
 } from '@/utils/canvasEngine';
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
@@ -1475,6 +1476,18 @@ async function onRasterizeLayer(obj) {
   await rasterizeObject(fabricCanvasRaw, obj);
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
+}
+
+async function onRestoreText(obj) {
+  if (!fabricCanvasRaw) return;
+  const restored = await restoreConvertedText(fabricCanvasRaw, obj);
+  if (!restored) {
+    toast.error('This layer does not contain restorable PSD text metadata.');
+    return;
+  }
+  selectedObjects.value = [markRaw(restored)];
+  refreshLayersList();
+  toast.success('Text restored. Its original Photoshop effects may differ while editing.');
 }
 
 // ── Grouping / merging ─────────────────────────────────────────────────

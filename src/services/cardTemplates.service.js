@@ -96,7 +96,11 @@ export async function adminImportPsd(file, meta, { onUploadProgress, onStage } =
     await sleep(1500);
     const job = await http.get(`/admin/card-templates/import-psd/${jobId}`).then(unwrap);
     if (job.stage) onStage?.(job.stage);
-    if (job.status === 'completed') return { ...job.template, fontMatch: job.fontMatch };
+    if (job.status === 'completed') return {
+      ...job.template,
+      fontMatch: job.fontMatch,
+      importWarnings: job.importWarnings || [],
+    };
     if (job.status === 'failed') throw new Error(job.error || 'PSD import failed');
   }
 }
