@@ -28,7 +28,7 @@
           <label class="inline-flex items-center gap-2 text-xs font-bold cursor-pointer select-none">
             <input type="checkbox" class="accent-brand-primary"
                    :checked="allFilteredSelected"
-                   :disabled="!filteredItems.length || actionBusy"
+                   :disabled="!selectableFilteredItems.length || actionBusy"
                    @change="toggleSelectAll" />
             Select all shown
           </label>
@@ -37,12 +37,8 @@
 
           <div class="flex flex-wrap gap-1.5 ml-auto">
             <button v-if="selectedLogIds.length" class="btn-ghost !text-xs !py-1 !px-2"
-                    :disabled="actionBusy" @click="resendSelected('sms')">
-              <PaperAirplaneIcon class="w-3.5 h-3.5" /> Resend SMS
-            </button>
-            <button v-if="selectedLogIds.length" class="btn-ghost !text-xs !py-1 !px-2"
-                    :disabled="actionBusy" @click="resendSelected('whatsapp')">
-              <PaperAirplaneIcon class="w-3.5 h-3.5" /> Resend WhatsApp
+                    :disabled="actionBusy" @click="resendSelected">
+              <PaperAirplaneIcon class="w-3.5 h-3.5" /> Retry selected
             </button>
             <button v-if="selectedLogIds.length" class="btn-primary !text-xs !py-1 !px-2"
                     :disabled="actionBusy || !selectedSuccessfulIds.length" @click="markSelectedInvited">
@@ -74,7 +70,7 @@
             <input v-if="mode === 'job' && guestIdOf(l)" type="checkbox"
                    class="accent-brand-primary mt-1.5 shrink-0"
                    :checked="selectedLogIds.includes(l._id)"
-                   :disabled="actionBusy"
+                   :disabled="actionBusy || l.status === 'queued'"
                    :aria-label="`Select ${guestLabel(l.guestId)}`"
                    @change="toggleSelected(l._id)" />
 
@@ -83,6 +79,9 @@
                 <span :class="chipClass(l.status)">{{ l.status }}</span>
                 <span class="chip !text-2xs uppercase">{{ l.channel }}</span>
                 <span v-if="l.invitationMarked" class="chip-success !text-2xs">invited</span>
+                <span v-if="Number(l.attemptCount || 1) > 1" class="chip !text-2xs">
+                  {{ l.attemptCount }} attempts
+                </span>
                 <span v-if="l.fallbackFrom" class="chip-warn !text-2xs">fell back from {{ l.fallbackFrom }}</span>
                 <span class="text-xs text-surface-slate dark:text-surface-ash ml-auto">
                   {{ formatDateTime(l.sentAt || l.createdAt) }}
@@ -110,13 +109,25 @@
               <p v-if="l.costTZS" class="text-2xs text-surface-slate dark:text-surface-ash mt-1">
                 Cost: {{ l.costTZS }} TZS
               </p>
+              <details v-if="attemptHistory(l).length" class="mt-2 text-xs text-surface-slate dark:text-surface-ash">
+                <summary class="cursor-pointer font-bold select-none">
+                  Previous attempts ({{ attemptHistory(l).length }})
+                </summary>
+                <div class="mt-1.5 space-y-1 border-l-2 border-surface-mist dark:border-surface-graphite pl-2">
+                  <p v-for="attempt in attemptHistory(l)" :key="`${l._id}-${attempt.attemptNumber}`">
+                    #{{ attempt.attemptNumber }} · {{ attempt.status }} ·
+                    {{ formatDateTime(attempt.sentAt || attempt.archivedAt) }}
+                    <span v-if="attempt.error" class="text-red-600 dark:text-red-400"> · {{ attempt.error }}</span>
+                  </p>
+                </div>
+              </details>
 
               <div v-if="mode === 'job' && guestIdOf(l)" class="mt-2 flex flex-wrap gap-1.5">
                 <button class="btn-ghost !text-xs !py-1 !px-2"
-                        :disabled="actionBusy"
+                        :disabled="actionBusy || l.status === 'queued'"
                         @click="resendOne(l)">
                   <ArrowPathIcon class="w-3 h-3" :class="workingRowIds.includes(l._id) ? 'animate-spin' : ''" />
-                  Resend {{ l.channel }}
+                  Retry {{ l.channel }}
                 </button>
                 <button v-if="isSuccessful(l) && !l.invitationMarked"
                         class="btn-ghost !text-xs !py-1 !px-2"
@@ -134,7 +145,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ArrowPathIcon, CheckCircleIcon, MagnifyingGlassIcon, PaperAirplaneIcon } from '@heroicons/vue/24/outline';
 import AppModal from '@/components/common/AppModal.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
@@ -158,7 +169,7 @@ const props = defineProps({
   guestId: String,
   title: { type: String, default: 'Delivery status' },
 });
-const emit = defineEmits(['update:open', 'job-created']);
+const emit = defineEmits(['update:open']);
 
 const toast = useToast();
 const items = ref([]);
@@ -166,9 +177,10 @@ const loading = ref(false);
 const search = ref('');
 const selectedLogIds = ref([]);
 const retryingAll = ref(false);
-const resendingChannel = ref('');
+const resending = ref(false);
 const marking = ref(false);
 const workingRowIds = ref([]);
+let retryPollTimer = null;
 
 const counts = computed(() => {
   const c = {};
@@ -224,13 +236,15 @@ const filteredItems = computed(() => {
 });
 
 function isSuccessful(l) { return ['sent', 'delivered', 'read'].includes(l.status); }
+function attemptHistory(l) { return [...(l.attemptHistory || [])].reverse(); }
 const successfulCount = computed(() => items.value.filter(isSuccessful).length);
 const selectedSuccessfulIds = computed(() => items.value
   .filter((l) => selectedLogIds.value.includes(l._id) && isSuccessful(l))
   .map((l) => l._id));
-const allFilteredSelected = computed(() => filteredItems.value.length > 0
-  && filteredItems.value.every((l) => selectedLogIds.value.includes(l._id)));
-const actionBusy = computed(() => retryingAll.value || !!resendingChannel.value || marking.value);
+const selectableFilteredItems = computed(() => filteredItems.value.filter((l) => l.status !== 'queued'));
+const allFilteredSelected = computed(() => selectableFilteredItems.value.length > 0
+  && selectableFilteredItems.value.every((l) => selectedLogIds.value.includes(l._id)));
+const actionBusy = computed(() => retryingAll.value || resending.value || marking.value);
 
 function toggleSelected(logId) {
   selectedLogIds.value = selectedLogIds.value.includes(logId)
@@ -238,7 +252,7 @@ function toggleSelected(logId) {
     : [...selectedLogIds.value, logId];
 }
 function toggleSelectAll() {
-  const shown = filteredItems.value.map((l) => l._id);
+  const shown = selectableFilteredItems.value.map((l) => l._id);
   if (allFilteredSelected.value) selectedLogIds.value = selectedLogIds.value.filter((id) => !shown.includes(id));
   else selectedLogIds.value = [...new Set([...selectedLogIds.value, ...shown])];
 }
@@ -255,8 +269,8 @@ function messageText(l) {
     .replaceAll('{{code}}', g.memberId || '');
 }
 
-async function load() {
-  loading.value = true;
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true;
   try {
     if (props.mode === 'job' && props.jobId) items.value = await jobLogs(props.jobId);
     else if (props.mode === 'guest' && props.eventId && props.guestId) {
@@ -264,8 +278,13 @@ async function load() {
     } else items.value = [];
     const valid = new Set(items.value.map((l) => l._id));
     selectedLogIds.value = selectedLogIds.value.filter((id) => valid.has(id));
-  } catch (err) { toast.error(apiErrorMessage(err)); items.value = []; }
-  finally { loading.value = false; }
+  } catch (err) {
+    if (!silent) {
+      toast.error(apiErrorMessage(err));
+      items.value = [];
+    }
+  }
+  finally { if (!silent) loading.value = false; }
 }
 
 const failedCount = computed(() => items.value.filter((l) => l.status === 'failed').length);
@@ -274,43 +293,58 @@ function guestIdOf(l) {
   if (!l.guestId) return '';
   return typeof l.guestId === 'string' ? l.guestId : (l.guestId._id || '');
 }
-function uniqueGuestIds(rows) {
-  return [...new Set(rows.map(guestIdOf).filter(Boolean))];
+function stopRetryPolling() {
+  if (retryPollTimer) clearTimeout(retryPollTimer);
+  retryPollTimer = null;
+}
+
+async function pollRetriedRows(logIds, attemptsLeft = 60) {
+  stopRetryPolling();
+  await load({ silent: true });
+  const ids = new Set((logIds || []).map(String));
+  const stillQueued = items.value.some((row) => ids.has(String(row._id)) && row.status === 'queued');
+  if (stillQueued && attemptsLeft > 0 && props.open) {
+    retryPollTimer = setTimeout(() => pollRetriedRows(logIds, attemptsLeft - 1), 1500);
+  }
 }
 
 async function retryAll() {
   if (!(await askConfirm(`Retry all ${failedCount.value} failed delivery rows? This sends real messages and may charge your wallet.`))) return;
   retryingAll.value = true;
   try {
-    await retryFailedFromJob(props.jobId, []);
-    toast.success(`Started a new retry job for ${failedCount.value} failed messages.`);
-    emit('job-created');
+    const result = await retryFailedFromJob(props.jobId, []);
+    toast.success(`Retrying ${result.queued} failed row${result.queued === 1 ? '' : 's'} in this report.`);
+    await pollRetriedRows(result.logIds);
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { retryingAll.value = false; }
 }
 
-async function runResend(rows, channel, rowId = '') {
-  const guestIds = uniqueGuestIds(rows);
-  if (!guestIds.length) return;
-  const channelLabel = channel === 'whatsapp' ? 'WhatsApp' : 'SMS';
-  if (!(await askConfirm(`Resend ${channelLabel} to ${guestIds.length} selected guest${guestIds.length === 1 ? '' : 's'}? This sends real messages and may charge your wallet.`))) return;
-  resendingChannel.value = channel;
+async function runResend(rows, rowId = '') {
+  const retryableRows = rows.filter((row) => row.status !== 'queued');
+  const logIds = [...new Set(retryableRows.map((row) => row._id).filter(Boolean))];
+  if (!logIds.length) return;
+  const whatsappCount = retryableRows.filter((row) => row.channel === 'whatsapp').length;
+  const smsCount = retryableRows.filter((row) => row.channel === 'sms').length;
+  const channelSummary = [whatsappCount && `${whatsappCount} WhatsApp`, smsCount && `${smsCount} SMS`]
+    .filter(Boolean).join(' and ');
+  if (!(await askConfirm(`Retry ${channelSummary} row${logIds.length === 1 ? '' : 's'} on their original channel? The same report rows will be updated and your wallet may be charged.`))) return;
+  resending.value = true;
   if (rowId) workingRowIds.value = [...workingRowIds.value, rowId];
   try {
-    await resendFromJob(props.jobId, guestIds, channel);
-    toast.success(`${channelLabel} resend started for ${guestIds.length} guest${guestIds.length === 1 ? '' : 's'}.`);
-    emit('job-created');
+    const result = await resendFromJob(props.jobId, logIds);
+    toast.success(`Retrying ${result.queued} row${result.queued === 1 ? '' : 's'} in this report.`);
     selectedLogIds.value = [];
+    await pollRetriedRows(result.logIds);
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally {
-    resendingChannel.value = '';
+    resending.value = false;
     workingRowIds.value = workingRowIds.value.filter((id) => id !== rowId);
   }
 }
-function resendSelected(channel) {
-  return runResend(items.value.filter((l) => selectedLogIds.value.includes(l._id)), channel);
+function resendSelected() {
+  return runResend(items.value.filter((l) => selectedLogIds.value.includes(l._id)));
 }
-function resendOne(row) { return runResend([row], row.channel, row._id); }
+function resendOne(row) { return runResend([row], row._id); }
 
 function invitationResultMessage(result) {
   const marked = Number(result?.marked || 0);
@@ -347,7 +381,10 @@ async function markOneInvited(row) {
   await runMarkInvited({ logIds: [row._id] }, row._id);
 }
 
-function onClose(v) { emit('update:open', v); }
+function onClose(v) {
+  if (!v) stopRetryPolling();
+  emit('update:open', v);
+}
 
 watch(() => props.open, (v) => {
   if (v) {
@@ -356,4 +393,6 @@ watch(() => props.open, (v) => {
     load();
   }
 });
+
+onBeforeUnmount(stopRetryPolling);
 </script>
