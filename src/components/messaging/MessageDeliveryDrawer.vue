@@ -8,13 +8,20 @@
         <span v-for="[k, n] in Object.entries(counts)" :key="k" :class="chipClass(k)">
           {{ n }} {{ k }}
         </span>
-        <button v-if="mode === 'job' && failedCount > 0"
-                class="btn-primary !text-xs !py-1 !px-3 ml-auto"
-                :disabled="actionBusy"
-                @click="retryAll">
-          <ArrowPathIcon class="w-3.5 h-3.5" :class="retryingAll ? 'animate-spin' : ''" />
-          Retry {{ failedCount }} failed
-        </button>
+        <div v-if="mode === 'job' && failedCount > 0" class="flex flex-wrap gap-1.5 ml-auto">
+          <button class="btn-ghost !text-xs !py-1 !px-3"
+                  :disabled="actionBusy"
+                  @click="downloadFailedReport([])">
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Export all {{ failedCount }} failed
+          </button>
+          <button class="btn-primary !text-xs !py-1 !px-3"
+                  :disabled="actionBusy"
+                  @click="retryAll">
+            <ArrowPathIcon class="w-3.5 h-3.5" :class="retryingAll ? 'animate-spin' : ''" />
+            Retry {{ failedCount }} failed
+          </button>
+        </div>
       </div>
 
       <div v-if="mode === 'job' && items.length" class="space-y-2 mb-4">
@@ -36,6 +43,10 @@
           <span v-if="selectedLogIds.length" class="chip-gold !text-2xs">{{ selectedLogIds.length }} selected</span>
 
           <div class="flex flex-wrap gap-1.5 ml-auto">
+            <button v-if="search.trim() && shownFailedRows.length" class="btn-ghost !text-xs !py-1 !px-2"
+                    :disabled="actionBusy" @click="downloadFailedReport(shownFailedRows.map((row) => row._id))">
+              <ArrowDownTrayIcon class="w-3.5 h-3.5" /> Export {{ shownFailedRows.length }} shown failed
+            </button>
             <button v-if="selectedLogIds.length" class="btn-ghost !text-xs !py-1 !px-2"
                     :disabled="actionBusy" @click="resendSelected">
               <PaperAirplaneIcon class="w-3.5 h-3.5" /> Retry selected
@@ -146,7 +157,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { ArrowPathIcon, CheckCircleIcon, MagnifyingGlassIcon, PaperAirplaneIcon } from '@heroicons/vue/24/outline';
+import { ArrowDownTrayIcon, ArrowPathIcon, CheckCircleIcon, MagnifyingGlassIcon, PaperAirplaneIcon } from '@heroicons/vue/24/outline';
 import AppModal from '@/components/common/AppModal.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { formatDateTime } from '@/utils/format';
@@ -156,6 +167,7 @@ import {
   retryFailedFromJob,
   resendFromJob,
   markDeliveryInvited,
+  exportFailedDeliveries,
 } from '@/services/messaging.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
@@ -179,6 +191,7 @@ const selectedLogIds = ref([]);
 const retryingAll = ref(false);
 const resending = ref(false);
 const marking = ref(false);
+const exportingFailed = ref(false);
 const workingRowIds = ref([]);
 let retryPollTimer = null;
 
@@ -242,9 +255,10 @@ const selectedSuccessfulIds = computed(() => items.value
   .filter((l) => selectedLogIds.value.includes(l._id) && isSuccessful(l))
   .map((l) => l._id));
 const selectableFilteredItems = computed(() => filteredItems.value.filter((l) => l.status !== 'queued'));
+const shownFailedRows = computed(() => filteredItems.value.filter((l) => l.status === 'failed'));
 const allFilteredSelected = computed(() => selectableFilteredItems.value.length > 0
   && selectableFilteredItems.value.every((l) => selectedLogIds.value.includes(l._id)));
-const actionBusy = computed(() => retryingAll.value || resending.value || marking.value);
+const actionBusy = computed(() => retryingAll.value || resending.value || marking.value || exportingFailed.value);
 
 function toggleSelected(logId) {
   selectedLogIds.value = selectedLogIds.value.includes(logId)
@@ -317,6 +331,23 @@ async function retryAll() {
     await pollRetriedRows(result.logIds);
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { retryingAll.value = false; }
+}
+
+async function downloadFailedReport(logIds = []) {
+  exportingFailed.value = true;
+  try {
+    const result = await exportFailedDeliveries(props.jobId, logIds);
+    const url = URL.createObjectURL(result.blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = result.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast.success(`Exported ${result.count || logIds.length || failedCount.value} failed delivery row${(result.count || logIds.length || failedCount.value) === 1 ? '' : 's'}.`);
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { exportingFailed.value = false; }
 }
 
 async function runResend(rows, rowId = '') {

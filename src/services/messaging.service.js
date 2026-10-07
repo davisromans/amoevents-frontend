@@ -36,6 +36,30 @@ export async function markDeliveryInvited(jobId, payload) {
   const res = await http.post(`/messages/${jobId}/mark-invited`, payload);
   return unwrap(res);
 }
+export async function exportFailedDeliveries(jobId, logIds = []) {
+  try {
+    const res = await http.post(
+      `/messages/${jobId}/export-failed`,
+      { logIds },
+      { responseType: 'blob', timeout: 120000 },
+    );
+    const disposition = String(res.headers?.['content-disposition'] || '');
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return {
+      blob: res.data,
+      filename: match?.[1] || `failed-deliveries-${jobId}.xlsx`,
+      count: Number(res.headers?.['x-amoevents-export-count'] || 0),
+    };
+  } catch (err) {
+    // Axios returns JSON errors as a Blob when responseType is blob. Decode
+    // it so the delivery drawer shows the backend reason instead of a generic
+    // HTTP status message.
+    if (err.response?.data instanceof Blob) {
+      try { err.response.data = JSON.parse(await err.response.data.text()); } catch (_) { /* keep original */ }
+    }
+    throw err;
+  }
+}
 
 export async function cancelJob(jobId) {
   const res = await http.post(`/messages/${jobId}/cancel`);
