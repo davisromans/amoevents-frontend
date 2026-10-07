@@ -47,9 +47,9 @@
                     :disabled="actionBusy" @click="downloadFailedReport(shownFailedRows.map((row) => row._id))">
               <ArrowDownTrayIcon class="w-3.5 h-3.5" /> Export {{ shownFailedRows.length }} shown failed
             </button>
-            <button v-if="selectedLogIds.length" class="btn-ghost !text-xs !py-1 !px-2"
+            <button v-if="selectedFailedIds.length" class="btn-ghost !text-xs !py-1 !px-2"
                     :disabled="actionBusy" @click="resendSelected">
-              <PaperAirplaneIcon class="w-3.5 h-3.5" /> Retry selected
+              <PaperAirplaneIcon class="w-3.5 h-3.5" /> Retry {{ selectedFailedIds.length }} selected failed
             </button>
             <button v-if="selectedLogIds.length" class="btn-primary !text-xs !py-1 !px-2"
                     :disabled="actionBusy || !selectedSuccessfulIds.length" @click="markSelectedInvited">
@@ -134,8 +134,8 @@
               </details>
 
               <div v-if="mode === 'job' && guestIdOf(l)" class="mt-2 flex flex-wrap gap-1.5">
-                <button class="btn-ghost !text-xs !py-1 !px-2"
-                        :disabled="actionBusy || l.status === 'queued'"
+                <button v-if="l.status === 'failed'" class="btn-ghost !text-xs !py-1 !px-2"
+                        :disabled="actionBusy"
                         @click="resendOne(l)">
                   <ArrowPathIcon class="w-3 h-3" :class="workingRowIds.includes(l._id) ? 'animate-spin' : ''" />
                   Retry {{ l.channel }}
@@ -254,6 +254,9 @@ const successfulCount = computed(() => items.value.filter(isSuccessful).length);
 const selectedSuccessfulIds = computed(() => items.value
   .filter((l) => selectedLogIds.value.includes(l._id) && isSuccessful(l))
   .map((l) => l._id));
+const selectedFailedIds = computed(() => items.value
+  .filter((l) => selectedLogIds.value.includes(l._id) && l.status === 'failed')
+  .map((l) => l._id));
 const selectableFilteredItems = computed(() => filteredItems.value.filter((l) => l.status !== 'queued'));
 const shownFailedRows = computed(() => filteredItems.value.filter((l) => l.status === 'failed'));
 const allFilteredSelected = computed(() => selectableFilteredItems.value.length > 0
@@ -351,7 +354,7 @@ async function downloadFailedReport(logIds = []) {
 }
 
 async function runResend(rows, rowId = '') {
-  const retryableRows = rows.filter((row) => row.status !== 'queued');
+  const retryableRows = rows.filter((row) => row.status === 'failed');
   const logIds = [...new Set(retryableRows.map((row) => row._id).filter(Boolean))];
   if (!logIds.length) return;
   const whatsappCount = retryableRows.filter((row) => row.channel === 'whatsapp').length;

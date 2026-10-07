@@ -93,10 +93,21 @@ export async function markInboxRead(eventId, conversationId) {
   return unwrap(res);
 }
 export async function replyToInbox(eventId, conversationId, text) {
-  const res = await http.post(`/events/${eventId}/inbox/${conversationId}/reply`, { text });
+  // Infobip can occasionally take longer than the global 20s API timeout to
+  // acknowledge a free-form reply. Do not tell the operator it failed while
+  // the backend is still completing an accepted provider request.
+  const res = await http.post(
+    `/events/${eventId}/inbox/${conversationId}/reply`,
+    { text },
+    { timeout: 90000 },
+  );
   return unwrap(res);
 }
 export async function replyToInboxTemplate(eventId, conversationId, payload) {
-  const res = await http.post(`/events/${eventId}/inbox/${conversationId}/reply-template`, payload);
+  const res = await http.post(
+    `/events/${eventId}/inbox/${conversationId}/reply-template`,
+    payload,
+    { timeout: 90000 },
+  );
   return unwrap(res);
 }
