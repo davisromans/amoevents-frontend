@@ -30,7 +30,7 @@ export async function removeImageBackground(fabricImg, { onProgress } = {}) {
   // rotation, blend mode, effects, data.layerId/binding) exactly as they
   // were, only the underlying pixels change.
   fabricImg.setElement(cutoutImg.getElement());
-  fabricImg.set('data', { ...(fabricImg.get('data') || {}), backgroundRemoved: true });
+  fabricImg.set('data', { ...(fabricImg.get('data') || {}), backgroundRemoved: true, liveCanvas: true });
   fabricImg.dirty = true;
   URL.revokeObjectURL(url);
 }

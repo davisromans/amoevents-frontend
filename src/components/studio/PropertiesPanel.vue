@@ -34,7 +34,7 @@
       <!-- Single selection -->
       <template v-else>
         <!-- Text controls (Batch 10) -->
-        <div v-if="obj.type === 'textbox'" class="space-y-3">
+        <div v-if="isTextObject(obj)" class="space-y-3">
           <div v-if="!currentBinding">
             <p class="field-label mb-1">Text</p>
             <textarea class="field-input !text-xs w-full" rows="3" :value="obj.text" @change="setProp('text', $event.target.value)" />
@@ -49,7 +49,7 @@
           </div>
           <div>
             <p class="field-label mb-1">Font{{ currentSelectionLabel }}</p>
-            <FontPicker :model-value="currentFontFamily" @update:model-value="setFont" />
+            <FontPicker :model-value="currentFontFamily" :required-family="originalPsdFont" @update:model-value="setFont" />
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
@@ -63,14 +63,16 @@
             <FillPicker :model-value="currentFill" @update:model-value="(v) => setTextProp('fill', v)" />
           </div>
           <div class="flex gap-1">
-            <button class="btn-ghost !p-1.5 flex-1" :class="{ 'bg-brand-primary-glow': obj.fontWeight >= 700 }"
-                    @click="setTextProp('fontWeight', obj.fontWeight >= 700 ? 400 : 700)">
+            <button class="btn-ghost !p-1.5 flex-1" :class="{ 'bg-brand-primary-glow': currentFontWeight >= 700 }"
+                    @click="setTextProp('fontWeight', currentFontWeight >= 700 ? 400 : 700)">
               <BoldIcon class="w-4 h-4 mx-auto" />
             </button>
-            <button class="btn-ghost !p-1.5 flex-1" :class="{ 'bg-brand-primary-glow': obj.fontStyle === 'italic' }"
-                    @click="setTextProp('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic')">
+            <button class="btn-ghost !p-1.5 flex-1" :class="{ 'bg-brand-primary-glow': currentFontStyle === 'italic' }"
+                    @click="setTextProp('fontStyle', currentFontStyle === 'italic' ? 'normal' : 'italic')">
               <ItalicIcon class="w-4 h-4 mx-auto" />
             </button>
+            <button class="btn-ghost !p-1.5 flex-1 font-bold underline" :class="{ 'bg-brand-primary-glow': currentUnderline }"
+                    title="Underline (Ctrl/Cmd+U)" @click="setTextProp('underline', !currentUnderline)">U</button>
             <button v-for="a in ['left','center','right']" :key="a" class="btn-ghost !p-1.5 flex-1"
                     :class="{ 'bg-brand-primary-glow': obj.textAlign === a }" @click="setProp('textAlign', a)">
               <component :is="a === 'left' ? Bars3BottomLeftIcon : a === 'center' ? Bars3Icon : Bars3BottomRightIcon" class="w-4 h-4 mx-auto" />
@@ -127,6 +129,13 @@
 
         <div v-else-if="obj.type === 'image'" class="space-y-3">
           <p class="section-eyebrow">Crop & style</p>
+          <div v-if="obj.get('data')?.sourceLayer?.convertedFromText" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2 text-2xs text-amber-800 dark:text-amber-200">
+            <p class="font-bold">PSD text preserved as pixels</p>
+            <p v-if="obj.get('data')?.sourceLayer?.convertedFromText?.fontFamily" class="mt-0.5">
+              Original font: {{ obj.get('data').sourceLayer.convertedFromText.fontFamily }}
+            </p>
+            <p class="mt-0.5">The current appearance is exact. Convert it only when you need to edit the words.</p>
+          </div>
           <button v-if="obj.get('data')?.sourceLayer?.convertedFromText"
                   class="btn-ghost !text-2xs !py-1.5 w-full"
                   title="Restore editable text; advanced Photoshop effects may look different"
@@ -163,6 +172,7 @@
           <button class="btn-ghost !text-2xs !py-1.5 w-full" :disabled="removingBg" @click="removeBg">
             {{ removingBg ? `Removing… ${bgProgress}` : 'Remove background' }}
           </button>
+          <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Runs on this device. The first use downloads the model; later use works offline.</p>
 
           <p class="section-eyebrow pt-2">Smart object</p>
           <label class="flex items-center gap-2 text-2xs font-bold">
@@ -208,7 +218,7 @@
         <div class="border-t border-surface-mist dark:border-surface-fog pt-3">
           <p class="field-label mb-1">Masking</p>
           <div class="flex gap-1">
-            <button class="btn-ghost !text-2xs !py-1.5 flex-1" @click="$emit('paint-mask', obj)">Paint mask</button>
+            <button class="btn-ghost !text-2xs !py-1.5 flex-1" @click="$emit('paint-mask', obj)">Refine mask with brush</button>
             <button v-if="obj.clipPath" class="btn-ghost !text-2xs !py-1.5 flex-1" @click="$emit('remove-mask', obj)">Remove mask</button>
           </div>
         </div>
@@ -243,6 +253,11 @@
           <div>
             <p class="field-label mb-1">Rotation — {{ Math.round(obj.angle || 0) }}°</p>
             <input type="range" min="-180" max="180" class="w-full accent-brand-gold" :value="obj.angle || 0" @input="setProp('angle', Number($event.target.value))" />
+            <button v-if="obj.angle" class="mt-1 text-2xs font-bold text-brand-primary" @click="setProp('angle', 0)">Reset rotation</button>
+          </div>
+          <div class="grid grid-cols-2 gap-1">
+            <button class="btn-ghost !text-2xs !py-1.5" @click="flip('x')">Flip horizontal</button>
+            <button class="btn-ghost !text-2xs !py-1.5" @click="flip('y')">Flip vertical</button>
           </div>
           <div>
             <p class="field-label mb-1">Opacity — {{ Math.round((obj.opacity ?? 1) * 100) }}%</p>
@@ -323,6 +338,10 @@ watch(() => props.canvas, (canvas) => {
 onBeforeUnmount(() => detachTick?.());
 
 const obj = computed(() => { void tick.value; return props.selected[0]; });
+function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type); }
+const originalPsdFont = computed(() => obj.value?.get('data')?.sourceLayer?.convertedFromText?.fontFamily
+  || obj.value?.get('data')?.sourceLayer?.fontFamily
+  || '');
 
 function dashKind(arr) {
   if (!arr) return null;
@@ -348,6 +367,10 @@ function setProp(key, value) {
   obj.value.setCoords();
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target: obj.value }); // feeds the history stack (Batch 8)
+}
+function flip(axis) {
+  const key = axis === 'x' ? 'scaleX' : 'scaleY';
+  setProp(key, -(obj.value[key] || 1));
 }
 
 // ── Numeric W/H fields ───────────────────────────────────────────────────
@@ -395,7 +418,7 @@ function setHeightPx(px) {
 const cachedSelection = ref(null); // { obj, start, end }
 function captureSelectionNow() {
   const o = obj.value;
-  if (o?.type === 'textbox' && o.isEditing && o.selectionStart !== o.selectionEnd) {
+  if (isTextObject(o) && o.isEditing && o.selectionStart !== o.selectionEnd) {
     cachedSelection.value = { obj: o, start: o.selectionStart, end: o.selectionEnd };
   }
 }
@@ -405,7 +428,7 @@ function cacheSelectionForVariable() { captureSelectionNow(); }
 // Range-based (only true once something is actually highlighted, live or cached).
 function getEffectiveSelection() {
   const o = obj.value;
-  if (!o || o.type !== 'textbox') return null;
+  if (!isTextObject(o)) return null;
   if (o.isEditing && o.selectionStart !== o.selectionEnd) return { obj: o, start: o.selectionStart, end: o.selectionEnd };
   if (cachedSelection.value?.obj === o) return cachedSelection.value;
   return null;
@@ -418,7 +441,7 @@ function hasCachedSelection() { return !!getEffectiveSelection(); }
 // layer, instead of always showing the layer's one base style.
 function getCursorPosition() {
   const o = obj.value;
-  if (!o || o.type !== 'textbox') return null;
+  if (!isTextObject(o)) return null;
   if (o.isEditing) return { obj: o, at: o.selectionStart };
   if (cachedSelection.value?.obj === o) return { obj: o, at: cachedSelection.value.start };
   return null;
@@ -445,6 +468,9 @@ const currentSelectionLabel = computed(() => (hasCachedSelection() ? ' (selectio
 const currentFontFamily = computed(() => readStyleAt('fontFamily', obj.value?.fontFamily));
 const currentFontSize = computed(() => readStyleAt('fontSize', obj.value?.fontSize));
 const currentFill = computed(() => readStyleAt('fill', obj.value?.fill));
+const currentFontWeight = computed(() => Number(readStyleAt('fontWeight', obj.value?.fontWeight)) || 400);
+const currentFontStyle = computed(() => readStyleAt('fontStyle', obj.value?.fontStyle || 'normal'));
+const currentUnderline = computed(() => !!readStyleAt('underline', obj.value?.underline));
 
 // Applies to just the highlighted range when one exists (live or cached),
 // or to the whole layer otherwise.

@@ -12,12 +12,37 @@ import * as fabric from 'fabric';
 //      included (a semi-transparent brush stroke = partial visibility).
 //      This is the closer analogue to a real Photoshop layer mask.
 
-/** Vector clip mask — `clipShape` becomes the mask for `target`, removed from the canvas as an independent object. */
-export function applyClipMask(canvas, target, clipShape) {
-  canvas.remove(clipShape);
-  clipShape.set({ absolutePositioned: true, selectable: false, evented: false });
-  target.set('clipPath', clipShape);
-  target.set('data', { ...(target.get('data') || {}), maskType: 'vector' });
+/** Vector clip mask — keeps the source layer (hidden) so Release Mask can restore it. */
+export async function applyClipMask(canvas, target, clipShape) {
+  const bounds = target.getBoundingRect();
+  const clone = await clipShape.clone(['data']);
+  fabric.util.applyTransformToObject(clone, clipShape.calcTransformMatrix());
+  clone.group = undefined;
+  clone.set({ left: (clone.left || 0) - bounds.left, top: (clone.top || 0) - bounds.top });
+  clone.setCoords();
+  const el = window.document.createElement('canvas');
+  const maskCanvas = new fabric.StaticCanvas(el, {
+    width: Math.max(1, Math.ceil(bounds.width)),
+    height: Math.max(1, Math.ceil(bounds.height)),
+    backgroundColor: 'transparent',
+  });
+  maskCanvas.add(clone);
+  maskCanvas.renderAll();
+  const bitmap = maskCanvas.toCanvasElement(1);
+  maskCanvas.dispose();
+  const maskImage = new fabric.FabricImage(bitmap, {
+    left: bounds.left, top: bounds.top,
+    absolutePositioned: true, selectable: false, evented: false, objectCaching: false,
+  });
+  target.set('clipPath', maskImage);
+  const sourceData = clipShape.get('data') || {};
+  clipShape.set({ visible: false, selectable: false, evented: false });
+  clipShape.set('data', { ...sourceData, _clipMaskSourceLocked: !!sourceData.locked });
+  target.set('data', {
+    ...(target.get('data') || {}),
+    maskType: 'vector',
+    clipMaskSourceLayerId: sourceData.layerId || null,
+  });
   canvas.requestRenderAll();
   canvas.fire('object:modified', { target });
 }
@@ -25,7 +50,30 @@ export function applyClipMask(canvas, target, clipShape) {
 export function removeMask(canvas, target) {
   target.set('clipPath', undefined);
   const data = { ...(target.get('data') || {}) };
+  const sourceId = data.clipMaskSourceLayerId;
+  if (sourceId) {
+    const visit = (objects) => {
+      for (const obj of objects) {
+        if (obj.get('data')?.layerId === sourceId) return obj;
+        if (obj.type === 'group') {
+          const found = visit(obj.getObjects());
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const source = visit(canvas.getObjects());
+    if (source) {
+      const sourceData = { ...(source.get('data') || {}) };
+      const wasLocked = sourceData._clipMaskSourceLocked ?? sourceData.locked;
+      delete sourceData._clipMaskSourceLocked;
+      source.set({ visible: true, selectable: !wasLocked, evented: !wasLocked, data: sourceData });
+    }
+  }
   delete data.maskType;
+  delete data.clipMaskSourceLayerId;
+  delete data.maskAssetId;
+  delete data.localMaskAssetId;
   target.set('data', data);
   canvas.requestRenderAll();
   canvas.fire('object:modified', { target });
@@ -40,14 +88,15 @@ export function removeMask(canvas, target) {
 // White paint = fully visible, black = fully hidden, gray = partial —
 // exactly how a real layer mask reads.
 export class MaskPainter {
-  constructor(target, { brushSize = 40, hardness = 0.7 } = {}) {
+  constructor(target, { brushSize = 40, hardness = 0.7, initialCanvas = null } = {}) {
     this.target = target;
     this.brushSize = brushSize;
     this.hardness = hardness;
 
+    const sceneBounds = target.getBoundingRect();
     this.bounds = {
-      left: target.left, top: target.top,
-      width: target.getScaledWidth(), height: target.getScaledHeight(),
+      left: sceneBounds.left, top: sceneBounds.top,
+      width: sceneBounds.width, height: sceneBounds.height,
     };
 
     this.canvas = window.document.createElement('canvas');
@@ -59,8 +108,18 @@ export class MaskPainter {
     // irrelevant to visibility, only opacity is. So "fully visible" means
     // fully OPAQUE, and painting to hide means erasing alpha, not drawing
     // a black color (an opaque black pixel would stay fully visible).
-    this.ctx.fillStyle = 'rgba(255,255,255,1)';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    if (initialCanvas) {
+      try {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(initialCanvas, 0, 0, this.canvas.width, this.canvas.height);
+      } catch {
+        this.ctx.fillStyle = 'rgba(255,255,255,1)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+    } else {
+      this.ctx.fillStyle = 'rgba(255,255,255,1)';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
   }
 
   /**

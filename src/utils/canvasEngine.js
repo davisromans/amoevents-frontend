@@ -166,6 +166,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     sourceLayer: sourceLayerMetadata(layer),
     adjustments: clonePlain(layer.adjustments || {}),
     galleryFilters: clonePlain(layer.galleryFilters || {}),
+    clipMaskSourceLayerId: layer.clipMaskSourceLayerId || null,
   });
   applyLayerEffects(fabricObj, layer);
 }
@@ -176,10 +177,9 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // left, matching PSD folders and avoiding the old absolute-coordinate
     // drift on each load/save. Version 1 documents retain the legacy
     // no-position constructor so existing templates keep their placement.
-    const children = (await Promise.all(layer.children.map((c) => layerToFabric(c, { resolveAssetUrl }))))
+    const children = (await Promise.all((layer.children || []).map((c) => layerToFabric(c, { resolveAssetUrl }))))
       .flatMap((c) => Array.isArray(c) ? c : [c])
       .filter(Boolean);
-    if (!children.length) return null;
     const group = new fabric.Group(children, {
       ...(layer.coordinateSpace === 'local' ? { left: layer.x, top: layer.y } : {}),
       originX: 'left', originY: 'top',
@@ -194,11 +194,15 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       subTargetCheck: true,
     });
     applyCommon(group, layer, { skipPosition: layer.coordinateSpace !== 'local' });
+    group.set({ scaleX: layer.scaleX ?? 1, scaleY: layer.scaleY ?? 1 });
     return group;
   }
 
   if (layer.type === 'text') {
-    const TextClass = layer.textMode === 'point' ? fabric.FabricText : fabric.Textbox;
+    // IText keeps point text directly editable on-canvas. FabricText is a
+    // display-only class, which made imported Photoshop point text look
+    // selectable but impossible to type into.
+    const TextClass = layer.textMode === 'point' ? fabric.IText : fabric.Textbox;
     const textbox = new TextClass(layer.text || '', {
       ...(layer.textMode === 'point' ? {} : { width: layer.width }),
       fontFamily: layer.fontFamily || 'Arial',
@@ -220,8 +224,9 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
   }
 
   if (layer.type === 'image') {
-    if (!layer.assetId) return null;
-    const url = await resolveAssetUrl(layer.assetId);
+    const resolvedAssetId = layer.localAssetId || layer.assetId;
+    if (!resolvedAssetId) return null;
+    const url = await resolveAssetUrl(resolvedAssetId);
     if (!url) return null;
     const img = await fabric.FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
     const sourceWidth = img.width || 1;
@@ -247,7 +252,34 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // `if (!layer.assetId) return null` then dropped it entirely. This is
     // almost certainly the actual cause behind most of the "content
     // disappeared after I edited something else" reports.
-    img.set('data', { ...img.get('data'), assetId: layer.assetId, sourceWidth, sourceHeight });
+    img.set('data', {
+      ...img.get('data'),
+      assetId: layer.assetId,
+      localAssetId: layer.localAssetId || null,
+      maskAssetId: layer.mask?.assetId || null,
+      localMaskAssetId: layer.mask?.localAssetId || null,
+      sourceWidth,
+      sourceHeight,
+    });
+    const maskAssetId = layer.mask?.localAssetId || layer.mask?.assetId;
+    if (maskAssetId) {
+      const maskUrl = await resolveAssetUrl(maskAssetId);
+      if (maskUrl) {
+        const maskImg = await fabric.FabricImage.fromURL(maskUrl, { crossOrigin: 'anonymous' });
+        maskImg.set({
+          left: 0,
+          top: 0,
+          scaleX: (img.width || 1) / (maskImg.width || 1),
+          scaleY: (img.height || 1) / (maskImg.height || 1),
+          originX: 'center',
+          originY: 'center',
+          absolutePositioned: false,
+          selectable: false,
+          evented: false,
+        });
+        img.set('clipPath', maskImg);
+      }
+    }
     rebuildFilterStack(img);
     return img;
   }
@@ -360,13 +392,14 @@ function fabricToLayer(obj) {
     locked: !!data.locked,
     blendMode: Object.keys(BLEND_MODE_TO_COMPOSITE).find((k) => BLEND_MODE_TO_COMPOSITE[k] === obj.globalCompositeOperation) || 'normal',
     binding: data.binding || null,
+    clipMaskSourceLayerId: data.clipMaskSourceLayerId || null,
     effects: preservedEffects,
   };
 
-  if (obj.type === 'textbox' || obj.type === 'text') {
+  if (obj.type === 'textbox' || obj.type === 'text' || obj.type === 'i-text') {
     return {
       ...base, type: 'text', text: obj.text,
-      textMode: obj.type === 'text' ? 'point' : 'box',
+      textMode: obj.type === 'textbox' ? 'box' : 'point',
       fontFamily: obj.fontFamily, fontSize: obj.fontSize, fontWeight: obj.fontWeight,
       fontStyle: obj.fontStyle, fill: obj.fill, align: obj.textAlign,
       stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
@@ -385,6 +418,7 @@ function fabricToLayer(obj) {
       ...base,
       type: 'image',
       assetId: imgData.assetId || null,
+      localAssetId: imgData.localAssetId || null,
       fit: preserved.fit || 'fill',
       cropRect: {
         x: (obj.cropX || 0) / sourceWidth,
@@ -392,7 +426,9 @@ function fabricToLayer(obj) {
         w: (obj.width || sourceWidth) / sourceWidth,
         h: (obj.height || sourceHeight) / sourceHeight,
       },
-      mask: preserved.mask || null,
+      mask: (imgData.maskAssetId || imgData.localMaskAssetId)
+        ? { assetId: imgData.maskAssetId || null, localAssetId: imgData.localMaskAssetId || null }
+        : (preserved.mask || null),
       adjustments: clonePlain(imgData.adjustments || {}),
       galleryFilters: clonePlain(imgData.galleryFilters || {}),
     };
@@ -407,23 +443,25 @@ function fabricToLayer(obj) {
     return { ...base, type: 'path', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
   }
   if (obj.type === 'group') {
-    const groupBounds = obj.getBoundingRect();
     return {
       ...base,
       type: 'group',
       coordinateSpace: 'local',
-      x: Math.round(groupBounds.left),
-      y: Math.round(groupBounds.top),
-      width: Math.round(groupBounds.width),
-      height: Math.round(groupBounds.height),
+      x: Math.round(obj.left),
+      y: Math.round(obj.top),
+      width: Math.round(obj.width || 0),
+      height: Math.round(obj.height || 0),
+      scaleX: obj.scaleX ?? 1,
+      scaleY: obj.scaleY ?? 1,
       children: obj.getObjects().map((child) => {
         const childLayer = fabricToLayer(child);
         if (!childLayer) return null;
-        try {
-          const bbox = child.getBoundingRect();
-          childLayer.x = Math.round(bbox.left - groupBounds.left);
-          childLayer.y = Math.round(bbox.top - groupBounds.top);
-        } catch { /* leave as-is on any bbox failure — better a slightly-off position than a dropped layer */ }
+        // Fabric stores group children around the group's centre. Convert
+        // that internal plane back to the schema's top-left-local plane.
+        // Bounding rectangles are wrong for rotated children and caused
+        // compounding drift on every save/reload cycle.
+        childLayer.x = Math.round((child.left || 0) + (obj.width || 0) / 2);
+        childLayer.y = Math.round((child.top || 0) + (obj.height || 0) / 2);
         return childLayer;
       }).filter(Boolean),
     };
@@ -571,6 +609,7 @@ export function distributeObjects(objects, axis) {
 // no pixels to punch holes in, only an image layer's backing <canvas> does
 // (see retouchTools.js's eraseAt / ensureLiveCanvas).
 export async function rasterizeObject(canvas, obj) {
+  const parent = obj.group?.type === 'group' ? obj.group : null;
   const angle = obj.angle || 0;
   const left = obj.left;
   const top = obj.top;
@@ -595,12 +634,25 @@ export async function rasterizeObject(canvas, obj) {
     originX: 'left', originY: 'top',
     scaleX: w / img.width, scaleY: h / img.height,
   });
-  img.set('data', { ...data, name: data.name ? `${data.name} (rasterized)` : 'Rasterized layer' });
+  img.set('data', { ...data, name: data.name ? `${data.name} (rasterized)` : 'Rasterized layer', liveCanvas: true });
 
-  const index = canvas.getObjects().indexOf(obj);
-  canvas.remove(obj);
-  canvas.insertAt(index, img);
-  canvas.setActiveObject(img);
+  if (parent) {
+    const index = parent.getObjects().indexOf(obj);
+    // The replacement starts in the source's local group plane. Send it
+    // to canvas space before the group's remove/add layout cycle; Fabric
+    // then converts it back without changing its visible position.
+    fabric.util.sendObjectToPlane(img, parent.calcTransformMatrix(), undefined);
+    parent.remove(obj);
+    parent.insertAt(Math.max(0, index), img);
+    parent.dirty = true;
+    parent.setCoords();
+    canvas.discardActiveObject();
+  } else {
+    const index = canvas.getObjects().indexOf(obj);
+    canvas.remove(obj);
+    canvas.insertAt(Math.max(0, index), img);
+    canvas.setActiveObject(img);
+  }
   canvas.requestRenderAll();
   return img;
 }

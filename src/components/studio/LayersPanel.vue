@@ -1,14 +1,18 @@
 <template>
   <div class="flex flex-col gap-0.5">
-    <div v-for="(row, i) in rows" :key="layerKey(row.obj)"
-         :draggable="row.depth === 0"
+    <div class="sticky top-0 z-10 bg-surface-ivory dark:bg-surface-coal pb-2">
+      <input v-model="search" type="search" class="field-input !py-1.5 !text-xs" placeholder="Search layers…" />
+    </div>
+    <div v-for="(row, i) in visibleRows" :key="layerKey(row.obj)"
+         :draggable="!isLocked(row.obj)"
          class="group flex items-center gap-2 py-1.5 rounded-md text-xs cursor-pointer"
          :style="{ paddingLeft: (8 + row.depth * 16) + 'px', paddingRight: '8px' }"
          :class="[isSelected(row.obj) ? 'bg-brand-primary-glow text-brand-primary-deep' : 'hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50', dragOverIndex === i ? 'outline outline-1 outline-brand-primary' : '']"
          @click="$emit('select', row.obj, $event)"
          @contextmenu.prevent="openContextMenu(row, $event)"
          @dragstart="onDragStart(i, $event)"
-         @dragover.prevent="row.depth === 0 && (dragOverIndex = i)"
+         @dragend="dragRow = null; dragOverIndex = null"
+         @dragover.prevent="canDropOn(row) && (dragOverIndex = i)"
          @dragleave="dragOverIndex = dragOverIndex === i ? null : dragOverIndex"
          @drop="onDrop(i, $event)">
       <button v-if="row.obj.type === 'group'" class="p-0 shrink-0" title="Expand/collapse" @click.stop="toggleExpanded(row.obj)">
@@ -39,8 +43,8 @@
       </button>
     </div>
 
-    <p v-if="!rows.length" class="text-2xs text-surface-slate dark:text-surface-ash px-2 py-2">
-      No layers yet — use the toolbar above the canvas to add text, shapes, or images.
+    <p v-if="!visibleRows.length" class="text-2xs text-surface-slate dark:text-surface-ash px-2 py-2">
+      {{ rows.length ? 'No layers match this search.' : 'No layers yet — use the toolbar above the canvas to add text, shapes, or images.' }}
     </p>
 
     <!-- Context menu, teleported so it can escape the panel's scroll box. -->
@@ -72,16 +76,17 @@ const props = defineProps({
   selected: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['select', 'toggle-lock', 'toggle-visible', 'reorder', 'duplicate', 'delete', 'rename', 'move-to', 'rasterize', 'group', 'ungroup', 'merge']);
+const search = ref('');
 
 function layerKey(obj) {
   if (!obj._layerKey) obj._layerKey = obj.get('data')?.layerId || obj.type + '_' + Math.random().toString(36).slice(2, 10);
   return obj._layerKey;
 }
-function layerName(obj) { return obj.get('data')?.name || (obj.type === 'textbox' ? (obj.text || '').slice(0, 24) || 'Text' : obj.type); }
+function layerName(obj) { return obj.get('data')?.name || (['textbox', 'text', 'i-text'].includes(obj.type) ? (obj.text || '').slice(0, 24) || 'Text' : obj.type); }
 function isSelected(obj) { return props.selected.includes(obj); }
 function isLocked(obj) { return !!obj.get('data')?.locked; }
 function icon(obj) {
-  if (obj.type === 'textbox') return DocumentTextIcon;
+  if (['textbox', 'text', 'i-text'].includes(obj.type)) return DocumentTextIcon;
   if (obj.type === 'image') return PhotoIcon;
   if (obj.type === 'group') return RectangleGroupIcon;
   if (obj.get('data')?.name === 'QR code') return QrCodeIcon;
@@ -115,6 +120,21 @@ const rows = computed(() => {
   }
   walk(props.layers, 0, null);
   return out;
+});
+const visibleRows = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) return rows.value;
+  const directMatches = new Set(rows.value.filter((row) => layerName(row.obj).toLowerCase().includes(q)).map((row) => row.obj));
+  // Keep ancestors visible so a matching child still reads in context.
+  for (const row of rows.value) {
+    if (!directMatches.has(row.obj)) continue;
+    let parent = row.parent;
+    while (parent) {
+      directMatches.add(parent);
+      parent = rows.value.find((candidate) => candidate.obj === parent)?.parent || null;
+    }
+  }
+  return rows.value.filter((row) => directMatches.has(row.obj));
 });
 
 // ── Thumbnails ──────────────────────────────────────────────────────────
@@ -159,23 +179,38 @@ function commitRename(obj) {
   renamingKey.value = null;
 }
 
-// Drag-to-reorder — top-level layers only.
+// Drag-to-reorder. Layers can be reordered inside their own parent group
+// as well as at the canvas root; cross-group moves are deliberately kept
+// explicit so a simple reorder can never silently change coordinates.
 const dragOverIndex = ref(null);
-let dragFromIndex = null;
+let dragRow = null;
 function onDragStart(i, e) {
-  if (rows.value[i]?.depth !== 0) { e.preventDefault(); return; }
-  dragFromIndex = i;
+  const row = visibleRows.value[i];
+  if (!row || isLocked(row.obj)) { e.preventDefault(); return; }
+  dragRow = row;
   e.dataTransfer.effectAllowed = 'move';
+  // Firefox requires a payload before it will start native drag/drop.
+  e.dataTransfer.setData('text/plain', layerKey(row.obj));
+}
+function dropCollection(row) {
+  // Dropping directly on a folder moves the layer into it. Dropping on a
+  // regular layer moves/reorders it beside that layer.
+  return row.obj.type === 'group' ? row.obj : row.parent;
+}
+function canDropOn(row) {
+  if (!dragRow || dragRow.obj === row.obj) return false;
+  const destination = dropCollection(row);
+  // Never allow a group to be moved into itself or one of its descendants.
+  if (destination === dragRow.obj || destination?.isDescendantOf?.(dragRow.obj)) return false;
+  return true;
 }
 function onDrop(i, e) {
   e.preventDefault();
   dragOverIndex.value = null;
-  if (dragFromIndex === null || rows.value[i]?.depth !== 0) return;
-  const fromDisplayIndex = props.layers.indexOf(rows.value[dragFromIndex].obj);
-  const toDisplayIndex = props.layers.indexOf(rows.value[i].obj);
-  if (fromDisplayIndex === -1 || toDisplayIndex === -1 || fromDisplayIndex === toDisplayIndex) { dragFromIndex = null; return; }
-  emit('move-to', fromDisplayIndex, toDisplayIndex);
-  dragFromIndex = null;
+  const target = visibleRows.value[i];
+  if (!target || !canDropOn(target)) { dragRow = null; return; }
+  emit('move-to', dragRow, target);
+  dragRow = null;
 }
 
 // Right-click context menu — Photoshop convention.

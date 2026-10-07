@@ -52,6 +52,31 @@ export default defineConfig({
             options: { cacheName: 'fonts', expiration: { maxEntries: 30, maxAgeSeconds: 365 * 24 * 3600 } },
           },
           {
+            // The local background-removal model is large, so it is not
+            // part of the small app-shell precache. Cache it after its
+            // first successful online use; subsequent removals work
+            // completely offline.
+            urlPattern: /\.(?:wasm|onnx|data)(?:\?.*)?$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'studio-local-ai',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 12, maxAgeSeconds: 365 * 24 * 3600 },
+            },
+          },
+          {
+            // IMG.LY splits its model into extensionless hash-named chunks
+            // and consults resources.json on every load. Cache that complete
+            // resource set after first use, not only files ending in .onnx.
+            urlPattern: /^https:\/\/staticimgly\.com\/@imgly\/background-removal-data\/.*$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'studio-background-removal-model',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 100, maxAgeSeconds: 365 * 24 * 3600 },
+            },
+          },
+          {
             // Event covers, signed uploaded cards, QR artwork, and variant
             // images remain available after they have been viewed online.
             urlPattern: ({ request }) => request.destination === 'image',

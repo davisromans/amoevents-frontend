@@ -5,10 +5,11 @@
  * accidentally display another organiser's cached event data after logout.
  */
 const DB_NAME = 'amoevents-offline-v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const CACHE_STORE = 'api-cache';
 const SNAPSHOT_STORE = 'guest-snapshots';
 const MUTATION_STORE = 'mutations';
+const TEMPLATE_STORE = 'template-projects';
 const MEDIA_CACHE = 'amoevents-offline-media-v1';
 
 let dbPromise;
@@ -26,6 +27,7 @@ function openDb() {
         const store = db.createObjectStore(MUTATION_STORE, { keyPath: 'id' });
         store.createIndex('createdAt', 'createdAt');
       }
+      if (!db.objectStoreNames.contains(TEMPLATE_STORE)) db.createObjectStore(TEMPLATE_STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error('Could not open offline database'));
@@ -114,6 +116,25 @@ export async function putOfflineMedia(key, blob) {
       headers: { 'Content-Type': blob.type || 'image/jpeg' },
     }));
   } catch (_) { /* cache is best effort */ }
+}
+
+export async function getTemplateProject(projectId) {
+  try { return await request(TEMPLATE_STORE, 'readonly', (store) => store.get(`${userScope()}|${projectId}`)); }
+  catch (_) { return null; }
+}
+
+export async function putTemplateProject(projectId, project) {
+  try {
+    await request(TEMPLATE_STORE, 'readwrite', (store) => store.put({
+      ...project,
+      projectId: String(projectId),
+      savedLocallyAt: Date.now(),
+      scope: userScope(),
+    }, `${userScope()}|${projectId}`));
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 export async function getGuestSnapshot(eventId) {

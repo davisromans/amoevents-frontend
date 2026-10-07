@@ -30,13 +30,18 @@ export function ensureLiveCanvas(fabricImg) {
 }
 
 function sceneToImagePixel(fabricImg, scenePoint) {
-  // Scene coords are in canvas/document space; the live canvas is in the
-  // image's own native pixel space — divide out position + scale to land
-  // on the right source pixel regardless of how the layer's been resized.
+  // Invert the complete object transform (rotation, group transforms,
+  // negative scale from flipping, and resizing). The previous left/top
+  // subtraction only worked for an unrotated top-level image and made
+  // brush/eraser strokes miss their cursor on real PSD layers.
   const canvas = fabricImg.getElement();
-  const x = (scenePoint.x - fabricImg.left) / fabricImg.scaleX;
-  const y = (scenePoint.y - fabricImg.top) / fabricImg.scaleY;
-  return { x, y, canvas };
+  const matrix = fabricImg.calcTransformMatrix();
+  const inverse = fabric.util.invertTransform(matrix);
+  const local = fabric.util.transformPoint(new fabric.Point(scenePoint.x, scenePoint.y), inverse);
+  const x = local.x + (fabricImg.width || 0) / 2 + (fabricImg.cropX || 0);
+  const y = local.y + (fabricImg.height || 0) / 2 + (fabricImg.cropY || 0);
+  const sceneScale = Math.max(0.0001, Math.sqrt(Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])));
+  return { x, y, canvas, sceneScale };
 }
 
 export class CloneStampController {
@@ -64,7 +69,7 @@ export class CloneStampController {
     }
     const srcX = dest.x + this.sourceOffset.dx;
     const srcY = dest.y + this.sourceOffset.dy;
-    const r = this.brushSize / 2;
+    const r = this.brushSize / dest.sceneScale / 2;
 
     ctx.save();
     ctx.beginPath();
@@ -80,8 +85,8 @@ export class CloneStampController {
 export function dodgeBurnAt(fabricImg, scenePoint, { mode = 'dodge', brushSize = 40, strength = 0.15 } = {}) {
   const canvas = ensureLiveCanvas(fabricImg);
   const ctx = canvas.getContext('2d');
-  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
-  const r = brushSize / 2;
+  const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
+  const r = brushSize / sceneScale / 2;
 
   const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
   const alpha = mode === 'dodge' ? strength : strength;
@@ -139,8 +144,8 @@ function stampAt(ctx, x, y, radius, hardness, compositeOp, rgb) {
 export function eraseAt(fabricImg, scenePoint, { brushSize = 40, hardness = 0.7 } = {}) {
   const canvas = ensureLiveCanvas(fabricImg);
   const ctx = canvas.getContext('2d');
-  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
-  stampAt(ctx, x, y, brushSize / 2, hardness, 'destination-out', '0,0,0');
+  const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
+  stampAt(ctx, x, y, brushSize / sceneScale / 2, hardness, 'destination-out', '0,0,0');
   fabricImg.dirty = true;
 }
 
@@ -157,12 +162,12 @@ export function eraseAt(fabricImg, scenePoint, { brushSize = 40, hardness = 0.7 
 export function paintBrushAt(fabricImg, scenePoint, { brushSize = 20, hardness = 0.7, color = '#111827' } = {}) {
   const canvas = ensureLiveCanvas(fabricImg);
   const ctx = canvas.getContext('2d');
-  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
+  const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
   const h = color.replace('#', '');
   const rgb = h.length === 6
     ? `${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)}`
     : '17,24,39';
-  stampAt(ctx, x, y, brushSize / 2, hardness, 'source-over', rgb);
+  stampAt(ctx, x, y, brushSize / sceneScale / 2, hardness, 'source-over', rgb);
   fabricImg.dirty = true;
 }
 

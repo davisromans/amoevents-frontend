@@ -6,6 +6,11 @@
     </button>
 
     <div v-if="open" class="absolute z-30 mt-1 w-72 max-h-80 surface-card shadow-card p-2 flex flex-col gap-2">
+      <div v-if="requiredFamily && requiredAvailable === false" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-2xs text-amber-800 dark:text-amber-200">
+        <p class="font-bold">Missing original PSD font</p>
+        <p class="mt-0.5">Upload “{{ requiredFamily }}” to make this text match the source design.</p>
+        <button class="mt-1.5 font-bold underline" @click="openRequiredUpload">Upload this font</button>
+      </div>
       <input v-model="q" type="text" placeholder="Search fonts…" class="field-input !py-1.5 !text-xs" autofocus />
       <div class="flex gap-1 overflow-x-auto hide-scrollbar">
         <button v-for="c in CATEGORIES" :key="c.value"
@@ -74,10 +79,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { ChevronDownIcon, PlusCircleIcon, ArrowUpTrayIcon } from '@heroicons/vue/24/outline';
-import { listFonts, searchGoogleCatalog, addGoogleFont, uploadFontVariant } from '@/services/fonts.service';
+import { listFonts, searchGoogleCatalog, addGoogleFont, uploadFontVariant, getFontsByFamilies } from '@/services/fonts.service';
 import { loadFont, loadGoogleFont, loadUploadedFontVariant } from '@/utils/fontLoader';
 
-const props = defineProps({ modelValue: { type: String, default: '' } });
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  requiredFamily: { type: String, default: '' },
+});
 const emit = defineEmits(['update:modelValue']);
 
 const CATEGORIES = [
@@ -103,7 +111,23 @@ const uploadStyle = ref('normal');
 const uploadError = ref('');
 const uploading = ref(false);
 const fontFileRef = ref(null);
+const requiredAvailable = ref(null);
 let uploadFile = null;
+const SYSTEM_FONTS = new Set(['arial', 'helvetica', 'times new roman', 'georgia', 'courier new', 'verdana', 'trebuchet ms', 'system-ui', 'sans-serif', 'serif', 'monospace']);
+
+function openRequiredUpload() {
+  uploadOpen.value = true;
+  uploadFamily.value = props.requiredFamily;
+}
+
+async function checkRequiredFamily() {
+  if (!props.requiredFamily) { requiredAvailable.value = null; return; }
+  if (SYSTEM_FONTS.has(props.requiredFamily.toLowerCase())) { requiredAvailable.value = true; return; }
+  try {
+    const rows = await getFontsByFamilies([props.requiredFamily]);
+    requiredAvailable.value = rows.some((row) => row.family?.toLowerCase() === props.requiredFamily.toLowerCase());
+  } catch { requiredAvailable.value = null; }
+}
 
 function onFontFileChosen(e) {
   uploadFile = e.target.files?.[0] || null;
@@ -121,6 +145,7 @@ async function submitUpload() {
     const variant = (font.variants || []).find((v) => v.weight === uploadWeight.value && v.style === uploadStyle.value) || font.variants?.[font.variants.length - 1];
     if (variant) await loadUploadedFontVariant(family, variant);
     await refreshActive();
+    requiredAvailable.value = family.toLowerCase() === props.requiredFamily.toLowerCase() ? true : requiredAvailable.value;
     choose(family);
     uploadOpen.value = false;
     uploadFamily.value = '';
@@ -150,6 +175,7 @@ const filteredCatalog = computed(() => catalog.value.filter((f) => !activeFamili
 const filteredActive = active;
 
 watch([q, category], () => { refreshActive(); refreshCatalog(); });
+watch(() => props.requiredFamily, checkRequiredFamily, { immediate: true });
 // Preview each catalog font in its own real typeface, not just its name —
 // otherwise "Script" and "Display" fonts are indistinguishable from the
 // default UI font until you've already added one. Loading is cheap (CSS

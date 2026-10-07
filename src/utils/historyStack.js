@@ -6,7 +6,7 @@
 // entry, not one per intermediate frame — matching how Photoshop's history
 // panel collapses a single drag into one step.
 export class HistoryStack {
-  constructor(canvas, { limit = 100, debounceMs = 400 } = {}) {
+  constructor(canvas, { limit = 100, debounceMs = 400, onChange = null } = {}) {
     this.canvas = canvas;
     this.limit = limit;
     this.debounceMs = debounceMs;
@@ -14,6 +14,7 @@ export class HistoryStack {
     this.pointer = -1; // index of the currently-applied state
     this._suspended = false;
     this._timer = null;
+    this.onChange = onChange;
   }
 
   get canUndo() { return this.pointer > 0; }
@@ -23,6 +24,7 @@ export class HistoryStack {
   init() {
     this.stack = [this._snapshot()];
     this.pointer = 0;
+    this.onChange?.();
   }
 
   /** Wire to canvas modification events. Call once during setup. */
@@ -59,6 +61,7 @@ export class HistoryStack {
     this.stack.push(snap);
     if (this.stack.length > this.limit) this.stack.shift();
     this.pointer = this.stack.length - 1;
+    this.onChange?.();
   }
 
   async _restore(index) {
@@ -72,11 +75,13 @@ export class HistoryStack {
     if (!this.canUndo) return;
     this.pointer -= 1;
     await this._restore(this.pointer);
+    this.onChange?.();
   }
 
   async redo() {
     if (!this.canRedo) return;
     this.pointer += 1;
     await this._restore(this.pointer);
+    this.onChange?.();
   }
 }

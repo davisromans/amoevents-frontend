@@ -14,6 +14,7 @@
     "@imgly/background-removal": "^1.7.0",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
+    "ag-psd": "^31.0.2",
     "axios": "^1.7.7",
     "fabric": "^7.4.0",
     "jsqr": "^1.4.0",

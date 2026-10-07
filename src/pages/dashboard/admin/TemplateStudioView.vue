@@ -12,6 +12,7 @@
       </span>
 
       <input ref="imageInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileChosen" />
+      <input ref="psdInputRef" type="file" accept=".psd,image/vnd.adobe.photoshop" class="hidden" @change="onPsdFileChosen" />
 
       <!-- Preview toggle (Batch 22) — swaps every bound text layer between its {{binding}} placeholder and sample data -->
       <button class="btn-ghost !text-2xs !py-1.5 !px-3 ml-1" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': previewMode }" @click="togglePreview">
@@ -21,11 +22,11 @@
 
       <!-- Undo/redo -->
       <div class="flex items-center gap-1 ml-1">
-        <button class="btn-ghost !p-1.5" :disabled="!history?.canUndo" title="Undo (Ctrl+Z)" @click="undo">
-          <ArrowUturnLeftIcon class="w-4 h-4" :class="{ 'opacity-30': !history?.canUndo }" />
+        <button class="btn-ghost !p-1.5" :disabled="!historyCanUndo" title="Undo (Ctrl+Z)" @click="undo">
+          <ArrowUturnLeftIcon class="w-4 h-4" :class="{ 'opacity-30': !historyCanUndo }" />
         </button>
-        <button class="btn-ghost !p-1.5" :disabled="!history?.canRedo" title="Redo (Ctrl+Shift+Z)" @click="redo">
-          <ArrowUturnRightIcon class="w-4 h-4" :class="{ 'opacity-30': !history?.canRedo }" />
+        <button class="btn-ghost !p-1.5" :disabled="!historyCanRedo" title="Redo (Ctrl+Shift+Z)" @click="redo">
+          <ArrowUturnRightIcon class="w-4 h-4" :class="{ 'opacity-30': !historyCanRedo }" />
         </button>
       </div>
 
@@ -49,26 +50,38 @@
                   :class="{ 'bg-brand-primary-glow': gridSize === s }" @click="gridSize = s; gridMenuOpen = false">
             {{ s === 10 ? 'Small' : s === 20 ? 'Medium' : s === 40 ? 'Large' : 'X-Large' }} ({{ s }}px)
           </button>
+          <label class="flex items-center gap-2 px-2 py-1 text-2xs font-bold">
+            <input v-model="snapToGrid" type="checkbox" class="accent-brand-gold" /> Snap to grid
+          </label>
         </div>
       </div>
       <button class="btn-ghost !p-1.5" :class="{ 'text-brand-primary': showRulers }" @click="showRulers = !showRulers" title="Toggle rulers">
         <ViewfinderCircleIcon class="w-4 h-4" />
       </button>
+      <button class="btn-ghost !p-1.5" title="Keyboard shortcuts (?)" @click="showShortcuts = true">
+        <QuestionMarkCircleIcon class="w-4 h-4" />
+      </button>
 
-      <span v-if="autosaveStatus" class="text-2xs text-surface-slate dark:text-surface-ash mr-1">
-        {{ autosaveStatus === 'pending' ? 'Saving…' : 'Autosaved' }}
+      <span class="text-2xs mr-1" :class="isOnline ? 'text-emerald-600' : 'text-red-500'">
+        {{ isOnline ? (autosaveStatus === 'pending' ? 'Saving local draft…' : autosaveStatus === 'cloud' ? 'Saved to cloud' : autosaveStatus === 'local' ? 'Saved locally' : 'Online') : 'Offline — edits stay on this device' }}
       </span>
       <div class="relative">
         <button class="btn-ghost !text-2xs !py-1.5 !px-3 flex items-center gap-1" :disabled="exporting" @click="exportMenuOpen = !exportMenuOpen">
           {{ exporting ? 'Exporting…' : 'Export' }}
           <ChevronDownIcon class="w-3 h-3" />
         </button>
-        <div v-if="exportMenuOpen" class="absolute top-full right-0 mt-1 z-30 surface-card shadow-card p-1 rounded-lg flex flex-col gap-0.5 w-32">
+        <div v-if="exportMenuOpen" class="absolute top-full right-0 mt-1 z-30 surface-card shadow-card p-1 rounded-lg flex flex-col gap-0.5 w-56">
+          <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="psdInputRef?.click(); exportMenuOpen = false">Open PSD from device</button>
+          <p class="px-2 pb-1 text-[10px] leading-tight text-surface-slate dark:text-surface-ash">Opens on this device and works offline; publish only when you choose Save to cloud.</p>
+          <div class="border-t border-surface-mist dark:border-surface-fog my-0.5" />
           <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('png')">Export as PNG</button>
           <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('jpeg')">Export as JPEG</button>
+          <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportPsd">Export layered PSD</button>
+          <p class="px-2 pb-1 text-[10px] leading-tight text-surface-slate dark:text-surface-ash">PSD keeps layers and appearance; text is rasterized for reliable Photoshop fidelity.</p>
         </div>
       </div>
-      <AppButton :loading="saving" @click="save">Save</AppButton>
+      <button class="btn-ghost !text-2xs !py-1.5 !px-3" @click="saveLocalDraft({ notify: true })">Save locally</button>
+      <AppButton :loading="saving" :disabled="!isOnline" @click="save">Save to cloud</AppButton>
     </div>
 
     <!-- Page tabs — only shown once a document actually has more than one
@@ -188,49 +201,6 @@
         </label>
       </div>
 
-      <!-- Left rail — layers panel (Batch 6). Resizable via the drag handle
-           on its right edge; width is persisted to localStorage so it
-           doesn't reset every time the Studio opens. -->
-      <div class="shrink-0 border-r border-surface-mist dark:border-surface-fog bg-surface-ivory dark:bg-surface-coal !rounded-none relative flex flex-col"
-           :style="{ width: layersPanelWidth + 'px' }">
-        <p class="section-eyebrow px-3 pt-3 pb-2 shrink-0">Layers</p>
-        <div class="flex-1 overflow-y-auto px-3">
-          <LayersPanel
-            :layers="layersTopFirst"
-            :selected="selectedObjects"
-            @select="onSelectLayer"
-            @toggle-lock="onToggleLock"
-            @toggle-visible="onToggleVisible"
-            @reorder="onReorder"
-            @duplicate="onDuplicateLayer"
-            @delete="onDeleteLayer"
-            @rename="onRenameLayer"
-            @move-to="onMoveLayerTo"
-            @rasterize="onRasterizeLayer"
-            @group="onGroupLayers"
-            @ungroup="onUngroupLayer"
-            @merge="onMergeLayers"
-          />
-        </div>
-        <!-- Bottom toolbar — industry-standard placement (Photoshop's own
-             Layers panel puts New Layer / New Group / Delete icons here,
-             not scattered elsewhere in the app). -->
-        <div class="shrink-0 border-t border-surface-mist dark:border-surface-fog flex items-center gap-1 px-2 py-1.5">
-          <button class="btn-ghost !p-1.5" title="New empty layer" @click="insertEmptyLayer">
-            <DocumentPlusIcon class="w-4 h-4" />
-          </button>
-          <button class="btn-ghost !p-1.5" title="Duplicate selected layer" :disabled="!selectedObjects.length" @click="selectedObjects[0] && onDuplicateLayer(selectedObjects[0], selectedParent)">
-            <DocumentDuplicateIcon class="w-4 h-4" />
-          </button>
-          <div class="flex-1" />
-          <button class="btn-ghost !p-1.5" title="Delete selected layer" :disabled="!selectedObjects.length" @click="selectedObjects[0] && onDeleteLayer(selectedObjects[0], selectedParent)">
-            <TrashIcon class="w-4 h-4" :class="{ 'text-red-500': selectedObjects.length }" />
-          </button>
-        </div>
-        <div class="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
-             @mousedown="startLayersPanelResize" title="Drag to resize" />
-      </div>
-
       <!-- Canvas viewport — pan/zoom/rulers/grid (Batch 5) -->
       <div ref="viewportRef" class="flex-1 relative overflow-auto bg-[#e5e5e5] dark:bg-[#1a1a1a]"
            :class="tool === 'pen' ? 'cursor-crosshair' : 'cursor-grab'"
@@ -272,7 +242,10 @@
         <div v-if="maskPainter" class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 surface-card shadow-card p-2 flex items-center gap-2">
           <button class="btn-ghost !text-2xs !py-1 !px-2" :class="{ 'bg-brand-primary-glow': maskBrushMode === 'hide' }" @click="maskBrushMode = 'hide'">Hide</button>
           <button class="btn-ghost !text-2xs !py-1 !px-2" :class="{ 'bg-brand-primary-glow': maskBrushMode === 'reveal' }" @click="maskBrushMode = 'reveal'">Reveal</button>
+          <span class="text-2xs">Size</span>
           <input type="range" min="5" max="200" v-model.number="maskBrushSize" class="w-24 accent-brand-gold" />
+          <span class="text-2xs">Softness</span>
+          <input type="range" min="0" max="1" step="0.05" :value="1 - maskBrushHardness" @input="maskBrushHardness = 1 - Number($event.target.value)" class="w-20 accent-brand-gold" />
           <AppButton class="!text-2xs !py-1" @click="finishMaskPaint">Done</AppButton>
           <button class="btn-ghost !text-2xs !py-1" @click="cancelMaskPaint">Cancel</button>
         </div>
@@ -286,26 +259,72 @@
         </div>
       </div>
 
-      <!-- Right rail — properties panel (Batches 6/7/10/12/14/15) -->
-      <div class="w-64 shrink-0 border-l border-surface-mist dark:border-surface-fog surface-card !rounded-none p-3 overflow-y-auto">
-        <p class="section-eyebrow mb-2">Properties</p>
-        <PropertiesPanel
-          v-if="fabricCanvas"
-          :canvas="fabricCanvas"
-          :selected="selectedObjects"
-          @bring-forward="onBringForward"
-          @send-backward="onSendBackward"
-          @delete="(obj) => onDeleteLayer(obj, selectedParent)"
-          @rasterize="onRasterizeLayer"
-          @restore-text="onRestoreText"
-          @clip-mask="onClipMask"
-          @paint-mask="onPaintMask"
-          @remove-mask="onRemoveMask"
-          @start-crop="onStartCrop"
-          @toggle-shared="onToggleShared"
-          @replace-source="onReplaceSource"
-        />
-      </div>
+      <!-- Photoshop-style right dock: Layers and Properties share one
+           resizable column, keeping the left side dedicated to tools. -->
+      <aside class="shrink-0 border-l border-surface-mist dark:border-surface-fog surface-card !rounded-none relative flex flex-col"
+             :style="{ width: layersPanelWidth + 'px' }">
+        <div class="shrink-0 grid grid-cols-2 border-b border-surface-mist dark:border-surface-fog">
+          <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'layers' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'layers'">Layers</button>
+          <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'properties' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'properties'">Properties</button>
+        </div>
+
+        <template v-if="rightPanelTab === 'layers'">
+          <div class="flex-1 overflow-y-auto px-3 py-2">
+            <LayersPanel
+              :layers="layersTopFirst"
+              :selected="selectedObjects"
+              @select="onSelectLayer"
+              @toggle-lock="onToggleLock"
+              @toggle-visible="onToggleVisible"
+              @reorder="onReorder"
+              @duplicate="onDuplicateLayer"
+              @delete="onDeleteLayer"
+              @rename="onRenameLayer"
+              @move-to="onMoveLayerTo"
+              @rasterize="onRasterizeLayer"
+              @group="onGroupLayers"
+              @ungroup="onUngroupLayer"
+              @merge="onMergeLayers"
+            />
+          </div>
+          <div class="shrink-0 border-t border-surface-mist dark:border-surface-fog flex items-center gap-1 px-2 py-1.5">
+            <button class="btn-ghost !p-1.5" title="New paint layer (Shift+Ctrl/Cmd+N)" @click="insertEmptyLayer">
+              <DocumentPlusIcon class="w-4 h-4" />
+            </button>
+            <button class="btn-ghost !p-1.5" title="New group (Ctrl/Cmd+G with selection)" @click="createEmptyGroup">
+              <RectangleStackIcon class="w-4 h-4" />
+            </button>
+            <button class="btn-ghost !p-1.5" title="Duplicate selected layer (Ctrl/Cmd+J)" :disabled="!selectedObjects.length" @click="selectedObjects[0] && onDuplicateLayer(selectedObjects[0], selectedParent)">
+              <DocumentDuplicateIcon class="w-4 h-4" />
+            </button>
+            <div class="flex-1" />
+            <button class="btn-ghost !p-1.5" title="Delete selected layer" :disabled="!selectedObjects.length" @click="selectedObjects[0] && onDeleteLayer(selectedObjects[0], selectedParent)">
+              <TrashIcon class="w-4 h-4" :class="{ 'text-red-500': selectedObjects.length }" />
+            </button>
+          </div>
+        </template>
+
+        <div v-else class="flex-1 overflow-y-auto p-3">
+          <PropertiesPanel
+            v-if="fabricCanvas"
+            :canvas="fabricCanvas"
+            :selected="selectedObjects"
+            @bring-forward="onBringForward"
+            @send-backward="onSendBackward"
+            @delete="(obj) => onDeleteLayer(obj, selectedParent)"
+            @rasterize="onRasterizeLayer"
+            @restore-text="onRestoreText"
+            @clip-mask="onClipMask"
+            @paint-mask="onPaintMask"
+            @remove-mask="onRemoveMask"
+            @start-crop="onStartCrop"
+            @toggle-shared="onToggleShared"
+            @replace-source="onReplaceSource"
+          />
+        </div>
+        <div class="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
+             @mousedown="startLayersPanelResize" title="Drag to resize" />
+      </aside>
     </div>
 
     <!-- Shared-asset picker (Batch 20) -->
@@ -321,6 +340,14 @@
       </p>
     </AppModal>
     <input ref="replaceInputRef" type="file" accept="image/*" class="hidden" @change="onReplaceFileChosen" />
+    <AppModal v-model="showShortcuts" title="Studio keyboard shortcuts" :maxWidth="620">
+      <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-xs">
+        <template v-for="item in SHORTCUTS" :key="item.keys">
+          <span class="text-surface-slate dark:text-surface-ash">{{ item.action }}</span>
+          <kbd class="justify-self-end rounded border border-surface-mist dark:border-surface-fog px-2 py-0.5 font-mono text-2xs">{{ item.keys }}</kbd>
+        </template>
+      </div>
+    </AppModal>
   </div>
 </template>
 
@@ -332,13 +359,14 @@ import {
   ArrowLeftIcon, MinusIcon, PlusIcon, Squares2X2Icon, ViewfinderCircleIcon, ChevronDownIcon, BackspaceIcon, DocumentPlusIcon, TrashIcon,
   CursorArrowRaysIcon, PencilIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon,
   PaintBrushIcon, DocumentDuplicateIcon, SunIcon, RectangleStackIcon, QrCodeIcon, PlusCircleIcon,
-  StopIcon, PhotoIcon, XMarkIcon,
+  StopIcon, PhotoIcon, XMarkIcon, QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline';
 import * as templateApi from '@/services/cardTemplates.service';
 import * as variantApi from '@/services/cardVariants.service';
 import { getFontsByFamilies } from '@/services/fonts.service';
 import { loadFont } from '@/utils/fontLoader';
-import { resolveAssetUrl, listSharedAssets, setAssetShared, replaceAsset, uploadAsset } from '@/services/templateAssets.service';
+import { resolveAssetUrl, listSharedAssets, setAssetShared, replaceAsset, uploadAsset, cacheLocalTemplateAsset, getCachedTemplateAssetBlob } from '@/services/templateAssets.service';
+import { getTemplateProject, putTemplateProject } from '@/services/offline.store';
 import {
   createEngineCanvas, loadDocument, serializeDocument,
   bringForward, sendBackward, setLayerLocked, setLayerVisible, rasterizeObject, restoreConvertedText,
@@ -349,6 +377,8 @@ import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
+import { exportCanvasAsPsd } from '@/utils/psdExport';
+import { importPsdLocally } from '@/utils/localPsdImport';
 import { BINDING_FIELDS, sampleValueFor } from '@/utils/bindingRegistry';
 import * as fabric from 'fabric';
 import { apiErrorMessage } from '@/services/http';
@@ -376,6 +406,24 @@ const api = {
   adminCreateBlank: (meta) => (isVariantMode.value ? variantApi.createBlankVariant(variantEventId.value, meta) : templateApi.adminCreateBlank(meta)),
 };
 const toast = useToast();
+const showShortcuts = ref(false);
+const SHORTCUTS = [
+  { action: 'Save a local offline draft', keys: 'Ctrl/Cmd + S' },
+  { action: 'Save to cloud', keys: 'Ctrl/Cmd + Shift + S' },
+  { action: 'Undo / redo', keys: 'Ctrl/Cmd + Z / Shift + Z' },
+  { action: 'Duplicate layer', keys: 'Ctrl/Cmd + J' },
+  { action: 'Copy / cut / paste layers', keys: 'Ctrl/Cmd + C / X / V' },
+  { action: 'Group / ungroup', keys: 'Ctrl/Cmd + G / Shift + G' },
+  { action: 'Bring forward / send backward', keys: 'Ctrl/Cmd + ] / [' },
+  { action: 'Select all / deselect', keys: 'Ctrl/Cmd + A / D' },
+  { action: 'Brush size', keys: '[ / ]' },
+  { action: 'Brush hardness', keys: 'Shift + [ / ]' },
+  { action: 'Nudge / large nudge', keys: 'Arrows / Shift + arrows' },
+  { action: 'Select, Pen, Brush, Clone, Dodge, Eraser', keys: 'V P B S O E' },
+  { action: 'Actual size / fit', keys: 'Ctrl/Cmd + 1 / 0' },
+  { action: 'Cancel tool or close selection', keys: 'Esc' },
+  { action: 'Shortcut reference', keys: '?' },
+];
 
 // Studio opens in its own tab (window.open from the library grid), so
 // "back" closes that tab rather than navigating within it. window.close()
@@ -393,8 +441,12 @@ function closeStudio() {
 
 const loading = ref(true);
 const saving = ref(false);
-const autosaveStatus = ref(''); // '' | 'pending' | 'saved'
+const autosaveStatus = ref(''); // '' | 'pending' | 'local' | 'cloud'
+const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
+const localProjectId = computed(() => `${isVariantMode.value ? `variant:${variantEventId.value}` : 'template'}:${route.params.id || 'new'}`);
 let autosaveTimer = null;
+function onNetworkOnline() { isOnline.value = true; toast.success('Back online. Your next save can sync to the cloud.'); }
+function onNetworkOffline() { isOnline.value = false; toast.error('You are offline. Studio edits will stay on this device.'); }
 // Guards against a real incident: loadDocument()'s own canvas.add() calls
 // during the INITIAL population of a page fire the same 'object:added'
 // events a genuine user edit does. If autosave were armed at that point,
@@ -405,6 +457,7 @@ let autosaveTimer = null;
 // boot() fully settles.
 let readyForAutosave = false;
 const name = ref('Untitled template');
+watch(name, () => scheduleAutosave());
 const document = ref(null);
 const template = ref(null);
 const pages = ref([]); // [{name, document}] — Batch 23
@@ -434,17 +487,21 @@ const showGrid = ref(false);
 const showRulers = ref(false);
 const GRID_SIZES = [10, 20, 40, 80];
 const gridSize = ref(Number(localStorage.getItem('studio.gridSize')) || 20);
+const snapToGrid = ref(localStorage.getItem('studio.snapToGrid') === 'true');
 watch(gridSize, (v) => localStorage.setItem('studio.gridSize', String(v)));
+watch(snapToGrid, (v) => localStorage.setItem('studio.snapToGrid', String(v)));
 watch(showRulers, (v) => { if (v) nextTick(onViewportScroll); });
 const gridMenuOpen = ref(false);
 
-const layersPanelWidth = ref(Number(localStorage.getItem('studio.layersPanelWidth')) || 224);
+const layersPanelWidth = ref(Math.max(260, Number(localStorage.getItem('studio.layersPanelWidth')) || 320));
+const rightPanelTab = ref(localStorage.getItem('studio.rightPanelTab') || 'layers');
+watch(rightPanelTab, (v) => localStorage.setItem('studio.rightPanelTab', v));
 function startLayersPanelResize(e) {
   e.preventDefault();
   const startX = e.clientX;
   const startWidth = layersPanelWidth.value;
   function onMove(ev) {
-    layersPanelWidth.value = Math.min(500, Math.max(160, startWidth + (ev.clientX - startX)));
+    layersPanelWidth.value = Math.min(520, Math.max(260, startWidth - (ev.clientX - startX)));
   }
   function onUp() {
     window.removeEventListener('mousemove', onMove);
@@ -459,7 +516,17 @@ const selectedObjects = ref([]);
 const selectedParent = ref(null); // set only when the selection is a layer nested inside a group
 const layersTopFirst = ref([]); // display order — reverse of Fabric's bottom-first stacking array
 let history = null;
+const historyRevision = ref(0);
+const historyCanUndo = computed(() => { void historyRevision.value; return !!history?.canUndo; });
+const historyCanRedo = computed(() => { void historyRevision.value; return !!history?.canRedo; });
+function resetHistory() {
+  history?.detach();
+  history = new HistoryStack(fabricCanvasRaw, { onChange: () => { historyRevision.value += 1; } });
+  history.init();
+  history.attach();
+}
 let penTool = null;
+let studioClipboard = null;
 
 const canvasWrapperStyle = computed(() => document.value
   ? { width: `${document.value.width * zoom.value}px`, height: `${document.value.height * zoom.value}px` }
@@ -712,6 +779,8 @@ function teardownActiveTool() {
 }
 
 function setTool(next) {
+  if (maskPainter.value) cancelMaskPaint();
+  if (cropSession.value) cancelCrop();
   teardownActiveTool();
   tool.value = next;
   if (next === 'pen') {
@@ -727,7 +796,9 @@ function setTool(next) {
     // stroke core. It's also why brush now needs an actual image layer
     // under the cursor to paint on, same as every other tool here.
     fabricCanvasRaw.selection = false;
-    fabricCanvasRaw.discardActiveObject();
+    // Keep the active layer selected. Empty transparent paint layers have
+    // no hit-testable pixels yet, so discarding them here made the first
+    // brush stroke impossible to place on the layer just created.
     disableObjectDragging();
     fabricCanvasRaw.on('mouse:down', retouchMouseDown);
     fabricCanvasRaw.on('mouse:move', retouchMouseMove);
@@ -748,6 +819,8 @@ let lastStrokePoint = null;
 function pickStrokeTarget(opt) {
   const active = fabricCanvasRaw.getActiveObject();
   if (active?.type === 'image') return active;
+  const selected = selectedObjects.value[0];
+  if (selected?.type === 'image') return selected;
   const { target } = fabricCanvasRaw.findTarget(opt.e) || {};
   return target?.type === 'image' ? target : null;
 }
@@ -822,6 +895,15 @@ function retouchMouseMove(opt) {
 }
 
 function onKeyDown(e) {
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  const active = fabricCanvasRaw?.getActiveObject();
+  const activeText = ['textbox', 'text', 'i-text'].includes(active?.type) ? active : null;
+  if (mod && key === 's') {
+    e.preventDefault();
+    if (e.shiftKey) save(); else saveLocalDraft({ notify: true });
+    return;
+  }
   // Font size — Ctrl/Cmd+Shift+. to grow, Ctrl/Cmd+Shift+, to shrink,
   // matching Illustrator/Figma's convention. Checked BEFORE the generic
   // "typing in a field" bail-out below, because Fabric's own text-editing
@@ -829,18 +911,98 @@ function onKeyDown(e) {
   // guard exists to ignore keystrokes from. When a Textbox is actively
   // being edited with an active text selection, only that selected range
   // resizes; otherwise the whole layer's font size changes.
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === '.' || e.key === ',')) {
-    const obj = fabricCanvasRaw?.getActiveObject();
-    if (obj?.type === 'textbox') {
+  if (mod && e.shiftKey && (e.key === '.' || e.key === ',')) {
+    const obj = activeText;
+    if (obj) {
       e.preventDefault();
       adjustFontSize(obj, e.key === '.' ? 2 : -2);
       return;
     }
   }
   const inInput = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
-  if (inInput) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+  const fabricTextInput = inInput && activeText?.isEditing;
+  if (inInput && !fabricTextInput) return;
+  if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+  if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+  if (mod && activeText && ['b', 'i', 'u'].includes(key)) {
+    e.preventDefault();
+    const prop = key === 'b' ? 'fontWeight' : key === 'i' ? 'fontStyle' : 'underline';
+    const value = key === 'b' ? (Number(activeText.fontWeight) >= 600 ? 400 : 700)
+      : key === 'i' ? (activeText.fontStyle === 'italic' ? 'normal' : 'italic')
+        : !activeText.underline;
+    if (activeText.isEditing && activeText.selectionStart !== activeText.selectionEnd) {
+      activeText.setSelectionStyles({ [prop]: value }, activeText.selectionStart, activeText.selectionEnd);
+    } else {
+      activeText.set(prop, value);
+    }
+    activeText.dirty = true;
+    fabricCanvasRaw.requestRenderAll();
+    fabricCanvasRaw.fire('object:modified', { target: activeText });
+    return;
+  }
+  if (fabricTextInput) return;
+  if (mod && key === 'j' && selectedObjects.value[0]) {
+    e.preventDefault();
+    onDuplicateLayer(selectedObjects.value[0], findParentGroup(selectedObjects.value[0], fabricCanvasRaw.getObjects()));
+    return;
+  }
+  if (mod && ['c', 'x'].includes(key) && selectedObjects.value.length) {
+    e.preventDefault();
+    const cutting = key === 'x';
+    const targets = [...selectedObjects.value];
+    copySelectedLayers().then(() => {
+      if (cutting) targets.forEach((obj) => onDeleteLayer(obj, findParentGroup(obj, fabricCanvasRaw.getObjects())));
+    });
+    return;
+  }
+  if (mod && key === 'v' && studioClipboard) {
+    e.preventDefault();
+    pasteSelectedLayers();
+    return;
+  }
+  if (mod && key === 'g') {
+    e.preventDefault();
+    if (e.shiftKey) onUngroupLayer(selectedObjects.value[0]);
+    else onGroupLayers(selectedObjects.value);
+    return;
+  }
+  if (mod && key === 'a') {
+    e.preventDefault();
+    const all = fabricCanvasRaw.getObjects().filter((o) => !o.get('data')?.locked);
+    if (all.length) fabricCanvasRaw.setActiveObject(new fabric.ActiveSelection(all, { canvas: fabricCanvasRaw }));
+    fabricCanvasRaw.requestRenderAll();
+    return;
+  }
+  if (mod && key === 'd') {
+    e.preventDefault();
+    fabricCanvasRaw.discardActiveObject();
+    fabricCanvasRaw.requestRenderAll();
+    return;
+  }
+  if (mod && (e.key === ']' || e.key === '[') && selectedObjects.value[0]) {
+    e.preventDefault();
+    if (e.key === ']') onBringForward(selectedObjects.value[0]); else onSendBackward(selectedObjects.value[0]);
+    fabricCanvasRaw.fire('object:modified', { target: selectedObjects.value[0] });
+    return;
+  }
+  if (mod && (e.key === '0' || e.key === '1')) {
+    e.preventDefault();
+    if (e.key === '0') { fitZoomToViewport(); applyZoom(); } else resetZoom();
+    return;
+  }
+  if (e.key === '[' || e.key === ']') {
+    e.preventDefault();
+    if (e.shiftKey) brushHardness.value = Math.min(1, Math.max(0, brushHardness.value + (e.key === ']' ? 0.05 : -0.05)));
+    else brushSize.value = Math.min(1500, Math.max(1, brushSize.value + (e.key === ']' ? Math.max(1, Math.round(brushSize.value * 0.1)) : -Math.max(1, Math.round(brushSize.value * 0.1)))));
+    return;
+  }
+  if (e.key === '?' ) { showShortcuts.value = true; return; }
+  if (e.key === 'Escape') {
+    if (maskPainter.value) cancelMaskPaint();
+    else if (cropSession.value) cancelCrop();
+    else { teardownActiveTool(); tool.value = 'select'; fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll(); }
+    return;
+  }
   if (e.key === 'v' || e.key === 'V') setTool('select');
   if (e.key === 'p' || e.key === 'P') setTool('pen');
   if (e.key === 'b' || e.key === 'B') setTool('brush');
@@ -869,6 +1031,39 @@ function onKeyDown(e) {
     fabricCanvasRaw.requestRenderAll();
     fabricCanvasRaw.fire('object:modified', {});
   }
+}
+
+async function copySelectedLayers() {
+  const parent = selectedObjects.value.length === 1 ? findParentGroup(selectedObjects.value[0], fabricCanvasRaw.getObjects()) : null;
+  studioClipboard = {
+    objects: await Promise.all(selectedObjects.value.map((obj) => obj.clone(['data']))),
+    parent,
+  };
+}
+
+async function pasteSelectedLayers() {
+  if (!studioClipboard?.objects?.length) return;
+  const clones = await Promise.all(studioClipboard.objects.map((obj) => obj.clone(['data'])));
+  clones.forEach((clone) => {
+    const data = clone.get('data') || {};
+    clone.set({
+      left: (clone.left || 0) + 20,
+      top: (clone.top || 0) + 20,
+      data: { ...data, layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: `${data.name || clone.type} copy` },
+    });
+    if (studioClipboard.parent && walkFabricObjects(fabricCanvasRaw.getObjects()).includes(studioClipboard.parent)) studioClipboard.parent.add(clone);
+    else fabricCanvasRaw.add(clone);
+  });
+  if (clones.length > 1 && clones.every((clone) => fabricCanvasRaw.getObjects().includes(clone))) {
+    fabricCanvasRaw.setActiveObject(new fabric.ActiveSelection(clones, { canvas: fabricCanvasRaw }));
+  } else if (clones.length === 1 && fabricCanvasRaw.getObjects().includes(clones[0])) {
+    fabricCanvasRaw.setActiveObject(clones[0]);
+  } else {
+    selectedObjects.value = clones.map(markRaw);
+  }
+  fabricCanvasRaw.requestRenderAll();
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: clones[0] });
 }
 
 function adjustFontSize(obj, delta) {
@@ -1177,6 +1372,7 @@ function onObjectMovingShowGuides(opt) {
     guideV.value = docCenterX * zoom.value;
   } else {
     guideV.value = null;
+    if (snapToGrid.value) obj.set('left', Math.round((obj.left || 0) / gridSize.value) * gridSize.value);
   }
 
   const newCenter = obj.getCenterPoint(); // re-read in case X-snap already moved it
@@ -1186,7 +1382,9 @@ function onObjectMovingShowGuides(opt) {
     guideH.value = docCenterY * zoom.value;
   } else {
     guideH.value = null;
+    if (snapToGrid.value) obj.set('top', Math.round((obj.top || 0) / gridSize.value) * gridSize.value);
   }
+  obj.setCoords();
 }
 function clearGuides() {
   guideV.value = null;
@@ -1256,8 +1454,9 @@ async function onImageFileChosen(e) {
   e.target.value = '';
   if (!file) return;
   try {
-    const asset = await uploadAsset(file, { name: file.name });
-    const img = await fabric.FabricImage.fromURL(asset.url, { crossOrigin: 'anonymous' });
+    const localAssetId = `local:${localProjectId.value}:upload:${crypto.randomUUID()}`;
+    const url = await cacheLocalTemplateAsset(localAssetId, file);
+    const img = await fabric.FabricImage.fromURL(url);
     const maxDim = Math.min(document.value.width, document.value.height) * 0.6;
     const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     img.set({
@@ -1265,7 +1464,14 @@ async function onImageFileChosen(e) {
       top: (document.value.height - img.height * scale) / 2,
       scaleX: scale, scaleY: scale,
     });
-    img.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: file.name, assetId: asset._id });
+    img.set('data', {
+      layerId: `layer_${Math.random().toString(36).slice(2, 10)}`,
+      name: file.name,
+      assetId: null,
+      localAssetId,
+      sourceWidth: img.width,
+      sourceHeight: img.height,
+    });
     fabricCanvasRaw.add(img);
     fabricCanvasRaw.setActiveObject(img);
     refreshLayersList();
@@ -1318,17 +1524,31 @@ async function onReplaceFileChosen(e) {
   const file = e.target.files?.[0];
   e.target.value = '';
   if (!file || !replaceTargetObj) return;
-  const assetId = replaceTargetObj.get('data')?.assetId;
-  if (!assetId) {
-    toast.error('This image isn\'t backed by a saved asset yet — save the template once first.');
-    return;
-  }
-  const updated = await replaceAsset(assetId, file);
-  const img = await fabric.FabricImage.fromURL(updated.url, { crossOrigin: 'anonymous' });
+  const data = replaceTargetObj.get('data') || {};
+  const displayWidth = replaceTargetObj.getScaledWidth();
+  const displayHeight = replaceTargetObj.getScaledHeight();
+  const localAssetId = data.localAssetId || `local:${localProjectId.value}:replace:${data.layerId || crypto.randomUUID()}`;
+  const url = await cacheLocalTemplateAsset(localAssetId, file);
+  const img = await fabric.FabricImage.fromURL(url);
   replaceTargetObj.setElement(img.getElement());
+  replaceTargetObj.set({
+    width: img.width,
+    height: img.height,
+    cropX: 0,
+    cropY: 0,
+    scaleX: displayWidth / (img.width || 1),
+    scaleY: displayHeight / (img.height || 1),
+  });
+  replaceTargetObj.set('data', {
+    ...data,
+    localAssetId,
+    sourceWidth: img.width,
+    sourceHeight: img.height,
+  });
   replaceTargetObj.dirty = true;
   fabricCanvasRaw.requestRenderAll();
-  toast.success('Source replaced — every layer using this asset now shows the new file.');
+  fabricCanvasRaw.fire('object:modified', { target: replaceTargetObj });
+  toast.success('Source replaced locally. Save to cloud to publish it.');
 }
 
 // ── Crop (Batch 21) ──────────────────────────────────────────────────────
@@ -1412,11 +1632,14 @@ function findParentGroup(target, objs) {
 function onToggleLock(obj) {
   const locked = !(obj.get('data') || {}).locked;
   setLayerLocked(obj, locked);
+  fabricCanvasRaw.requestRenderAll();
   refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: obj });
 }
 function onToggleVisible(obj) {
   setLayerVisible(fabricCanvasRaw, obj, obj.visible === false);
   refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: obj });
 }
 function onReorder(displayIndex, direction) {
   // layersTopFirst is reversed vs Fabric's internal stacking order.
@@ -1426,8 +1649,22 @@ function onReorder(displayIndex, direction) {
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
-function onBringForward(obj) { bringForward(fabricCanvasRaw, obj); refreshLayersList(); }
-function onSendBackward(obj) { sendBackward(fabricCanvasRaw, obj); refreshLayersList(); }
+function onBringForward(obj) {
+  const collection = findParentGroup(obj, fabricCanvasRaw.getObjects()) || fabricCanvasRaw;
+  collection.bringObjectForward(obj);
+  collection.dirty = true;
+  fabricCanvasRaw.requestRenderAll();
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: obj });
+}
+function onSendBackward(obj) {
+  const collection = findParentGroup(obj, fabricCanvasRaw.getObjects()) || fabricCanvasRaw;
+  collection.sendObjectBackwards(obj);
+  collection.dirty = true;
+  fabricCanvasRaw.requestRenderAll();
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: obj });
+}
 async function onDuplicateLayer(obj, parent) {
   const clone = await obj.clone();
   clone.set({
@@ -1451,15 +1688,52 @@ function onRenameLayer(obj, name) {
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
-function onMoveLayerTo(fromDisplayIndex, toDisplayIndex) {
-  // layersTopFirst is display order (top of stack first) — Fabric's
-  // internal stacking array is bottom-first, so indices flip.
-  const total = layersTopFirst.value.length;
-  const obj = layersTopFirst.value[fromDisplayIndex];
-  const targetZ = total - 1 - toDisplayIndex;
-  fabricCanvasRaw.moveObjectTo(obj, targetZ);
+function onMoveLayerTo(fromRow, toRow) {
+  if (!fromRow?.obj || !toRow?.obj || fromRow.obj === toRow.obj) return;
+  const source = fromRow.parent || fabricCanvasRaw;
+  const destination = toRow.obj.type === 'group' ? toRow.obj : (toRow.parent || fabricCanvasRaw);
+  if (destination === fromRow.obj || destination?.isDescendantOf?.(fromRow.obj)) return;
+
+  if (source === destination && toRow.obj.type !== 'group') {
+    const targetZ = destination.getObjects().indexOf(toRow.obj);
+    if (targetZ < 0 || destination.getObjects().indexOf(fromRow.obj) < 0) return;
+    if (destination === fabricCanvasRaw) fabricCanvasRaw.moveObjectTo(fromRow.obj, targetZ);
+    else {
+      destination.remove(fromRow.obj);
+      destination.insertAt(Math.min(targetZ, destination.getObjects().length), fromRow.obj);
+      destination.dirty = true;
+      destination.setCoords();
+    }
+  } else {
+    // Fabric's Group.remove() sends a child back to canvas coordinates;
+    // Group.add()/insertAt() then converts it into the destination group's
+    // plane. Using those APIs preserves the layer's visible position.
+    source.remove(fromRow.obj);
+    if (destination === fabricCanvasRaw) {
+      const targetZ = toRow.obj.type === 'group'
+        ? fabricCanvasRaw.getObjects().indexOf(toRow.obj) + 1
+        : fabricCanvasRaw.getObjects().indexOf(toRow.obj);
+      fabricCanvasRaw.insertAt(Math.max(0, targetZ), fromRow.obj);
+    } else {
+      const targetZ = toRow.obj.type === 'group'
+        ? destination.getObjects().length
+        : destination.getObjects().indexOf(toRow.obj);
+      destination.insertAt(Math.max(0, targetZ), fromRow.obj);
+      destination.dirty = true;
+      destination.setCoords();
+    }
+  }
+  if (destination === fabricCanvasRaw) {
+    fabricCanvasRaw.setActiveObject(fromRow.obj);
+    selectedParent.value = null;
+  } else {
+    fabricCanvasRaw.discardActiveObject();
+    selectedObjects.value = [markRaw(fromRow.obj)];
+    selectedParent.value = destination;
+  }
+  fabricCanvasRaw.requestRenderAll();
   refreshLayersList();
-  fabricCanvasRaw.fire('object:modified', {});
+  fabricCanvasRaw.fire('object:modified', { target: fromRow.obj });
 }
 function onDeleteLayer(obj, parent) {
   if (parent) parent.remove(obj);
@@ -1473,7 +1747,12 @@ function onDeleteLayer(obj, parent) {
 
 async function onRasterizeLayer(obj) {
   if (!fabricCanvasRaw) return;
-  await rasterizeObject(fabricCanvasRaw, obj);
+  const parent = findParentGroup(obj, fabricCanvasRaw.getObjects());
+  const rasterized = await rasterizeObject(fabricCanvasRaw, obj);
+  if (rasterized) {
+    selectedObjects.value = [markRaw(rasterized)];
+    selectedParent.value = parent;
+  }
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
@@ -1507,15 +1786,37 @@ function onGroupLayers(layers) {
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
+function createEmptyGroup() {
+  if (selectedObjects.value.length > 1) {
+    onGroupLayers(selectedObjects.value);
+    return;
+  }
+  const group = new fabric.Group([], {
+    left: document.value.width / 2,
+    top: document.value.height / 2,
+    originX: 'left', originY: 'top',
+    subTargetCheck: true,
+  });
+  group.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'New group' });
+  fabricCanvasRaw.add(group);
+  fabricCanvasRaw.setActiveObject(group);
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: group });
+}
 function onUngroupLayer(group) {
   if (!group || group.type !== 'group') return;
-  const children = group.removeAll();
+  const groupTransform = group.calcTransformMatrix();
+  const children = [...group.getObjects()];
+  // Move each child from group coordinates to canvas coordinates before
+  // removing the group. This preserves its exact apparent position,
+  // rotation and scale instead of making ungrouped layers jump.
+  children.forEach((child) => fabric.util.sendObjectToPlane(child, groupTransform));
+  group.removeAll();
   const index = fabricCanvasRaw.getObjects().indexOf(group);
   fabricCanvasRaw.remove(group);
   children.forEach((child, i) => {
-    child.set('originX', 'left');
-    child.set('originY', 'top');
     fabricCanvasRaw.insertAt(index + i, child);
+    child.setCoords();
   });
   fabricCanvasRaw.discardActiveObject();
   refreshLayersList();
@@ -1535,7 +1836,7 @@ async function onMergeLayers(layers) {
   targets.forEach((o) => fabricCanvasRaw.remove(o));
   const img = await fabric.FabricImage.fromURL(dataUrl);
   img.set({ left: bounds.left, top: bounds.top, originX: 'left', originY: 'top', scaleX: bounds.width / img.width, scaleY: bounds.height / img.height });
-  img.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'Merged', liveCanvas: false });
+  img.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'Merged', liveCanvas: true });
   fabricCanvasRaw.insertAt(topZ, img);
   fabricCanvasRaw.setActiveObject(img);
   refreshLayersList();
@@ -1543,7 +1844,7 @@ async function onMergeLayers(layers) {
 }
 
 // ── Masking (Batch 12) ──────────────────────────────────────────────────
-function onClipMask(selected) {
+async function onClipMask(selected) {
   if (selected.length !== 2) return;
   // Whichever of the two sits higher in the stack becomes the clip shape;
   // the other keeps its content and gains the mask.
@@ -1551,7 +1852,7 @@ function onClipMask(selected) {
   const aIndex = fabricCanvasRaw.getObjects().indexOf(a);
   const bIndex = fabricCanvasRaw.getObjects().indexOf(b);
   const [top, bottom] = aIndex > bIndex ? [a, b] : [b, a];
-  applyClipMask(fabricCanvasRaw, bottom, top);
+  await applyClipMask(fabricCanvasRaw, bottom, top);
   fabricCanvasRaw.setActiveObject(bottom);
   refreshLayersList();
 }
@@ -1562,18 +1863,29 @@ function onRemoveMask(obj) {
 const maskPainter = ref(null);
 const maskBrushMode = ref('hide');
 const maskBrushSize = ref(40);
+const maskBrushHardness = ref(0.7);
 let maskPreviewImage = null;
+let previousMask = null;
+let disposeMaskMouseDown = null;
+let disposeMaskMouseMove = null;
+let disposeMaskMouseUp = null;
 
 function onPaintMask(obj) {
+  if (maskPainter.value) cleanupMaskPaint();
   tool.value = 'mask-paint';
   fabricCanvasRaw.discardActiveObject();
   fabricCanvasRaw.selection = false;
   // Freeze the target so clicks paint instead of dragging/selecting it —
   // restored in cleanupMaskPaint().
-  obj.set('data', { ...(obj.get('data') || {}), _wasSelectable: obj.selectable });
+  obj.set('data', { ...(obj.get('data') || {}), _wasSelectable: obj.selectable, _wasEvented: obj.evented });
   obj.set({ selectable: false, evented: false });
 
-  maskPainter.value = new MaskPainter(obj, { brushSize: maskBrushSize.value });
+  previousMask = obj.clipPath || null;
+  maskPainter.value = new MaskPainter(obj, {
+    brushSize: maskBrushSize.value,
+    hardness: maskBrushHardness.value,
+    initialCanvas: previousMask?.getElement?.(),
+  });
 
   // Live preview: wrap the painter's own canvas element as a Fabric image
   // assigned as clipPath right away, with caching off so every stroke's
@@ -1588,45 +1900,49 @@ function onPaintMask(obj) {
 
   const paintAt = (opt) => {
     const p = fabricCanvasRaw.getScenePoint(opt.e);
+    maskPainter.value.brushSize = maskBrushSize.value;
+    maskPainter.value.hardness = maskBrushHardness.value;
     maskPainter.value.paint(p, maskBrushMode.value);
     fabricCanvasRaw.requestRenderAll();
   };
   let painting = false;
-  fabricCanvasRaw.on('mouse:down', (opt) => { painting = true; paintAt(opt); });
-  fabricCanvasRaw.on('mouse:move', (opt) => { if (painting) paintAt(opt); });
-  fabricCanvasRaw.on('mouse:up', () => { painting = false; });
+  disposeMaskMouseDown = fabricCanvasRaw.on('mouse:down', (opt) => { painting = true; paintAt(opt); });
+  disposeMaskMouseMove = fabricCanvasRaw.on('mouse:move', (opt) => { if (painting) paintAt(opt); });
+  disposeMaskMouseUp = fabricCanvasRaw.on('mouse:up', () => { painting = false; });
   fabricCanvasRaw._maskPaintTarget = obj;
 }
 
-function finishMaskPaint() {
+async function finishMaskPaint() {
   const obj = fabricCanvasRaw._maskPaintTarget;
-  maskPainter.value?.apply(fabricCanvasRaw);
+  await maskPainter.value?.apply(fabricCanvasRaw);
   cleanupMaskPaint();
   fabricCanvasRaw.setActiveObject(obj);
   refreshLayersList();
 }
 function cancelMaskPaint() {
-  // Discards whatever was painted this session. If the layer already had
-  // a mask before painting started, that's lost too — layering "cancel
-  // reverts to the prior mask" on top is a reasonable follow-up but not
-  // in this pass.
   const obj = fabricCanvasRaw._maskPaintTarget;
-  if (obj) obj.set('clipPath', undefined);
+  if (obj) obj.set('clipPath', previousMask || undefined);
   cleanupMaskPaint();
 }
 function cleanupMaskPaint() {
   const obj = fabricCanvasRaw._maskPaintTarget;
   if (obj) {
-    const wasSelectable = obj.get('data')?._wasSelectable ?? true;
-    obj.set({ selectable: wasSelectable, evented: wasSelectable });
+    const data = { ...(obj.get('data') || {}) };
+    const wasSelectable = data._wasSelectable ?? true;
+    const wasEvented = data._wasEvented ?? wasSelectable;
+    delete data._wasSelectable;
+    delete data._wasEvented;
+    obj.set({ selectable: wasSelectable, evented: wasEvented, data });
   }
-  fabricCanvasRaw.off('mouse:down');
-  fabricCanvasRaw.off('mouse:move');
-  fabricCanvasRaw.off('mouse:up');
+  disposeMaskMouseDown?.();
+  disposeMaskMouseMove?.();
+  disposeMaskMouseUp?.();
+  disposeMaskMouseDown = disposeMaskMouseMove = disposeMaskMouseUp = null;
   fabricCanvasRaw.selection = true;
   fabricCanvasRaw._maskPaintTarget = null;
   maskPainter.value = null;
   maskPreviewImage = null;
+  previousMask = null;
   tool.value = 'select';
   fabricCanvasRaw.requestRenderAll();
 }
@@ -1651,13 +1967,40 @@ async function boot() {
   try {
     const id = route.params.id;
     const blank = () => ({ version: 1, width: 1080, height: 1920, background: '#FFFFFF', fontFamilies: [], layers: [] });
+    const localDraft = await getTemplateProject(localProjectId.value);
+    let localDraftNeedsSync = false;
     if (id) {
-      const tpl = await api.adminGet(id);
-      template.value = tpl;
-      name.value = tpl.name;
-      pages.value = tpl.pages?.length ? tpl.pages : [{ name: 'Page 1', document: tpl.document || blank() }];
+      try {
+        if (!isOnline.value) throw new Error('offline');
+        const tpl = await api.adminGet(id);
+        template.value = tpl;
+        const cloudPages = tpl.pages?.length ? tpl.pages : [{ name: 'Page 1', document: tpl.document || blank() }];
+        const legacyUnsyncedDraft = localDraft?.dirty == null
+          && localDraft?.savedLocallyAt > (new Date(tpl.updatedAt || 0).getTime() + 1000)
+          && JSON.stringify(localDraft.pages) !== JSON.stringify(cloudPages);
+        const localIsNewer = localDraft?.pages?.length && (localDraft.dirty === true || legacyUnsyncedDraft);
+        if (localIsNewer) {
+          name.value = localDraft.name || tpl.name;
+          pages.value = localDraft.pages;
+          localDraftNeedsSync = true;
+          toast.success('Restored newer edits from this device. Use Save to cloud when ready.');
+        } else {
+          name.value = tpl.name;
+          pages.value = cloudPages;
+        }
+      } catch (err) {
+        if (!localDraft) throw err;
+        template.value = localDraft.template || { _id: id };
+        name.value = localDraft.name || 'Untitled template';
+        pages.value = localDraft.pages?.length ? localDraft.pages : [{ name: 'Page 1', document: localDraft.document || blank() }];
+        localDraftNeedsSync = localDraft.dirty !== false;
+        toast.success('Opened the local offline draft.');
+      }
     } else {
-      pages.value = [{ name: 'Page 1', document: blank() }];
+      template.value = localDraft?.template || null;
+      name.value = localDraft?.name || name.value;
+      pages.value = localDraft?.pages?.length ? localDraft.pages : [{ name: 'Page 1', document: localDraft?.document || blank() }];
+      localDraftNeedsSync = !!localDraft && localDraft.dirty !== false;
     }
     document.value = pages.value[0].document;
     canvasBackground.value = document.value.background || '#FFFFFF';
@@ -1717,9 +2060,7 @@ async function boot() {
     fabricCanvasRaw.on('object:moving', onObjectMovingShowGuides);
     fabricCanvasRaw.on('mouse:up', clearGuides);
 
-    history = new HistoryStack(fabricCanvasRaw);
-    history.init();
-    history.attach();
+    resetHistory();
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('click', onWindowClickCloseShapesMenu);
@@ -1727,6 +2068,7 @@ async function boot() {
     viewportRef.value?.addEventListener('scroll', onViewportScroll);
     nextTick(onViewportScroll);
     readyForAutosave = true;
+    await saveLocalDraft({ notify: false, dirty: localDraftNeedsSync });
   } catch (err) {
     toast.error(apiErrorMessage(err));
   } finally {
@@ -1748,20 +2090,67 @@ async function boot() {
 // live-canvas layer's current pixels as a real Asset before every save,
 // so there's always something on the server to load back.
 let persistingLiveCanvases = false;
-async function persistLiveCanvasLayers() {
+function walkFabricObjects(objects, out = []) {
+  for (const obj of objects || []) {
+    out.push(obj);
+    if (obj.type === 'group') walkFabricObjects(obj.getObjects(), out);
+  }
+  return out;
+}
+async function elementPngBlob(element) {
+  if (!element) return null;
+  if (typeof element.toBlob === 'function') return new Promise((resolve) => element.toBlob(resolve, 'image/png'));
+  const canvas = window.document.createElement('canvas');
+  canvas.width = element.naturalWidth || element.width || 1;
+  canvas.height = element.naturalHeight || element.height || 1;
+  canvas.getContext('2d').drawImage(element, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+}
+async function persistLiveCanvasLayers({ cloud = false } = {}) {
   if (!fabricCanvasRaw || persistingLiveCanvases) return;
-  const targets = fabricCanvasRaw.getObjects().filter((o) => o.type === 'image' && o.get('data')?.liveCanvas);
+  const targets = walkFabricObjects(fabricCanvasRaw.getObjects()).filter((o) => o.type === 'image');
   if (!targets.length) return;
   persistingLiveCanvases = true;
   try {
     for (const img of targets) {
-      const canvasEl = img.getElement();
-      const blob = await new Promise((resolve) => canvasEl.toBlob(resolve, 'image/png'));
-      if (!blob) continue;
-      const file = new File([blob], 'layer.png', { type: 'image/png' });
-      const data = img.get('data') || {};
-      const asset = data.assetId ? await replaceAsset(data.assetId, file) : await uploadAsset(file, { name: data.name || 'Layer' });
-      img.set('data', { ...data, assetId: asset._id });
+      let data = img.get('data') || {};
+      if (data.liveCanvas) {
+        const blob = await elementPngBlob(img.getElement());
+        if (blob) {
+          const localAssetId = data.localAssetId || `local:${localProjectId.value}:layer:${data.layerId || crypto.randomUUID()}`;
+          await cacheLocalTemplateAsset(localAssetId, blob);
+          data = { ...data, localAssetId };
+          if (cloud) {
+            const file = new File([blob], `${data.name || 'layer'}.png`, { type: 'image/png' });
+            // Fork on the first pixel edit so painting a shared/library
+            // image never overwrites other templates that use its source.
+            // Later saves in this session can safely update the fork.
+            const hasCloudAsset = data.liveCanvasCloudAssetId && data.assetId === data.liveCanvasCloudAssetId;
+            const asset = hasCloudAsset ? await replaceAsset(data.assetId, file) : await uploadAsset(file, { name: data.name || 'Layer' });
+            await cacheLocalTemplateAsset(asset._id, blob);
+            data = { ...data, assetId: asset._id, localAssetId: null, liveCanvasCloudAssetId: asset._id };
+          }
+          img.set('data', data);
+        }
+      }
+
+      const maskElement = img.clipPath?.getElement?.();
+      if (maskElement) {
+        const maskBlob = await elementPngBlob(maskElement);
+        if (maskBlob) {
+          const localMaskAssetId = data.localMaskAssetId || `local:${localProjectId.value}:mask:${data.layerId || crypto.randomUUID()}`;
+          await cacheLocalTemplateAsset(localMaskAssetId, maskBlob);
+          data = { ...data, localMaskAssetId };
+          if (cloud) {
+            const maskFile = new File([maskBlob], `${data.name || 'layer'}-mask.png`, { type: 'image/png' });
+            const hasCloudMask = data.maskAssetId && !String(data.maskAssetId).startsWith('local:');
+            const asset = hasCloudMask ? await replaceAsset(data.maskAssetId, maskFile) : await uploadAsset(maskFile, { name: `${data.name || 'Layer'} mask` });
+            await cacheLocalTemplateAsset(asset._id, maskBlob);
+            data = { ...data, maskAssetId: asset._id, localMaskAssetId: null };
+          }
+          img.set('data', data);
+        }
+      }
     }
   } finally {
     persistingLiveCanvases = false;
@@ -1774,6 +2163,7 @@ function captureActivePage() {
 }
 async function switchPage(index) {
   if (index === activePage.value) return;
+  await persistLiveCanvasLayers({ cloud: false });
   captureActivePage();
   activePage.value = index;
   document.value = pages.value[index].document;
@@ -1788,17 +2178,18 @@ async function switchPage(index) {
   applyZoom();
   refreshLayersList();
   readyForAutosave = true;
-  history = new HistoryStack(fabricCanvasRaw);
-  history.init();
-  history.attach();
+  resetHistory();
 }
 function addPage() {
   captureActivePage();
   pages.value.push({ name: `Page ${pages.value.length + 1}`, document: { version: 1, width: document.value.width, height: document.value.height, background: '#FFFFFF', fontFamilies: [], layers: [] } });
   switchPage(pages.value.length - 1);
 }
-function duplicatePage(index) {
-  if (index === activePage.value) captureActivePage();
+async function duplicatePage(index) {
+  if (index === activePage.value) {
+    await persistLiveCanvasLayers({ cloud: false });
+    captureActivePage();
+  }
   const source = pages.value[index];
   pages.value.splice(index + 1, 0, { name: `${source.name} copy`, document: JSON.parse(JSON.stringify(source.document)) });
   switchPage(index + 1);
@@ -1824,9 +2215,7 @@ async function removePage(index) {
     applyZoom();
     refreshLayersList();
     readyForAutosave = true;
-    history = new HistoryStack(fabricCanvasRaw);
-    history.init();
-    history.attach();
+    resetHistory();
   } else if (index < activePage.value) {
     activePage.value -= 1;
   }
@@ -1848,37 +2237,85 @@ function commitPageRename(i) {
 }
 
 // ── Autosave (Batch 27) ──────────────────────────────────────────────────
-// Debounced — a burst of edits (dragging, typing) collapses into one save
-// a few seconds after things go quiet, not one request per keystroke.
-// Only runs once a template already has an id — always true in practice
-// since "New from scratch" creates the row before the studio ever opens.
+// A burst of edits collapses into one IndexedDB save. Cloud persistence is
+// deliberately explicit so offline work remains fast and never publishes by
+// accident.
 function scheduleAutosave() {
-  if (!template.value?._id || !readyForAutosave) return;
+  if (!readyForAutosave) return;
   autosaveStatus.value = 'pending';
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(async () => {
     try {
-      await persistLiveCanvasLayers();
-      captureActivePage();
-      const primaryDoc = pages.value[0].document;
-      await api.adminUpdate(template.value._id, {
-        document: primaryDoc, fontFamilies: primaryDoc.fontFamilies,
-        pages: pages.value.length > 1 ? pages.value : [],
-      });
-      autosaveStatus.value = 'saved';
-      setTimeout(() => { if (autosaveStatus.value === 'saved') autosaveStatus.value = ''; }, 2000);
+      await saveLocalDraft({ notify: false });
     } catch {
-      autosaveStatus.value = ''; // silent failure — the manual Save button remains the reliable fallback
+      autosaveStatus.value = '';
     }
-  }, 3000);
+  }, 800);
+}
+
+async function saveLocalDraft({ notify = false, dirty = true } = {}) {
+  if (!fabricCanvasRaw) return;
+  await persistLiveCanvasLayers({ cloud: false });
+  captureActivePage();
+  const saved = await putTemplateProject(localProjectId.value, {
+    name: name.value,
+    template: template.value ? { ...template.value, name: name.value } : null,
+    document: pages.value[0]?.document,
+    pages: pages.value,
+    dirty,
+  });
+  if (!saved) {
+    const message = 'This browser could not store the local template draft. Check available storage and try again.';
+    if (notify) toast.error(message);
+    throw new Error(message);
+  }
+  autosaveStatus.value = 'local';
+  if (notify) toast.success('Saved locally. This draft is available offline on this device.');
+}
+
+async function materializeDocumentAssetsForCloud(doc) {
+  const visit = async (layers) => {
+    for (const layer of layers || []) {
+      if (layer.children) await visit(layer.children);
+      if (layer.type !== 'image') continue;
+      if (layer.localAssetId) {
+        const blob = await getCachedTemplateAssetBlob(layer.localAssetId);
+        if (!blob) throw new Error(`The local pixels for “${layer.name || 'Layer'}” are unavailable on this device.`);
+        const file = new File([blob], `${layer.name || 'layer'}.png`, { type: 'image/png' });
+        const hasCloudAsset = layer.assetId && !String(layer.assetId).startsWith('local:');
+        const asset = hasCloudAsset ? await replaceAsset(layer.assetId, file) : await uploadAsset(file, { name: layer.name || 'Layer' });
+        await cacheLocalTemplateAsset(asset._id, blob);
+        layer.assetId = asset._id;
+        delete layer.localAssetId;
+      }
+      if (layer.mask?.localAssetId) {
+        const blob = await getCachedTemplateAssetBlob(layer.mask.localAssetId);
+        if (!blob) throw new Error(`The local mask for “${layer.name || 'Layer'}” is unavailable on this device.`);
+        const file = new File([blob], `${layer.name || 'layer'}-mask.png`, { type: 'image/png' });
+        const hasCloudAsset = layer.mask.assetId && !String(layer.mask.assetId).startsWith('local:');
+        const asset = hasCloudAsset ? await replaceAsset(layer.mask.assetId, file) : await uploadAsset(file, { name: `${layer.name || 'Layer'} mask` });
+        await cacheLocalTemplateAsset(asset._id, blob);
+        layer.mask.assetId = asset._id;
+        delete layer.mask.localAssetId;
+      }
+      if (!layer.localAssetId) delete layer.localAssetId;
+      if (layer.mask && !layer.mask.localAssetId) delete layer.mask.localAssetId;
+    }
+  };
+  await visit(doc?.layers);
 }
 
 async function save() {
   if (!fabricCanvasRaw) return;
+  if (!isOnline.value) {
+    await saveLocalDraft({ notify: true });
+    return;
+  }
   saving.value = true;
   try {
-    await persistLiveCanvasLayers();
+    await persistLiveCanvasLayers({ cloud: true });
     captureActivePage();
+    for (const page of pages.value) await materializeDocumentAssetsForCloud(page.document);
     const primaryDoc = pages.value[0].document;
     const payload = {
       name: name.value, sourceType: 'document',
@@ -1895,10 +2332,15 @@ async function save() {
       await api.adminUpdate(created._id, payload);
       template.value = created;
     }
-    toast.success('Saved');
-    router.replace(isVariantMode.value
+    const destination = isVariantMode.value
       ? `/studio/variants/${variantEventId.value}/${template.value._id}`
-      : `/studio/templates/${template.value._id}`);
+      : `/studio/templates/${template.value._id}`;
+    await router.replace(destination);
+    // Save under the final route-derived project key. This matters for a
+    // brand-new template, whose draft initially lives under `template:new`.
+    await saveLocalDraft({ notify: false, dirty: false });
+    autosaveStatus.value = 'cloud';
+    toast.success('Saved to cloud');
   } catch (err) {
     toast.error(apiErrorMessage(err));
   } finally {
@@ -1908,6 +2350,48 @@ async function save() {
 
 const exportMenuOpen = ref(false);
 const exporting = ref(false);
+const psdInputRef = ref(null);
+
+async function onPsdFileChosen(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file || !fabricCanvasRaw) return;
+  if (document.value?.layers?.length && !(await askConfirm('Replace the current canvas with this PSD? Your existing local draft will be replaced.'))) return;
+
+  loading.value = true;
+  readyForAutosave = false;
+  clearTimeout(autosaveTimer);
+  history?.detach();
+  try {
+    teardownActiveTool();
+    if (maskPainter.value) cancelMaskPaint();
+    if (cropSession.value) cancelCrop();
+    const imported = await importPsdLocally(file, localProjectId.value);
+    const opened = imported.document;
+    name.value = file.name.replace(/\.psd$/i, '') || 'Untitled template';
+    pages.value = [{ name: 'Page 1', document: opened }];
+    activePage.value = 0;
+    document.value = opened;
+    canvasBackground.value = opened.background || '#FFFFFF';
+    const { failures } = await loadDocument(fabricCanvasRaw, opened, { resolveAssetUrl });
+    selectedObjects.value = [];
+    selectedParent.value = null;
+    fitZoomToViewport();
+    applyZoom();
+    refreshLayersList();
+    resetHistory();
+    readyForAutosave = true;
+    await saveLocalDraft({ notify: false, dirty: true });
+    const issueCount = imported.warnings.length + (failures?.length || 0);
+    if (issueCount) toast.error(`PSD opened locally with ${issueCount} compatibility warning${issueCount === 1 ? '' : 's'}. Advanced Photoshop effects may need the online importer.`);
+    else toast.success('PSD opened locally. Your edits are saved on this device until you publish them.');
+  } catch (err) {
+    toast.error(`Could not open this PSD: ${apiErrorMessage(err)}`);
+  } finally {
+    readyForAutosave = true;
+    loading.value = false;
+  }
+}
 
 // Client-side raster export straight off the live Fabric canvas — separate
 // from the server-rendered guest-card exports (cardVariants.service.js),
@@ -1927,10 +2411,10 @@ async function exportImage(format) {
       quality: 0.92,
       multiplier: 1 / (fabricCanvasRaw.getZoom() || 1),
     });
-    const link = document.createElement('a');
+    const link = window.document.createElement('a');
     link.href = dataUrl;
     link.download = `${(name.value || 'template').trim() || 'template'}.${format === 'jpeg' ? 'jpg' : 'png'}`;
-    document.body.appendChild(link);
+    window.document.body.appendChild(link);
     link.click();
     link.remove();
   } catch (err) {
@@ -1940,7 +2424,39 @@ async function exportImage(format) {
   }
 }
 
-onMounted(boot);
+async function exportPsd() {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true;
+  exportMenuOpen.value = false;
+  try {
+    fabricCanvasRaw.discardActiveObject();
+    fabricCanvasRaw.requestRenderAll();
+    const buffer = await exportCanvasAsPsd(fabricCanvasRaw, {
+      width: document.value.width,
+      height: document.value.height,
+    });
+    const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement('a');
+    link.href = url;
+    link.download = `${(name.value || 'template').trim() || 'template'}.psd`;
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    console.error(err);
+    toast.error('PSD export failed. Try PNG if the document is too large for this device.');
+  } finally {
+    exporting.value = false;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('online', onNetworkOnline);
+  window.addEventListener('offline', onNetworkOffline);
+  boot();
+});
 onBeforeUnmount(() => {
   clearTimeout(autosaveTimer);
   history?.detach();
@@ -1951,6 +2467,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown);
   window.removeEventListener('click', onWindowClickCloseShapesMenu);
   window.removeEventListener('resize', onViewportScroll);
+  window.removeEventListener('online', onNetworkOnline);
+  window.removeEventListener('offline', onNetworkOffline);
   viewportRef.value?.removeEventListener('scroll', onViewportScroll);
 });
 </script>
