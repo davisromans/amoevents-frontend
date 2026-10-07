@@ -28,6 +28,14 @@ export async function retryFailedFromJob(jobId, guestIds = []) {
   const { data } = await http.post(`/messages/${jobId}/retry-failed`, { guestIds });
   return data?.data || data;
 }
+export async function resendFromJob(jobId, guestIds, channel) {
+  const res = await http.post(`/messages/${jobId}/resend`, { guestIds, channel });
+  return unwrap(res);
+}
+export async function markDeliveryInvited(jobId, payload) {
+  const res = await http.post(`/messages/${jobId}/mark-invited`, payload);
+  return unwrap(res);
+}
 
 export async function cancelJob(jobId) {
   const res = await http.post(`/messages/${jobId}/cancel`);

@@ -604,6 +604,7 @@
       mode="job"
       :job-id="deliveryJobId"
       :title="`Delivery — job ${deliveryJobId?.slice(-6) || ''}`"
+      @job-created="refresh"
     />
   </PageShell>
 </template>
