@@ -28,11 +28,38 @@ export async function uploadFontVariant(file, { family, weight, style, category 
   const form = new FormData();
   form.append('file', file);
   form.append('family', family);
-  form.append('weight', String(weight ?? 400));
-  form.append('style', style || 'normal');
+  const expectedWeight = Number(weight ?? 400);
+  const expectedStyle = style || 'normal';
+  form.append('weight', String(expectedWeight));
+  form.append('style', expectedStyle);
   if (category) form.append('category', category);
-  const res = await http.post('/admin/fonts/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-  return unwrap(res);
+  try {
+    // Font uploads are small, but a slow client-to-origin path can lose the
+    // response after the server has already committed the file. Give it more
+    // room than ordinary JSON calls so a successful upload is not presented
+    // as a generic network failure.
+    const res = await http.post('/admin/fonts/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return unwrap(res);
+  } catch (error) {
+    // POST is idempotent for family + weight + style: the backend replaces
+    // that variant. If its response was lost, reconcile with the exact font
+    // roster before declaring failure. This is the case that previously left
+    // BellMTBold stored successfully while the modal said "network error".
+    const responseLost = !error?.response || ['ECONNABORTED', 'ETIMEDOUT', 'ERR_NETWORK'].includes(error?.code);
+    if (responseLost) {
+      try {
+        const rows = await getFontsByFamilies([family]);
+        const saved = rows.find((row) => row.family?.toLowerCase() === family.toLowerCase()
+          && (row.variants || []).some((variant) =>
+            Number(variant.weight) === expectedWeight && variant.style === expectedStyle));
+        if (saved) return saved;
+      } catch { /* retain the original upload error */ }
+    }
+    throw error;
+  }
 }
 
 export const deleteFont = (id) => http.delete(`/admin/fonts/${id}`).then(unwrap);

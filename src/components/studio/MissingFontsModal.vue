@@ -21,12 +21,19 @@
           <span v-if="uploadingFamily === font.family" class="text-2xs font-bold text-brand-primary">Uploading…</span>
         </div>
 
-        <p v-if="errors[font.family]" class="mt-2 text-2xs text-red-600 dark:text-red-400">{{ errors[font.family] }}</p>
+        <p v-if="errors[font.family]" class="mt-2 text-2xs"
+           :class="savedVariants[font.family] ? 'text-amber-700 dark:text-amber-300' : 'text-red-600 dark:text-red-400'">
+          {{ errors[font.family] }}
+        </p>
 
         <div class="mt-3 flex flex-wrap gap-2">
+          <button v-if="savedVariants[font.family]" class="btn-primary !py-1.5 !px-3 !text-xs"
+                  :disabled="!!uploadingFamily" @click="activate(font)">
+            Retry activation
+          </button>
           <label class="btn-primary !py-1.5 !px-3 !text-xs cursor-pointer"
                  :class="{ 'pointer-events-none opacity-60': uploadingFamily }">
-            Upload {{ font.family }}
+            {{ savedVariants[font.family] ? 'Choose another file' : `Upload ${font.family}` }}
             <input type="file" accept=".ttf,.otf,.woff,.woff2" class="hidden"
                    :disabled="!!uploadingFamily" @change="upload(font, $event)" />
           </label>
@@ -48,6 +55,7 @@
 import { reactive, ref } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import { uploadFontVariant } from '@/services/fonts.service';
+import { apiErrorMessage } from '@/services/http';
 import { loadUploadedFontVariant } from '@/utils/fontLoader';
 
 defineProps({
@@ -58,6 +66,23 @@ const emit = defineEmits(['update:modelValue', 'uploaded', 'use-default']);
 
 const uploadingFamily = ref('');
 const errors = reactive({});
+const savedVariants = reactive({});
+
+async function activate(font) {
+  const variant = savedVariants[font.family];
+  if (!variant || uploadingFamily.value) return;
+  uploadingFamily.value = font.family;
+  errors[font.family] = '';
+  try {
+    await loadUploadedFontVariant(font.family, variant);
+    delete savedVariants[font.family];
+    emit('uploaded', font.family);
+  } catch (error) {
+    errors[font.family] = `Font is saved, but this browser could not activate it yet: ${error?.message || 'download failed'}.`;
+  } finally {
+    uploadingFamily.value = '';
+  }
+}
 
 async function upload(font, event) {
   const file = event.target.files?.[0];
@@ -74,10 +99,18 @@ async function upload(font, event) {
     const variant = (uploaded.variants || []).find((item) =>
       Number(item.weight) === Number(font.weight || 400) && item.style === (font.style || 'normal'))
       || uploaded.variants?.at(-1);
-    if (variant) await loadUploadedFontVariant(font.family, variant);
+    if (!variant) throw new Error('The server saved the font without a matching variant.');
+    savedVariants[font.family] = variant;
+    try {
+      await loadUploadedFontVariant(font.family, variant);
+    } catch (error) {
+      errors[font.family] = `Font uploaded successfully, but this browser could not activate it yet: ${error?.message || 'download failed'}.`;
+      return;
+    }
+    delete savedVariants[font.family];
     emit('uploaded', font.family);
   } catch (error) {
-    errors[font.family] = error?.response?.data?.message || error?.message || 'This font could not be uploaded.';
+    errors[font.family] = apiErrorMessage(error) || 'This font could not be uploaded.';
   } finally {
     uploadingFamily.value = '';
   }

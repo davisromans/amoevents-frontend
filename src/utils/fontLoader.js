@@ -34,10 +34,37 @@ export async function loadUploadedFontVariant(family, variant) {
   const key = `upload:${family}:${variant.weight}:${variant.style}`;
   if (loaded.has(key)) return;
   loaded.add(key);
-  if (!variant.fileUrl) return;
-  const face = new FontFace(family, `url(${variant.fileUrl})`, { weight: String(variant.weight), style: variant.style });
-  await face.load();
-  document.fonts.add(face);
+  if (!variant.fileUrl) {
+    loaded.delete(key);
+    throw new Error('The uploaded font has no downloadable file URL.');
+  }
+  try {
+    // Fetch explicitly and pass bytes to FontFace. Besides producing clearer
+    // HTTP errors than FontFace's vague "A network error occurred", this lets
+    // us retry a short-lived connection drop without re-uploading the file.
+    let bytes;
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(variant.fileUrl, { cache: attempt ? 'reload' : 'default' });
+        if (!response.ok) throw new Error(`Font download returned ${response.status}`);
+        bytes = await response.arrayBuffer();
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+      }
+    }
+    if (!bytes) throw lastError || new Error('The uploaded font could not be downloaded.');
+    const face = new FontFace(family, bytes, { weight: String(variant.weight), style: variant.style });
+    await face.load();
+    document.fonts.add(face);
+  } catch (error) {
+    // A failed activation must be retryable. Keeping the key in `loaded`
+    // previously made every later retry return immediately without loading.
+    loaded.delete(key);
+    throw error;
+  }
 }
 
 export async function loadUploadedFont(fontDoc) {
