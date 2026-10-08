@@ -4,7 +4,7 @@
     description="Meta-approved WhatsApp templates for invites, RSVPs, reminders, and thank-yous."
   >
     <template #actions>
-      <Button variant="secondary" :loading="syncingWa" @click="syncMeta">
+      <Button v-if="isSuper" variant="secondary" :loading="syncingWa" @click="syncMeta">
         <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
         Sync
       </Button>
@@ -40,6 +40,16 @@
     </div>
 
     <div v-if="loading" class="flex justify-center py-16"><LoadingSpinner /></div>
+
+    <div v-if="myRequests.length" class="surface-card p-4 mb-6">
+      <p class="text-heading mb-3">Your template requests</p>
+      <div class="space-y-2">
+        <div v-for="r in myRequests" :key="r._id" class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl surface-inset">
+          <div><p class="font-bold">{{ r.name }}</p><p class="text-subtext">{{ r.channel === 'sms' ? 'SMS' : 'WhatsApp' }} · {{ r.adminNote || statusText(r) }}</p></div>
+          <span class="chip-info">{{ r.status.replaceAll('_', ' ') }}</span>
+        </div>
+      </div>
+    </div>
 
     <EmptyState v-else-if="!templates.length"
                 title="No templates yet"
@@ -79,6 +89,13 @@
     <!-- Request template modal -->
     <Modal v-model="requestOpen" title="Request a new template" :max-width="640" description="Our team builds and submits it to Meta for approval.">
       <div class="space-y-4">
+        <Field label="Channel" required>
+          <div class="grid grid-cols-2 gap-2">
+            <button v-for="c in [{value:'sms',label:'SMS — instant after approval'},{value:'whatsapp',label:'WhatsApp — Meta review'}]" :key="c.value" type="button"
+                    :class="['p-3 rounded-xl border text-sm font-bold', request.channel === c.value ? 'border-brand-primary bg-brand-primary-glow' : 'border-surface-mist dark:border-surface-fog']"
+                    @click="request.channel = c.value">{{ c.label }}</button>
+          </div>
+        </Field>
         <Field label="Template name" required>
           <template #default="{ id }">
             <TextInput v-model="request.name" :id="id" placeholder="Wedding invitation" />
@@ -114,12 +131,12 @@
           </template>
         </Field>
 
-        <label class="flex items-center gap-2 text-sm text-surface-charcoal dark:text-surface-bone">
+        <label v-if="request.channel === 'whatsapp'" class="flex items-center gap-2 text-sm text-surface-charcoal dark:text-surface-bone">
           <input type="checkbox" v-model="request.hasImageHeader" class="accent-brand-primary w-4 h-4 rounded" />
           Include a header image
         </label>
 
-        <Field label="Buttons" help="Up to 3. Meta only allows all-URL OR all-quick-reply — not mixed.">
+        <Field v-if="request.channel === 'whatsapp'" label="Buttons" help="Up to 3. Meta only allows all-URL OR all-quick-reply — not mixed.">
           <div class="grid grid-cols-2 gap-2">
             <label v-for="b in BUTTON_CHOICES" :key="b.id"
                    :class="['p-2.5 rounded-lg text-sm border cursor-pointer flex items-start gap-2 transition-colors duration-fast',
@@ -172,6 +189,7 @@ const toast = useToast();
 
 const loading = ref(true);
 const templates = ref([]);
+const myRequests = ref([]);
 const selected = ref(null);
 const sheetOpen = ref(false);
 const filter = ref('all');
@@ -224,6 +242,10 @@ async function refresh() {
     const r = await http.get(url);
     const resp = r.data?.data || r.data;
     templates.value = (resp.items || resp || []).sort((a, b) => a.name.localeCompare(b.name));
+    if (!isSuper.value) {
+      const rr = await http.get('/whatsapp-templates/requests/mine');
+      myRequests.value = rr.data?.data || rr.data || [];
+    }
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { loading.value = false; }
 }
@@ -256,12 +278,12 @@ const requestOpen = ref(false);
 const submitting = ref(false);
 const requestErr = ref('');
 const request = reactive({
-  name: '', category: 'UTILITY', language: 'sw', body: '',
+  channel: 'whatsapp', name: '', category: 'UTILITY', language: 'sw', body: '',
   hasImageHeader: false, buttons: [], notes: '',
 });
 function openRequest() {
   Object.assign(request, {
-    name: '', category: 'UTILITY', language: 'sw', body: '',
+    channel: 'whatsapp', name: '', category: 'UTILITY', language: 'sw', body: '',
     hasImageHeader: false, buttons: [], notes: '',
   });
   requestErr.value = '';
@@ -284,11 +306,18 @@ async function submitRequest() {
       buttonsPreset: request.buttons.length ? 'custom' : 'none',
       buttonIds: request.buttons,
     });
-    toast.success('Request received — we\'ll build and submit to Meta.');
+    toast.success(request.channel === 'sms' ? 'SMS template request received.' : 'Request received — we\'ll build and submit to Meta.');
     requestOpen.value = false;
     await refresh();
   } catch (err) { requestErr.value = apiErrorMessage(err); }
   finally { submitting.value = false; }
+}
+function statusText(r) {
+  if (r.status === 'submitted') return 'Waiting for review';
+  if (r.status === 'in_review') return 'Our team is preparing it';
+  if (r.status === 'submitted_to_provider') return r.expectedLiveAt ? `Expected ${new Date(r.expectedLiveAt).toLocaleString()}` : 'Meta review usually takes up to 24 hours';
+  if (r.status === 'live') return 'Ready to use';
+  return 'Review needed';
 }
 
 onMounted(refresh);

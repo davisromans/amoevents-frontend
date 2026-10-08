@@ -50,6 +50,7 @@
               <button class="btn-ghost !text-xs !py-1 !px-2" @click="toggle(t)">
                 {{ t.status === 'active' ? 'Suspend' : 'Activate' }}
               </button>
+              <button class="btn-ghost !text-xs !py-1 !px-2 ml-1" @click="openRates(t)">Rates</button>
               <button class="btn-danger !text-xs !py-1 !px-2 ml-1" @click="remove(t)">
                 <TrashIcon class="w-3 h-3" />
               </button>
@@ -61,6 +62,17 @@
         </tbody>
       </table>
     </div>
+    <AppModal v-model="ratesOpen" title="Private tenant pricing" :maxWidth="560">
+      <p class="text-subtext mb-4">Leave a message rate empty to use the platform default. These values are never shown on the public pricing page.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <AppInput v-model.number="rates.smsRateTZS" label="SMS rate (TZS)" type="number" />
+        <AppInput v-model.number="rates.waMarketingRateTZS" label="WA marketing" type="number" />
+        <AppInput v-model.number="rates.waUtilityRateTZS" label="WA utility" type="number" />
+        <AppInput v-model.number="rates.waAuthenticationRateTZS" label="WA authentication" type="number" />
+        <AppInput v-model.number="rates.storageQuotaGb" label="Storage quota (GB)" type="number" min="0" />
+      </div>
+      <template #footer><button class="btn-ghost" @click="ratesOpen=false">Cancel</button><button class="btn-primary" @click="saveRates">Save private rates</button></template>
+    </AppModal>
   </PageShell>
 </template>
 
@@ -73,12 +85,33 @@ import { formatDate } from '@/utils/format';
 import { useToast } from '@/composables/useToast';
 import PageShell from '@/components/shell/PageShell.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import AppModal from '@/components/common/AppModal.vue';
+import AppInput from '@/components/common/AppInput.vue';
 
 const toast = useToast();
 const items = ref([]);
 const loading = ref(true);
 const q = ref('');
 const status = ref('');
+const ratesOpen = ref(false);
+const selectedTenant = ref(null);
+const rates = ref({});
+function openRates(t) {
+  selectedTenant.value = t;
+  rates.value = { ...(t.messagingPricing || {}), storageQuotaGb: Number(((t.storageQuotaBytes || 1073741824) / 1073741824).toFixed(2)) };
+  ratesOpen.value = true;
+}
+async function saveRates() {
+  const payload = {
+    smsRateTZS: rates.value.smsRateTZS ?? null,
+    waUtilityRateTZS: rates.value.waUtilityRateTZS ?? null,
+    waMarketingRateTZS: rates.value.waMarketingRateTZS ?? null,
+    waAuthenticationRateTZS: rates.value.waAuthenticationRateTZS ?? null,
+    storageQuotaBytes: Math.round(Number(rates.value.storageQuotaGb || 0) * 1073741824),
+  };
+  try { await http.patch(`/messaging/pricing/tenants/${selectedTenant.value._id}`, payload); ratesOpen.value = false; await refresh(); toast.success('Private tenant rates saved'); }
+  catch (err) { toast.error(apiErrorMessage(err)); }
+}
 
 async function refresh() {
   loading.value = true;

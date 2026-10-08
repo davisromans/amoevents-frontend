@@ -5,21 +5,27 @@
     <div v-else class="space-y-5">
       <div class="surface-card p-5 space-y-4">
         <p class="text-heading flex items-center gap-1.5">
-          Per-message rates
-          <InfoHint text="Every SMS segment and WhatsApp send debits the tenant's wallet at these rates. Composer shows live cost." />
+          Provider costs and tenant markup
+          <InfoHint text="Set what the provider charges you. The default tenant selling prices are calculated using the markup multiplier; individual tenants can have private overrides." />
         </p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <AppInput v-model.number="cfg.smsRateTZS" label="Per-SMS segment (TZS)"   type="number" min="0" step="1" />
-          <AppInput v-model.number="cfg.waRateTZS"  label="WhatsApp fallback (TZS)" type="number" min="0" step="1" />
+          <AppInput v-model.number="cfg.smsBaseCostTZS" label="SMS provider cost (TZS)" type="number" min="0" step="1" />
+          <AppInput v-model.number="cfg.defaultMarkupMultiplier" label="Default selling multiplier" type="number" min="1" step="0.1" />
         </div>
         <p class="text-2xs uppercase font-black tracking-widest text-brand-gold-deep dark:text-brand-gold-soft pt-2 flex items-center gap-1.5">
           WhatsApp — Meta bills by category
           <InfoHint text="Utility (reminders, receipts) is cheapest. Marketing (invitations, promos) costs more. Authentication is for one-time codes." />
         </p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <AppInput v-model.number="cfg.waUtilityRateTZS"        label="Utility (TZS)"        type="number" min="0" />
-          <AppInput v-model.number="cfg.waMarketingRateTZS"      label="Marketing (TZS)"      type="number" min="0" />
-          <AppInput v-model.number="cfg.waAuthenticationRateTZS" label="Authentication (TZS)" type="number" min="0" />
+          <AppInput v-model.number="cfg.waUtilityBaseCostTZS" label="Utility base cost" type="number" min="0" />
+          <AppInput v-model.number="cfg.waMarketingBaseCostTZS" label="Marketing base cost" type="number" min="0" />
+          <AppInput v-model.number="cfg.waAuthenticationBaseCostTZS" label="Authentication base cost" type="number" min="0" />
+        </div>
+        <div class="rounded-xl surface-inset p-4 text-sm grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div><p class="text-subtext">SMS tenant price</p><p class="font-black">{{ sell(cfg.smsBaseCostTZS) }} TZS</p></div>
+          <div><p class="text-subtext">WA utility</p><p class="font-black">{{ sell(cfg.waUtilityBaseCostTZS) }} TZS</p></div>
+          <div><p class="text-subtext">WA marketing</p><p class="font-black">{{ sell(cfg.waMarketingBaseCostTZS) }} TZS</p></div>
+          <div><p class="text-subtext">WA authentication</p><p class="font-black">{{ sell(cfg.waAuthenticationBaseCostTZS) }} TZS</p></div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <AppInput v-model.number="cfg.defaultBalanceTZS" label="New-tenant starting balance (TZS)"
@@ -75,7 +81,8 @@ import InfoHint from '@/components/common/InfoHint.vue';
 const toast = useToast();
 const loading = ref(true);
 const saving = ref(false);
-const cfg = ref({ smsRateTZS: 30, waRateTZS: 100, defaultBalanceTZS: 0, enforceBalance: false });
+const cfg = ref({ smsBaseCostTZS: 21, waUtilityBaseCostTZS: 40, waMarketingBaseCostTZS: 80, waAuthenticationBaseCostTZS: 40, defaultMarkupMultiplier: 2, defaultBalanceTZS: 0, enforceBalance: false });
+const sell = (base) => Math.ceil(Number(base || 0) * Number(cfg.value.defaultMarkupMultiplier || 2));
 
 const topup = reactive({ tenantId: '', amountTZS: 0, smsUnits: 0, waUnits: 0 });
 const topupBusy = ref(false);

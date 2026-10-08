@@ -121,6 +121,7 @@ const adminSection = computed(() => ({
     { label: 'Messaging rates', to: '/app/admin/messaging-pricing', icon: ChatBubbleLeftRightIcon },
     { label: 'Bundles',         to: '/app/admin/bundles',           icon: CreditCardIcon },
     { label: 'Templates',       to: '/app/admin/templates',         icon: DocumentTextIcon },
+    { label: 'Template requests', to: '/app/admin/template-requests', icon: DocumentTextIcon },
     { label: 'Users',           to: '/app/admin/users',             icon: UsersIcon },
     { label: 'Tenants',         to: '/app/admin/tenants',           icon: BuildingOfficeIcon },
     { label: 'Payments queue',  to: '/app/admin/payments',          icon: CreditCardIcon },

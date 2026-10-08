@@ -54,6 +54,7 @@ const routes = [
       { path: 'bundles', component: () => import('@/pages/dashboard/BundlesView.vue') },
       { path: 'templates', component: () => import('@/pages/dashboard/TemplatesLibraryView.vue') },
       { path: 'admin/templates', component: () => import('@/pages/dashboard/admin/AdminTemplatesView.vue'), meta: { allowedRoles: ['super_admin'] } },
+      { path: 'admin/template-requests', component: () => import('@/pages/dashboard/admin/AdminTemplateRequestsView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/users', component: () => import('@/pages/dashboard/admin/AdminUsersView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/tenants', component: () => import('@/pages/dashboard/admin/AdminTenantsView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/audit', component: () => import('@/pages/dashboard/admin/AdminAuditView.vue'), meta: { allowedRoles: ['super_admin'] } },
