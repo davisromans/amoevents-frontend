@@ -142,6 +142,7 @@ router.onError((error, to) => {
   }
   if (window.sessionStorage?.getItem('_router_reloaded_once') === to.fullPath) {
     console.error('[router] chunk error persisted after reload — CDN down?', error);
+    window.__showAmoEventsRecovery?.(msg);
     return;
   }
   try { window.sessionStorage?.setItem('_router_reloaded_once', to.fullPath); } catch { /* private mode */ }

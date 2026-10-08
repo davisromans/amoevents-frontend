@@ -36,8 +36,20 @@ jobs:
 
       - name: Sync dist/ to Server A
         run: |
-          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+          # Replace the app shell, service worker, and manifests, but do not
+          # delete hashed assets in the same instant. An older installed PWA
+          # can still serve its cached index.html during the SW handover and
+          # needs those old chunks long enough to boot and update itself.
+          rsync -az --delete --exclude='assets/' -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             dist/ ${{ secrets.SERVER_USERNAME }}@${{ secrets.API_SERVER_IP }}:/var/www/amoevents-frontend/dist/
+          rsync -az -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            dist/assets/ ${{ secrets.SERVER_USERNAME }}@${{ secrets.API_SERVER_IP }}:/var/www/amoevents-frontend/dist/assets/
+
+          # Keep a generous handover window, then remove genuinely abandoned
+          # bundles so the asset directory does not grow forever.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.SERVER_USERNAME }}@${{ secrets.API_SERVER_IP }} \
+            "find /var/www/amoevents-frontend/dist/assets -type f -mtime +14 -delete"
 
       - name: Verify
         run: |

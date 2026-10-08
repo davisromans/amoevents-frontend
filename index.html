@@ -26,6 +26,80 @@
         } catch (e) {}
       })();
     </script>
+    <style>
+      #amoevents-boot {
+        min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        padding: 24px; box-sizing: border-box; font-family: Inter, system-ui, sans-serif;
+        background: #f8f6f1; color: #20242b;
+      }
+      #amoevents-boot-card { max-width: 420px; text-align: center; }
+      #amoevents-boot-spinner {
+        width: 34px; height: 34px; margin: 0 auto 16px; border-radius: 999px;
+        border: 3px solid rgba(16, 185, 129, .18); border-top-color: #059669;
+        animation: amoevents-spin .8s linear infinite;
+      }
+      #amoevents-boot-title { margin: 0; font-size: 18px; font-weight: 800; }
+      #amoevents-boot-message { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #667085; }
+      #amoevents-recover {
+        display: none; margin: 18px auto 0; border: 0; border-radius: 12px;
+        padding: 11px 18px; background: #059669; color: #fff; cursor: pointer;
+        font: inherit; font-size: 13px; font-weight: 800;
+      }
+      .dark #amoevents-boot { background: #080d12; color: #edf2f4; }
+      .dark #amoevents-boot-message { color: #98a2ad; }
+      @keyframes amoevents-spin { to { transform: rotate(360deg); } }
+    </style>
+    <script>
+      // This recovery layer is deliberately plain HTML/JS. It still works if
+      // Vue's current hashed bundle is stale, missing, or failed before mount.
+      window.__showAmoEventsRecovery = function (reason) {
+        var title = document.getElementById('amoevents-boot-title');
+        var message = document.getElementById('amoevents-boot-message');
+        var button = document.getElementById('amoevents-recover');
+        var spinner = document.getElementById('amoevents-boot-spinner');
+        if (!title || !button) return;
+        title.textContent = 'Amo Events needs to refresh its app files';
+        message.textContent = 'Your account and offline event data are safe. Reset the app cache and reopen this page.';
+        button.style.display = 'inline-block';
+        if (spinner) spinner.style.display = 'none';
+        if (reason) console.error('[boot recovery]', reason);
+      };
+      window.__recoverAmoEvents = async function () {
+        var button = document.getElementById('amoevents-recover');
+        if (button) { button.disabled = true; button.textContent = 'Resetting app cache…'; }
+        try {
+          if ('serviceWorker' in navigator) {
+            var registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map(function (registration) { return registration.unregister(); }));
+          }
+        } catch (_) {}
+        try {
+          if ('caches' in window) {
+            var keys = await caches.keys();
+            await Promise.all(keys.map(function (key) { return caches.delete(key); }));
+          }
+        } catch (_) {}
+        var url = new URL(window.location.href);
+        url.searchParams.set('_app_recovery', Date.now().toString());
+        window.location.replace(url.toString());
+      };
+      window.addEventListener('error', function (event) {
+        var target = event.target;
+        var asset = target && (target.src || target.href);
+        if (asset && /\/assets\/.*\.(js|css)(\?|$)/.test(asset)) {
+          window.__showAmoEventsRecovery('Failed to load ' + asset);
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function (event) {
+        var message = String(event.reason && (event.reason.message || event.reason) || '');
+        if (/dynamically imported module|loading chunk|module script|failed to fetch/i.test(message)) {
+          window.__showAmoEventsRecovery(message);
+        }
+      });
+      window.setTimeout(function () {
+        if (document.getElementById('amoevents-boot')) window.__showAmoEventsRecovery('Application boot timed out');
+      }, 10000);
+    </script>
   </head>
   <body class="h-full bg-surface-cream dark:bg-surface-night text-surface-charcoal dark:text-surface-bone">
     <!-- Legal entity notice — present in the raw server-sent HTML (not
@@ -36,7 +110,16 @@
     <p style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">
       Amo Events is operated by Davintech Labs.
     </p>
-    <div id="app" class="h-full"></div>
+    <div id="app" class="h-full">
+      <div id="amoevents-boot" role="status" aria-live="polite">
+        <div id="amoevents-boot-card">
+          <div id="amoevents-boot-spinner"></div>
+          <p id="amoevents-boot-title">Opening Amo Events…</p>
+          <p id="amoevents-boot-message">Loading your event workspace.</p>
+          <button id="amoevents-recover" type="button" onclick="window.__recoverAmoEvents()">Reset app cache and reopen</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

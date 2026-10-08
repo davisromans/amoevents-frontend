@@ -56,6 +56,13 @@ export async function applyUpdate() {
   if (candidateVersion) {
     try { localStorage.setItem(APPLIED_KEY, candidateVersion); } catch {}
   }
+  // Use the same framework-independent recovery path as the boot screen.
+  // It adds a cache-busting URL after clearing only CacheStorage/SW state;
+  // localStorage auth and IndexedDB offline event data are preserved.
+  if (typeof window.__recoverAmoEvents === 'function') {
+    await window.__recoverAmoEvents();
+    return;
+  }
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();

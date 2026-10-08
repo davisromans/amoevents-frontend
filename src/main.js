@@ -47,5 +47,15 @@ async function boot() {
   }
   await router.isReady();
   app.mount('#app');
+  // The one-time recovery query forces a network navigation past an old app
+  // shell. Remove it after a successful mount so copied links stay clean.
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.searchParams.has('_app_recovery')) {
+    currentUrl.searchParams.delete('_app_recovery');
+    window.history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+  }
 }
-boot();
+boot().catch((error) => {
+  console.error('[boot] Amo Events failed to start:', error);
+  window.__showAmoEventsRecovery?.(error?.message || error);
+});
