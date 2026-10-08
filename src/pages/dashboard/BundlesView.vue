@@ -157,6 +157,11 @@
             <option v-for="n in NETWORKS" :key="n.value" :value="n.value">{{ n.label }}</option>
           </select>
         </div>
+        <div v-if="topupQuote" class="surface-inset rounded-lg p-3 text-sm">
+          <div class="flex justify-between"><span>Wallet credit</span><strong>{{ fmtTZS(topup.amount) }}</strong></div>
+          <div class="flex justify-between"><span>Mobile-money fee</span><strong>{{ fmtTZS(topupQuote.feeTZS) }}</strong></div>
+          <div class="flex justify-between pt-1 mt-1 border-t border-surface-mist dark:border-surface-fog"><span>You pay</span><strong>{{ fmtTZS(topupQuote.chargedTZS) }}</strong></div>
+        </div>
         <div v-if="topupStage === 'pending'" class="text-sm text-brand-gold-deep dark:text-brand-gold-soft">
           <span class="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
           Approve the {{ networkLabel(topup.correspondent) }} prompt on your phone.
@@ -191,6 +196,11 @@
             <option v-for="n in NETWORKS" :key="n.value" :value="n.value">{{ n.label }}</option>
           </select>
         </div>
+        <div v-if="checkoutQuote" class="surface-inset rounded-lg p-3 text-sm">
+          <div class="flex justify-between"><span>Package</span><strong>{{ fmtTZS(chosen.priceTZS) }}</strong></div>
+          <div class="flex justify-between"><span>Mobile-money fee</span><strong>{{ fmtTZS(checkoutQuote.feeTZS) }}</strong></div>
+          <div class="flex justify-between pt-1 mt-1 border-t border-surface-mist dark:border-surface-fog"><span>You pay</span><strong>{{ fmtTZS(checkoutQuote.chargedTZS) }}</strong></div>
+        </div>
 
         <div v-if="stage === 'pending'" class="text-sm text-brand-gold-deep dark:text-brand-gold-soft">
           <span class="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
@@ -214,7 +224,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ArrowPathIcon, PlusIcon } from '@heroicons/vue/24/outline';
 import http, { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
@@ -245,6 +255,7 @@ const topup = reactive({ amount: 5000, phone: '', correspondent: '' });
 const topupBusy = ref(false);
 const topupErr = ref('');
 const topupStage = ref('idle');
+const topupQuote = ref(null);
 let topupTimer = null;
 
 function openTopup() {
@@ -275,6 +286,7 @@ async function doTopup() {
 const checkoutOpen = ref(false);
 const chosen = ref(null);
 const checkout = reactive({ phone: '', correspondent: '' });
+const checkoutQuote = ref(null);
 const checkingOut = ref(false);
 const stage = ref('idle');
 const err = ref('');
@@ -342,6 +354,15 @@ function openCheckout(b) {
   stage.value = 'idle'; err.value = '';
   checkoutOpen.value = true;
 }
+async function loadQuote(amount, correspondent, target) {
+  if (!(amount > 0) || !correspondent) { target.value = null; return; }
+  try {
+    const r = await http.get('/messaging/bundles/quote', { params: { amountTZS: amount, correspondent } });
+    target.value = r.data?.data || r.data;
+  } catch (_) { target.value = null; }
+}
+watch(() => [topup.amount, topup.correspondent], ([amount, correspondent]) => loadQuote(amount, correspondent, topupQuote));
+watch(() => [chosen.value?.priceTZS, checkout.correspondent], ([amount, correspondent]) => loadQuote(amount, correspondent, checkoutQuote));
 function closeCheckout() {
   checkoutOpen.value = false;
   clearInterval(pollTimer); pollTimer = null;
