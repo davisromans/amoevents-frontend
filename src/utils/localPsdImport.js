@@ -98,7 +98,7 @@ async function convertLayers(psdLayers, { projectId, parentOrigin, warnings, fon
   for (const layer of psdLayers || []) {
     const bounds = visualBounds(layer);
     const base = baseLayer(layer, bounds, parentOrigin);
-    if (layer.children) {
+    if (Array.isArray(layer.children)) {
       const children = await convertLayers(layer.children, {
         projectId,
         parentOrigin: { x: bounds.left, y: bounds.top },
@@ -110,7 +110,22 @@ async function convertLayers(psdLayers, { projectId, parentOrigin, warnings, fon
     }
 
     if (layer.effects || layer.mask || layer.realMask || layer.clipping) {
-      warnings.push(`“${base.name}” contains Photoshop effects, masks, or clipping that the local fallback keeps as pixels; use the online importer if its appearance differs.`);
+      warnings.push(layer.text
+        ? `“${base.name}” remains editable, but some Photoshop text effects, masks, or clipping may need adjustment.`
+        : `“${base.name}” contains Photoshop effects, masks, or clipping that the local fallback keeps as pixels; use the online importer if its appearance differs.`);
+    }
+
+    // ag-psd exposes the original text metadata even when its font is not
+    // installed. Keep that as a real editable text layer. The previous local
+    // opener always saved the layer canvas as an image and merely attached a
+    // `convertedFromText` note; consequently double-click could never edit
+    // any locally-opened PSD text. Studio now resolves the family explicitly
+    // (upload it or use Inter) instead of silently destroying editability.
+    const editableText = textMetadata(layer.text, bounds);
+    if (editableText) {
+      if (editableText.fontFamily) fonts.add(editableText.fontFamily);
+      output.push({ ...base, ...editableText });
+      continue;
     }
 
     const blob = await canvasBlob(layer.canvas);
@@ -121,8 +136,6 @@ async function convertLayers(psdLayers, { projectId, parentOrigin, warnings, fon
     }
     const localAssetId = `local:${projectId}:psd:${crypto.randomUUID()}`;
     await cacheLocalTemplateAsset(localAssetId, blob);
-    const convertedFromText = textMetadata(layer.text, bounds);
-    if (convertedFromText?.fontFamily) fonts.add(convertedFromText.fontFamily);
     output.push({
       ...base,
       type: 'image',
@@ -131,7 +144,6 @@ async function convertLayers(psdLayers, { projectId, parentOrigin, warnings, fon
       fit: 'fill',
       cropRect: { x: 0, y: 0, w: 1, h: 1 },
       mask: null,
-      ...(convertedFromText ? { convertedFromText } : {}),
     });
   }
   return output;
@@ -176,6 +188,10 @@ export async function importPsdLocally(file, projectId) {
       height: psd.height,
       background: 'rgba(0,0,0,0)',
       fontFamilies: [...fonts],
+      // Local opening cannot query the full server/Google roster while it is
+      // offline. Treat referenced PSD families as candidates; Studio removes
+      // already-available families after its exact roster lookup.
+      missingFontFamilies: [...fonts],
       importWarnings: warnings.map((message) => ({ code: 'LOCAL_PSD_IMPORT', message })),
       layers,
     },

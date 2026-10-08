@@ -348,6 +348,12 @@
         </template>
       </div>
     </AppModal>
+    <MissingFontsModal
+      v-model="missingFontsOpen"
+      :fonts="missingFonts"
+      @uploaded="onMissingFontUploaded"
+      @use-default="onMissingFontUseDefault"
+    />
   </div>
 </template>
 
@@ -388,6 +394,7 @@ import AppModal from '@/components/common/AppModal.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import LayersPanel from '@/components/studio/LayersPanel.vue';
 import PropertiesPanel from '@/components/studio/PropertiesPanel.vue';
+import MissingFontsModal from '@/components/studio/MissingFontsModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1140,9 +1147,33 @@ function onMouseUpDrillIntoGroup(opt) {
   fabricCanvasRaw.requestRenderAll();
   refreshLayersList();
 }
-function onDblClickDrillIntoGroup(opt) {
+async function onDblClickDrillIntoGroup(opt) {
   const leaf = resolveClickLeaf(opt);
-  if (!leaf || !(leaf.type === 'textbox' || leaf.type === 'text' || leaf.type === 'i-text')) return;
+  if (!leaf) return;
+  if (leaf.type === 'image') {
+    const converted = leaf.get('data')?.sourceLayer?.convertedFromText;
+    if (!converted) return;
+    const unresolved = missingFonts.value.find((item) => canonicalTextUsesFamily(converted, item.family));
+    if (unresolved) {
+      pendingTextEditObject = leaf;
+      missingFontsOpen.value = true;
+      return;
+    }
+    const restored = await onRestoreText(leaf, { notify: false });
+    if (!restored) return;
+    fabricCanvasRaw.setActiveObject(restored);
+    restored.enterEditing();
+    restored.selectAll();
+    fabricCanvasRaw.requestRenderAll();
+    return;
+  }
+  if (!(leaf.type === 'textbox' || leaf.type === 'text' || leaf.type === 'i-text')) return;
+  const unresolved = missingFonts.value.find((item) => fabricTextUsesFamily(leaf, item.family));
+  if (unresolved) {
+    pendingTextEditObject = leaf;
+    missingFontsOpen.value = true;
+    return;
+  }
   fabricCanvasRaw.setActiveObject(leaf);
   leaf.enterEditing();
   leaf.selectAll();
@@ -1757,16 +1788,17 @@ async function onRasterizeLayer(obj) {
   fabricCanvasRaw.fire('object:modified', {});
 }
 
-async function onRestoreText(obj) {
+async function onRestoreText(obj, { notify = true } = {}) {
   if (!fabricCanvasRaw) return;
   const restored = await restoreConvertedText(fabricCanvasRaw, obj);
   if (!restored) {
-    toast.error('This layer does not contain restorable PSD text metadata.');
-    return;
+    if (notify) toast.error('This layer does not contain restorable PSD text metadata.');
+    return null;
   }
   selectedObjects.value = [markRaw(restored)];
   refreshLayersList();
-  toast.success('Text restored. Its original Photoshop effects may differ while editing.');
+  if (notify) toast.success('Text restored. Its original Photoshop effects may differ while editing.');
+  return restored;
 }
 
 // ── Grouping / merging ─────────────────────────────────────────────────
@@ -1962,6 +1994,173 @@ async function preloadDocumentFonts(doc) {
   } catch { /* rendering falls back to the browser default font; not worth surfacing */ }
 }
 
+// PSD files only store font names; they do not embed the font files. Keep a
+// document-level, durable list of unresolved families and explain it in one
+// place instead of silently falling back or turning the words into pixels.
+const SYSTEM_FONT_FAMILIES = new Set([
+  'arial', 'helvetica', 'times new roman', 'georgia', 'courier new',
+  'verdana', 'trebuchet ms', 'system-ui', 'sans-serif', 'serif',
+  'monospace', 'inter',
+]);
+const missingFontsOpen = ref(false);
+const missingFonts = ref([]);
+let pendingTextEditObject = null;
+
+function addCanonicalFontUsage(target, family, layer) {
+  if (!family) return;
+  const key = String(family).trim();
+  if (!key) return;
+  const current = target.get(key) || {
+    family: key,
+    layerCount: 0,
+    layerIds: new Set(),
+    weight: Number(layer?.fontWeight) || 400,
+    style: layer?.fontStyle || 'normal',
+  };
+  const layerKey = layer?.id || `${layer?.name || 'text'}:${key}`;
+  if (!current.layerIds.has(layerKey)) {
+    current.layerIds.add(layerKey);
+    current.layerCount += 1;
+  }
+  target.set(key, current);
+}
+
+function collectCanonicalFontUsage(layers, target = new Map()) {
+  for (const layer of layers || []) {
+    const text = layer.type === 'text' ? layer : layer.convertedFromText;
+    if (text) {
+      const textLayer = { ...layer, ...text, id: layer.id };
+      addCanonicalFontUsage(target, text.fontFamily, textLayer);
+      for (const run of text.charStyles || []) addCanonicalFontUsage(target, run.fontFamily, { ...textLayer, ...run });
+    }
+    if (layer.children) collectCanonicalFontUsage(layer.children, target);
+  }
+  return target;
+}
+
+async function refreshMissingFonts(doc, { open = true } = {}) {
+  const usage = collectCanonicalFontUsage(doc?.layers);
+  for (const family of doc?.missingFontFamilies || []) {
+    if (!usage.has(family)) addCanonicalFontUsage(usage, family, { name: family });
+  }
+  const candidates = [...usage.keys()].filter((family) => !SYSTEM_FONT_FAMILIES.has(family.toLowerCase()));
+  if (!candidates.length) {
+    missingFonts.value = [];
+    if (doc) doc.missingFontFamilies = [];
+    missingFontsOpen.value = false;
+    return;
+  }
+
+  let available = new Set();
+  try {
+    const rows = await getFontsByFamilies(candidates);
+    available = new Set(rows.map((row) => row.family?.toLowerCase()).filter(Boolean));
+  } catch {
+    // Offline: retain the importer's explicit list, but do not accuse every
+    // historical document font of being missing without an exact lookup.
+    const explicit = new Set((doc?.missingFontFamilies || []).map((family) => family.toLowerCase()));
+    missingFonts.value = [...usage.values()].filter((item) => explicit.has(item.family.toLowerCase()));
+    if (open && missingFonts.value.length) missingFontsOpen.value = true;
+    return;
+  }
+
+  missingFonts.value = [...usage.values()]
+    .filter((item) => !available.has(item.family.toLowerCase()))
+    .map(({ layerIds, ...item }) => item);
+  if (doc) doc.missingFontFamilies = missingFonts.value.map((item) => item.family);
+  if (open) missingFontsOpen.value = missingFonts.value.length > 0;
+}
+
+function canonicalTextUsesFamily(text, family) {
+  const wanted = family.toLowerCase();
+  return text?.fontFamily?.toLowerCase() === wanted
+    || (text?.charStyles || []).some((run) => run.fontFamily?.toLowerCase() === wanted);
+}
+
+function replaceCanonicalTextFamily(text, family, replacement) {
+  if (!text) return;
+  const wanted = family.toLowerCase();
+  if (text.fontFamily?.toLowerCase() === wanted) text.fontFamily = replacement;
+  for (const run of text.charStyles || []) {
+    if (run.fontFamily?.toLowerCase() === wanted) run.fontFamily = replacement;
+  }
+}
+
+function replaceFabricStyleFamilies(styles, family, replacement) {
+  const wanted = family.toLowerCase();
+  for (const line of Object.values(styles || {})) {
+    for (const style of Object.values(line || {})) {
+      if (style?.fontFamily?.toLowerCase() === wanted) style.fontFamily = replacement;
+    }
+  }
+}
+
+function fabricTextUsesFamily(obj, family) {
+  const wanted = family.toLowerCase();
+  if (obj?.fontFamily?.toLowerCase() === wanted) return true;
+  return Object.values(obj?.styles || {}).some((line) =>
+    Object.values(line || {}).some((style) => style?.fontFamily?.toLowerCase() === wanted));
+}
+
+async function resolveMissingFont(family, replacement) {
+  if (!fabricCanvasRaw) return;
+  let pendingRestored = null;
+  async function walk(objects) {
+    for (const obj of [...objects]) {
+      if (obj.type === 'group') {
+        await walk(obj.getObjects());
+        continue;
+      }
+      if (['textbox', 'text', 'i-text'].includes(obj.type)) {
+        if (obj.fontFamily?.toLowerCase() === family.toLowerCase()) obj.set('fontFamily', replacement);
+        replaceFabricStyleFamilies(obj.styles, family, replacement);
+        obj.initDimensions?.();
+        obj.setCoords();
+        obj.dirty = true;
+        continue;
+      }
+      if (obj.type !== 'image') continue;
+      const data = obj.get('data') || {};
+      const converted = data.sourceLayer?.convertedFromText;
+      if (!canonicalTextUsesFamily(converted, family)) continue;
+      const sourceLayer = structuredClone(data.sourceLayer);
+      replaceCanonicalTextFamily(sourceLayer.convertedFromText, family, replacement);
+      obj.set('data', { ...data, sourceLayer });
+      const restored = await restoreConvertedText(fabricCanvasRaw, obj);
+      if (obj === pendingTextEditObject) pendingRestored = restored;
+    }
+  }
+
+  await walk(fabricCanvasRaw.getObjects());
+  missingFonts.value = missingFonts.value.filter((item) => item.family.toLowerCase() !== family.toLowerCase());
+  document.value.missingFontFamilies = missingFonts.value.map((item) => item.family);
+  if (!missingFonts.value.length) missingFontsOpen.value = false;
+  refreshLayersList();
+  fabricCanvasRaw.requestRenderAll();
+  fabricCanvasRaw.fire('object:modified', { target: pendingRestored || undefined });
+
+  if (pendingTextEditObject) {
+    const editTarget = pendingRestored || pendingTextEditObject;
+    pendingTextEditObject = null;
+    if (['textbox', 'text', 'i-text'].includes(editTarget?.type)) {
+      fabricCanvasRaw.setActiveObject(editTarget);
+      editTarget.enterEditing();
+      editTarget.selectAll();
+      fabricCanvasRaw.requestRenderAll();
+    }
+  }
+}
+
+async function onMissingFontUploaded(family) {
+  await resolveMissingFont(family, family);
+  toast.success(`“${family}” uploaded. Its PSD text is editable now.`);
+}
+
+async function onMissingFontUseDefault(family) {
+  await resolveMissingFont(family, 'Inter');
+  toast.success(`Replaced “${family}” with Inter.`);
+}
+
 async function boot() {
   loading.value = true;
   try {
@@ -2018,6 +2217,7 @@ async function boot() {
     try {
       await preloadDocumentFonts(document.value);
       const { failures } = await loadDocument(fabricCanvasRaw, document.value, { resolveAssetUrl });
+      await refreshMissingFonts(document.value);
       if (failures?.length) {
         toast.error(`${failures.length} layer${failures.length > 1 ? 's' : ''} failed to load and ${failures.length > 1 ? 'were' : 'was'} skipped — check the console for details.`);
       }
@@ -2171,6 +2371,7 @@ async function switchPage(index) {
   try {
     await preloadDocumentFonts(document.value);
     const { failures } = await loadDocument(fabricCanvasRaw, document.value, { resolveAssetUrl });
+    await refreshMissingFonts(document.value);
     if (failures?.length) toast.error(`${failures.length} layer${failures.length > 1 ? 's' : ''} failed to load and ${failures.length > 1 ? 'were' : 'was'} skipped.`);
   } catch (err) {
     toast.error(`Couldn't load this page: ${apiErrorMessage(err)}`);
@@ -2208,6 +2409,7 @@ async function removePage(index) {
     try {
       await preloadDocumentFonts(document.value);
       const { failures } = await loadDocument(fabricCanvasRaw, document.value, { resolveAssetUrl });
+      await refreshMissingFonts(document.value);
       if (failures?.length) toast.error(`${failures.length} layer${failures.length > 1 ? 's' : ''} failed to load and ${failures.length > 1 ? 'were' : 'was'} skipped.`);
     } catch (err) {
       toast.error(`Couldn't load this page: ${apiErrorMessage(err)}`);
@@ -2374,6 +2576,7 @@ async function onPsdFileChosen(e) {
     document.value = opened;
     canvasBackground.value = opened.background || '#FFFFFF';
     const { failures } = await loadDocument(fabricCanvasRaw, opened, { resolveAssetUrl });
+    await refreshMissingFonts(opened);
     selectedObjects.value = [];
     selectedParent.value = null;
     fitZoomToViewport();

@@ -192,6 +192,10 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       // like before. TemplateStudioView's onCanvasMouseDown reads
       // subTargets to drill straight to the clicked leaf layer instead.
       subTargetCheck: true,
+      // Fabric 7 otherwise treats the folder as one opaque target. Interactive
+      // groups preserve the PSD folder while allowing its text children to
+      // receive the double-click needed for in-place editing.
+      interactive: true,
     });
     applyCommon(group, layer, { skipPosition: layer.coordinateSpace !== 'local' });
     group.set({ scaleX: layer.scaleX ?? 1, scaleY: layer.scaleY ?? 1 });
@@ -349,8 +353,9 @@ export async function loadDocument(canvas, document, { resolveAssetUrl }) {
   for (const layer of document.layers || []) {
     try {
       const obj = await layerToFabric(layer, { resolveAssetUrl });
-      // Top-level 'group' layers now return a flat array (see
-      // layerToFabric's comment) rather than a single fabric.Group.
+      // Keep PSD folders as real Fabric groups. The Array branch remains for
+      // compatibility with older custom layer adapters, but PSD groups use a
+      // single nested object and therefore remain visible in Layers.
       if (Array.isArray(obj)) canvas.add(...obj);
       else if (obj) canvas.add(obj);
     } catch (err) {
