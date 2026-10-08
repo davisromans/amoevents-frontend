@@ -171,6 +171,16 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
   applyLayerEffects(fabricObj, layer);
 }
 
+function loadFabricImage(url, timeoutMs = 15000) {
+  let timer;
+  return Promise.race([
+    fabric.FabricImage.fromURL(url, { crossOrigin: 'anonymous' }),
+    new Promise((_, reject) => {
+      timer = window.setTimeout(() => reject(new Error(`Image timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]).finally(() => window.clearTimeout(timer));
+}
+
 async function layerToFabric(layer, { resolveAssetUrl }) {
   if (layer.type === 'group') {
     // Version 2 documents store every child relative to its group's top
@@ -232,7 +242,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     if (!resolvedAssetId) return null;
     const url = await resolveAssetUrl(resolvedAssetId);
     if (!url) return null;
-    const img = await fabric.FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+    const img = await loadFabricImage(url);
     const sourceWidth = img.width || 1;
     const sourceHeight = img.height || 1;
     const crop = layer.cropRect || { x: 0, y: 0, w: 1, h: 1 };
@@ -269,7 +279,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     if (maskAssetId) {
       const maskUrl = await resolveAssetUrl(maskAssetId);
       if (maskUrl) {
-        const maskImg = await fabric.FabricImage.fromURL(maskUrl, { crossOrigin: 'anonymous' });
+        const maskImg = await loadFabricImage(maskUrl);
         maskImg.set({
           left: 0,
           top: 0,
@@ -350,18 +360,25 @@ export async function loadDocument(canvas, document, { resolveAssetUrl }) {
   canvas.setDimensions({ width: document.width, height: document.height });
   canvas.backgroundColor = document.background || '#FFFFFF';
   const failures = [];
-  for (const layer of document.layers || []) {
+  // Resolve top-level layers concurrently, then add them in original order.
+  // This preserves Photoshop stacking while preventing a 30-layer PSD from
+  // waiting for 30 network/image decodes one after another.
+  const converted = await Promise.all((document.layers || []).map(async (layer) => {
     try {
       const obj = await layerToFabric(layer, { resolveAssetUrl });
-      // Keep PSD folders as real Fabric groups. The Array branch remains for
-      // compatibility with older custom layer adapters, but PSD groups use a
-      // single nested object and therefore remain visible in Layers.
-      if (Array.isArray(obj)) canvas.add(...obj);
-      else if (obj) canvas.add(obj);
+      return { layer, obj };
     } catch (err) {
       failures.push({ layer, err });
       console.error(`Layer "${layer.name || layer.id}" failed to load, skipping:`, err);
+      return { layer, obj: null };
     }
+  }));
+  for (const { obj } of converted) {
+    // Keep PSD folders as real Fabric groups. The Array branch remains for
+    // compatibility with older custom layer adapters, but PSD groups use a
+    // single nested object and therefore remain visible in Layers.
+    if (Array.isArray(obj)) canvas.add(...obj);
+    else if (obj) canvas.add(obj);
   }
   canvas.renderAll();
   return { failures };

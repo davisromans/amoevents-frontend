@@ -49,21 +49,19 @@ export async function resolveAssetUrl(assetId) {
   }
   try {
     const asset = await http.get(`/admin/template-assets/${assetId}`).then(unwrap);
-    // Signed URLs expire. Download once, cache by the stable Asset id, and
-    // render from the same Blob URL. When CORS prevents a direct fetch we
-    // still fall back to the provider URL and the service worker cache.
-    try {
-      const response = await fetch(asset.url);
-      if (response.ok) {
+    // Render from the signed URL immediately. The old path blocked canvas
+    // startup until every image had first downloaded and been written to
+    // IndexedDB, sequentially for top-level PSD layers. Cache in the
+    // background instead so offline support never becomes an online loading
+    // gate. A later page load will prefer the completed local copy.
+    cache.set(assetId, asset.url);
+    fetch(asset.url)
+      .then(async (response) => {
+        if (!response.ok) return;
         const blob = await response.blob();
         await putOfflineMedia(offlineAssetKey(assetId), blob);
-        const localUrl = URL.createObjectURL(blob);
-        objectUrls.set(assetId, localUrl);
-        cache.set(assetId, localUrl);
-        return localUrl;
-      }
-    } catch { /* use the signed URL below */ }
-    cache.set(assetId, asset.url);
+      })
+      .catch(() => {});
     return asset.url;
   } catch (err) {
     const localUrl = await cachedObjectUrl(assetId);
