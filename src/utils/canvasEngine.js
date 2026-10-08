@@ -154,12 +154,27 @@ export function mutateTextPreservingLayout(obj, mutation) {
     mutation?.();
     return;
   }
+  const data = obj.get('data') || {};
+  if (data.legacyPsdTextNaturalLayout) {
+    mutation?.();
+    reflowLegacyPsdSingleLineText(obj);
+    return;
+  }
   const targetWidth = Math.max(0.01, obj.getScaledWidth?.() || (obj.width || 0) * (obj.scaleX || 1));
   const targetHeight = Math.max(0.01, obj.getScaledHeight?.() || (obj.height || 0) * (obj.scaleY || 1));
   const left = obj.left;
   const top = obj.top;
   mutation?.();
   obj.initDimensions?.();
+  if (data.sourceLayer?.textLayoutVersion >= 2 && obj.type === 'textbox') {
+    // Photoshop paragraph text owns a frame width, not a glyph rectangle
+    // that should be stretched in both directions when its font loads.
+    obj.set({ left, top, width: targetWidth, scaleX: 1, scaleY: 1 });
+    obj.initDimensions?.();
+    obj.setCoords();
+    obj.dirty = true;
+    return;
+  }
   obj.set({
     left,
     top,
@@ -170,10 +185,61 @@ export function mutateTextPreservingLayout(obj, mutation) {
   obj.dirty = true;
 }
 
+function isLegacyPsdSingleLineText(layer) {
+  return layer?.textMode !== 'point'
+    && layer?.source?.format === 'psd'
+    && !layer?.textLayoutVersion
+    && !String(layer?.text || '').includes('\n');
+}
+
+function reflowLegacyPsdSingleLineText(textbox) {
+  const oldWidth = Math.max(0.01, textbox.getScaledWidth?.() || textbox.width || 0.01);
+  const left = Number(textbox.left) || 0;
+  const top = Number(textbox.top) || 0;
+  const probe = new fabric.IText(textbox.text || '', {
+    fontFamily: textbox.fontFamily,
+    fontSize: textbox.fontSize,
+    fontWeight: textbox.fontWeight,
+    fontStyle: textbox.fontStyle,
+    fill: textbox.fill,
+    stroke: textbox.stroke,
+    strokeWidth: textbox.strokeWidth,
+    underline: textbox.underline,
+    linethrough: textbox.linethrough,
+    charSpacing: textbox.charSpacing,
+  });
+  applyCharStyles(probe, extractCharStyles(textbox));
+  probe.initDimensions?.();
+  const naturalWidth = Math.max(oldWidth, Math.ceil((probe.width || oldWidth) + 2));
+  const delta = naturalWidth - oldWidth;
+  const align = textbox.textAlign || 'left';
+  textbox.set({
+    left: left - (align === 'right' ? delta : align === 'center' ? delta / 2 : 0),
+    top,
+    width: naturalWidth,
+    scaleX: 1,
+    scaleY: 1,
+  });
+  textbox.initDimensions?.();
+  textbox.set('data', { ...(textbox.get('data') || {}), legacyPsdTextNaturalLayout: true });
+  textbox.setCoords();
+  textbox.dirty = true;
+}
+
 function fitNewTextToLayerBounds(textbox, layer) {
   const targetWidth = Number(layer.width);
   const targetHeight = Number(layer.height);
   if (!(targetWidth > 0) || !(targetHeight > 0)) return;
+  if (isLegacyPsdSingleLineText(layer)) {
+    reflowLegacyPsdSingleLineText(textbox);
+    return;
+  }
+  if (layer.textLayoutVersion >= 2 && layer.textMode !== 'point') {
+    textbox.set({ width: targetWidth, scaleX: 1, scaleY: 1 });
+    textbox.initDimensions?.();
+    textbox.setCoords();
+    return;
+  }
   textbox.initDimensions?.();
   textbox.set({
     scaleX: targetWidth / Math.max(0.01, textbox.width || 0.01),
@@ -495,6 +561,7 @@ function fabricToLayer(obj) {
       stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
+      textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
   }
   if (obj.type === 'image') {
