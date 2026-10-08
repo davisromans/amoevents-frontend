@@ -100,7 +100,7 @@ watch(category, load);
 onMounted(load);
 
 async function pick(tpl) {
-  if (!(await askConfirm(`Clone "${tpl.name}" into this event as a new variant?`))) return;
+  if (!(await askConfirm(`Use “${tpl.name}” as this event’s card design?`))) return;
   try {
     await api.cloneTemplate(tpl._id, route.params.id);
     toast.success('Template added. Guest cards are being generated.');

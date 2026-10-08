@@ -11,6 +11,11 @@
                      class="btn-secondary !text-sm">
           <PencilSquareIcon class="w-4 h-4" /> Edit design
         </router-link>
+        <button v-if="samplerVariant?.sourceTemplateId" class="btn-ghost !text-sm"
+                :disabled="resettingDesign" @click="resetDesign">
+          <span v-if="resettingDesign" class="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-r-transparent animate-spin" />
+          <ArrowPathIcon v-else class="w-4 h-4" /> {{ resettingDesign ? 'Resetting…' : 'Reset design' }}
+        </button>
         <button v-if="samplerVariant && samplerVariant.sourceType !== 'document'" class="btn-secondary !text-sm" @click="openSamplerEditor">
           <QrCodeIcon class="w-4 h-4" /> Position QR
         </button>
@@ -366,12 +371,13 @@ import {
 import AppModal from '@/components/common/AppModal.vue';
 import { getCardUrl } from '@/services/cards.service';
 import { updateGuest, getGuestQrUrl } from '@/services/guests.service';
-import { listVariants, updateVariant, variantImageUrlById, repairCards } from '@/services/cardVariants.service';
+import { listVariants, updateVariant, variantImageUrlById, repairCards, resetVariantDesign } from '@/services/cardVariants.service';
 import { listGuests } from '@/services/guests.service';
 import { fetchPreviewUrl, cardCoverage, downloadGuestCardPng, downloadPdf as downloadPdfApi } from '@/services/cardVariants.service';
 import { getEvent, updateEvent } from '@/services/events.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
+import { askConfirm } from '@/composables/useConfirm';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -409,6 +415,7 @@ const coverage = reactive({});    // guestId → true if own artwork/variant
 const selected = ref(new Set());
 const pdfBusy = ref(false);
 const pngBusy = ref(false);
+const resettingDesign = ref(false);
 const THUMBNAIL_CONCURRENCY = 4;
 let thumbnailBatch = 0;
 
@@ -504,6 +511,29 @@ async function loadThumbBatch(items, bust) {
     { length: Math.min(THUMBNAIL_CONCURRENCY, items.length) },
     worker,
   ));
+}
+
+async function resetDesign() {
+  const variant = samplerVariant.value;
+  if (!variant?.sourceTemplateId || resettingDesign.value) return;
+  const confirmed = await askConfirm({
+    title: 'Reset this design?',
+    message: 'Your event’s design edits will be replaced with the current original design. Guest information and cards remain safe.',
+    confirmText: 'Reset design',
+    tone: 'danger',
+  });
+  if (!confirmed) return;
+  resettingDesign.value = true;
+  try {
+    await resetVariantDesign(route.params.id, variant._id);
+    await refresh();
+    invalidateAllThumbs();
+    toast.success('Design reset to the current original.');
+  } catch (error) {
+    toast.error(apiErrorMessage(error));
+  } finally {
+    resettingDesign.value = false;
+  }
 }
 
 async function refresh() {

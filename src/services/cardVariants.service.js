@@ -46,6 +46,9 @@ export const updateVariant = (eventId, variantId, patch) =>
 export const deleteVariant = (eventId, variantId) =>
   http.delete(`/events/${eventId}/card-variants/${variantId}`).then(unwrap);
 
+export const resetVariantDesign = (eventId, variantId) =>
+  http.post(`/events/${eventId}/card-variants/${variantId}/reset-design`, {}, { timeout: 120000 }).then(unwrap);
+
 // Fetch preview as blob → object URL for <img>. Grid thumbnails default to
 // 400px JPEG (~40-60 KB) — matches the actual displayed size in the 2/3/4
 // column grid. Full-res PNGs are only fetched by the explicit download

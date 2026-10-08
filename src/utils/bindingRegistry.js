@@ -9,8 +9,13 @@ export const BINDING_FIELDS = [
   { key: 'guest.lastName', label: 'Guest last name', sample: 'Kimaro' },
   { key: 'guest.fullName', label: 'Guest full name', sample: 'Amara Kimaro' },
   { key: 'guest.phone', label: 'Guest phone', sample: '+255 712 345 678' },
+  { key: 'guest.whatsapp', label: 'Guest WhatsApp', sample: '+255 712 345 678' },
   { key: 'guest.memberId', label: 'Guest member ID', sample: '2026-0142' },
   { key: 'guest.tableNumber', label: 'Table number', sample: '12' },
+  { key: 'guest.type', label: 'Guest type', sample: 'family' },
+  { key: 'guest.familySize', label: 'Invitation count', sample: '4' },
+  { key: 'guest.seatType', label: 'Invitation type', sample: 'Double x2' },
+  { key: 'guest.pubCode', label: 'Guest short code', sample: 'A7K' },
   { key: 'event.name', label: 'Event name', sample: 'Amara & Kitos Wedding' },
   { key: 'event.coupleNames', label: 'Couple names', sample: 'Amara & Kitos' },
   { key: 'event.date', label: 'Event date', sample: 'Saturday, 14 March 2026' },
@@ -19,6 +24,7 @@ export const BINDING_FIELDS = [
   { key: 'event.venueAddress', label: 'Venue address', sample: 'Msasani Peninsula, Dar es Salaam' },
   { key: 'event.hostText', label: 'Host text', sample: 'The Kimaro & Mushi families invite you' },
   { key: 'event.dressCode', label: 'Dress code', sample: 'Gold & Ivory' },
+  { key: 'event.code', label: 'Event code', sample: 'AMK' },
 ];
 
 export function findBinding(key) {
