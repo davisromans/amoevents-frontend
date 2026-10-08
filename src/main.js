@@ -38,15 +38,24 @@ async function boot() {
   const { useAuthStore } = await import('./stores/auth');
   const auth = useAuthStore();
   if (localStorage.getItem('gc.accessToken')) {
-    // Best-effort — if /auth/me fails (token expired / server hiccup) the
-    // store logs out on its own inside fetchMe, so the guard will still
-    // redirect to /login cleanly.
-    try { await auth.fetchMe(); } catch (_) { /* handled inside */ }
+    if (auth.user) {
+      // A normal refresh already has the last verified user in localStorage.
+      // Render immediately and refresh the profile in the background; making
+      // the entire SPA wait for this network request caused false blank-page
+      // recovery on slow/mobile connections.
+      auth.ready = true;
+      auth.fetchMe().catch(() => {});
+    } else {
+      // OAuth can return tokens before a user snapshot exists, so this first
+      // login still needs one blocking profile fetch.
+      try { await auth.fetchMe(); } catch (_) { /* handled inside */ }
+    }
   } else {
     auth.ready = true;
   }
   await router.isReady();
   app.mount('#app');
+  try { window.sessionStorage.removeItem('gc.autoRecoveryAttempts'); } catch (_) {}
   // The one-time recovery query forces a network navigation past an old app
   // shell. Remove it after a successful mount so copied links stay clean.
   const currentUrl = new URL(window.location.href);

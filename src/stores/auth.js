@@ -2,10 +2,23 @@ import { defineStore } from 'pinia';
 import http, { unwrap } from '@/services/http';
 import { isOfflineError } from '@/services/offline.store';
 
+function storedJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    // A truncated/corrupt cached profile must never prevent the whole SPA
+    // from importing. The access token is left intact so fetchMe can rebuild
+    // the profile automatically.
+    localStorage.removeItem(key);
+    return null;
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: JSON.parse(localStorage.getItem('gc.user') || 'null'),
-    tenant: JSON.parse(localStorage.getItem('gc.tenant') || 'null'),
+    user: storedJson('gc.user'),
+    tenant: storedJson('gc.tenant'),
     ready: false,
   }),
   getters: {

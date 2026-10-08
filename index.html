@@ -40,11 +40,6 @@
       }
       #amoevents-boot-title { margin: 0; font-size: 18px; font-weight: 800; }
       #amoevents-boot-message { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #667085; }
-      #amoevents-recover {
-        display: none; margin: 18px auto 0; border: 0; border-radius: 12px;
-        padding: 11px 18px; background: #059669; color: #fff; cursor: pointer;
-        font: inherit; font-size: 13px; font-weight: 800;
-      }
       .dark #amoevents-boot { background: #080d12; color: #edf2f4; }
       .dark #amoevents-boot-message { color: #98a2ad; }
       @keyframes amoevents-spin { to { transform: rotate(360deg); } }
@@ -52,21 +47,30 @@
     <script>
       // This recovery layer is deliberately plain HTML/JS. It still works if
       // Vue's current hashed bundle is stale, missing, or failed before mount.
+      var amoeventsRecoveryStarted = false;
+      var amoeventsRecoveryKey = 'gc.autoRecoveryAttempts';
       window.__showAmoEventsRecovery = function (reason) {
         var title = document.getElementById('amoevents-boot-title');
         var message = document.getElementById('amoevents-boot-message');
-        var button = document.getElementById('amoevents-recover');
-        var spinner = document.getElementById('amoevents-boot-spinner');
-        if (!title || !button) return;
-        title.textContent = 'Amo Events needs to refresh its app files';
-        message.textContent = 'Your account and offline event data are safe. Reset the app cache and reopen this page.';
-        button.style.display = 'inline-block';
-        if (spinner) spinner.style.display = 'none';
+        if (title) title.textContent = 'Refreshing Amo Events…';
+        if (message) message.textContent = 'Updating app files automatically. Your account and saved event records are safe.';
         if (reason) console.error('[boot recovery]', reason);
+        window.__recoverAmoEvents(reason);
       };
-      window.__recoverAmoEvents = async function () {
-        var button = document.getElementById('amoevents-recover');
-        if (button) { button.disabled = true; button.textContent = 'Resetting app cache…'; }
+      window.__recoverAmoEvents = async function (reason) {
+        if (amoeventsRecoveryStarted) return;
+        amoeventsRecoveryStarted = true;
+        var attempts = 0;
+        try { attempts = Number(sessionStorage.getItem(amoeventsRecoveryKey) || 0); } catch (_) {}
+        if (attempts >= 2) {
+          // The app files and SW have already been reset twice. At this point
+          // the network/origin is probably temporarily unavailable; keep
+          // retrying quietly rather than trapping the user behind a button.
+          if (reason) console.error('[automatic recovery paused]', reason);
+          window.setTimeout(function () { window.location.reload(); }, 30000);
+          return;
+        }
+        try { sessionStorage.setItem(amoeventsRecoveryKey, String(attempts + 1)); } catch (_) {}
         try {
           if ('serviceWorker' in navigator) {
             var registrations = await navigator.serviceWorker.getRegistrations();
@@ -98,7 +102,7 @@
       });
       window.setTimeout(function () {
         if (document.getElementById('amoevents-boot')) window.__showAmoEventsRecovery('Application boot timed out');
-      }, 10000);
+      }, 12000);
     </script>
   </head>
   <body class="h-full bg-surface-cream dark:bg-surface-night text-surface-charcoal dark:text-surface-bone">
@@ -116,7 +120,6 @@
           <div id="amoevents-boot-spinner"></div>
           <p id="amoevents-boot-title">Opening Amo Events…</p>
           <p id="amoevents-boot-message">Loading your event workspace.</p>
-          <button id="amoevents-recover" type="button" onclick="window.__recoverAmoEvents()">Reset app cache and reopen</button>
         </div>
       </div>
     </div>
