@@ -1990,7 +1990,14 @@ async function preloadDocumentFonts(doc) {
   if (!families?.length) return;
   try {
     const rows = await getFontsByFamilies(families);
-    await Promise.all(rows.map((f) => loadFont(f)));
+    // A font host can be slow or blocked while the rest of Amo Events is
+    // healthy. Never hold the entire Studio behind an unbounded FontFace or
+    // Google stylesheet request; paint with a fallback, then the missing-font
+    // workflow can resolve the family explicitly.
+    await Promise.allSettled(rows.map((font) => Promise.race([
+      loadFont(font),
+      new Promise((resolve) => window.setTimeout(resolve, 5000)),
+    ])));
   } catch { /* rendering falls back to the browser default font; not worth surfacing */ }
 }
 
