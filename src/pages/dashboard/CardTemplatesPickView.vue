@@ -102,17 +102,14 @@ onMounted(load);
 async function pick(tpl) {
   if (!(await askConfirm(`Clone "${tpl.name}" into this event as a new variant?`))) return;
   try {
-    const variant = await api.cloneTemplate(tpl._id, route.params.id);
-    toast.success('Cloned to your event');
-    // A 'document' template clones into an equally-editable CardVariant —
-    // send them straight into the Studio to customize it (text, artwork,
-    // QR position) instead of back to the flat variants grid, where the
-    // only lever for a document-type card is the old flat-image QR sliders.
-    if (variant.sourceType === 'document') {
-      router.push(`/studio/variants/${route.params.id}/${variant._id}`);
-    } else {
-      router.push(`/app/events/${route.params.id}/cards/variants`);
-    }
+    await api.cloneTemplate(tpl._id, route.params.id);
+    toast.success('Template added. Guest cards are being generated.');
+    // Selecting a template is primarily a generation action. Opening the
+    // full PSD-style editor here made a successful clone look like a timeout
+    // while its fonts and image layers loaded. Return to the card grid so the
+    // operator immediately sees generated cards; editable variants still
+    // expose their dedicated Edit design action from that page.
+    router.push(`/app/events/${route.params.id}/cards/variants`);
   } catch (err) { toast.error(apiErrorMessage(err)); }
 }
 

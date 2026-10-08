@@ -409,6 +409,8 @@ const coverage = reactive({});    // guestId → true if own artwork/variant
 const selected = ref(new Set());
 const pdfBusy = ref(false);
 const pngBusy = ref(false);
+const THUMBNAIL_CONCURRENCY = 4;
+let thumbnailBatch = 0;
 
 // Multi-select PNG download — iterate serially so we don't melt the nanode's
 // 1 vCPU with parallel sharp composites. Browser handles each save via the
@@ -489,6 +491,21 @@ async function loadThumb(g, bust, retriesLeft = 2) {
   }
 }
 
+async function loadThumbBatch(items, bust) {
+  const batch = ++thumbnailBatch;
+  let cursor = 0;
+  const worker = async () => {
+    while (batch === thumbnailBatch && cursor < items.length) {
+      const guest = items[cursor++];
+      await loadThumb(guest, bust);
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(THUMBNAIL_CONCURRENCY, items.length) },
+    worker,
+  ));
+}
+
 async function refresh() {
   loading.value = true;
   try {
@@ -530,11 +547,17 @@ async function refresh() {
     // Cache-Control: no-store but disk/HTTP layers between us and the
     // client sometimes ignore that.
     const initialBust = Date.now();
-    items.forEach((g, i) => {
+    const renderable = [];
+    items.forEach((g) => {
       const canRender = !!g.cardImagePath || hasSampler;
-      if (canRender) setTimeout(() => loadThumb(g, initialBust), i * 30);
+      if (canRender) renderable.push(g);
       else thumbErrors[g._id] = true;
     });
+    // Keep browser and origin pressure bounded. The previous 30 ms stagger
+    // still launched all 60 requests within two seconds, while the server can
+    // only render two editable documents at once; the remaining requests sat
+    // queued until their client timeouts expired.
+    loadThumbBatch(renderable, initialBust);
   } catch (err) { toast.error(apiErrorMessage(err)); }
   finally { loading.value = false; }
 }
@@ -908,7 +931,7 @@ function invalidateAllThumbs() {
     try { URL.revokeObjectURL(thumbs[id]); } catch {}
     delete thumbs[id];
   }
-  guests.value.forEach((g, i) => setTimeout(() => loadThumb(g, bust), i * 30));
+  loadThumbBatch(guests.value.filter(hasAnyArtwork), bust);
 }
 
 // PATCH the event with the current typography state — same shape as
