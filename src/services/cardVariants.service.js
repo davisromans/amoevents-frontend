@@ -76,7 +76,11 @@ export async function fetchPreviewUrl(eventId, guestId, { bust, w = 400, stamp =
       params,
       timeout: 120000,
     });
-    await putOfflineMedia(cacheKey, res.data);
+    // The network response is authoritative. Offline media caching is only a
+    // convenience and can fail when IndexedDB is full (a 60-card page can hit
+    // a mobile browser's quota quickly). Never turn a valid generated card
+    // into “No artwork” merely because the optional local cache rejected it.
+    putOfflineMedia(cacheKey, res.data).catch(() => {});
     return URL.createObjectURL(res.data);
   } catch (error) {
     if (!isOfflineError(error)) throw error;
