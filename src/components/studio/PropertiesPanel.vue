@@ -291,7 +291,7 @@ import {
 } from '@heroicons/vue/24/outline';
 import FontPicker from './FontPicker.vue';
 import FillPicker from './FillPicker.vue';
-import { alignObjects, distributeObjects, BLEND_MODE_TO_COMPOSITE, setDropShadow, clearDropShadow } from '@/utils/canvasEngine';
+import { alignObjects, distributeObjects, BLEND_MODE_TO_COMPOSITE, setDropShadow, clearDropShadow, mutateTextPreservingLayout } from '@/utils/canvasEngine';
 import { FILTER_GALLERY, toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { STYLE_PRESETS } from '@/utils/cropTool';
 import { BINDING_FIELDS } from '@/utils/bindingRegistry';
@@ -486,7 +486,14 @@ function setTextProp(key, value) {
   }
 }
 function setFont(family) {
-  setTextProp('fontFamily', family);
+  const sel = getEffectiveSelection();
+  const target = sel?.obj || obj.value;
+  mutateTextPreservingLayout(target, () => {
+    if (sel) target.setSelectionStyles({ fontFamily: family }, sel.start, sel.end);
+    else target.set('fontFamily', family);
+  });
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
 }
 
 // ── Variable — one control for both whole-layer binding and inline tokens ──

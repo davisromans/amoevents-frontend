@@ -125,8 +125,14 @@ export async function getTemplateProject(projectId) {
 
 export async function putTemplateProject(projectId, project) {
   try {
+    // Vue refs/reactive objects are Proxy instances. IndexedDB's structured
+    // clone algorithm rejects nested proxies with DataCloneError, which made
+    // a perfectly valid cloud save end with “could not store local draft”.
+    // Template documents are JSON data, so strip framework proxies before
+    // opening the transaction and persist a stable plain snapshot.
+    const plainProject = JSON.parse(JSON.stringify(project));
     await request(TEMPLATE_STORE, 'readwrite', (store) => store.put({
-      ...project,
+      ...plainProject,
       projectId: String(projectId),
       savedLocallyAt: Date.now(),
       scope: userScope(),

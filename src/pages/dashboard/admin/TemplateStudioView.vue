@@ -34,9 +34,9 @@
 
       <!-- Zoom controls -->
       <div class="flex items-center gap-1 surface-inset rounded-lg p-1">
-        <button class="btn-ghost !p-1.5" @click="zoomBy(-5)"><MinusIcon class="w-3.5 h-3.5" /></button>
-        <button class="text-2xs font-bold w-12 text-center" @click="resetZoom">{{ Math.round(zoom * 100) }}%</button>
-        <button class="btn-ghost !p-1.5" @click="zoomBy(5)"><PlusIcon class="w-3.5 h-3.5" /></button>
+        <button class="btn-ghost !p-1.5" title="Zoom out 5% (Ctrl/Cmd −)" @click="zoomBy(-5)"><MinusIcon class="w-3.5 h-3.5" /></button>
+        <button class="text-2xs font-bold w-12 text-center" title="Fit to screen (Ctrl/Cmd 0)" @click="fitZoomToViewport(); applyZoom()">{{ Math.round(zoom * 100) }}%</button>
+        <button class="btn-ghost !p-1.5" title="Zoom in 5% (Ctrl/Cmd +)" @click="zoomBy(5)"><PlusIcon class="w-3.5 h-3.5" /></button>
       </div>
       <div class="relative flex items-center">
         <button class="btn-ghost !p-1.5" :class="{ 'text-brand-primary': showGrid }" @click="showGrid = !showGrid" title="Toggle grid">
@@ -352,6 +352,7 @@
       v-model="missingFontsOpen"
       :fonts="missingFonts"
       @uploaded="onMissingFontUploaded"
+      @imported="onFontsImported"
       @use-default="onMissingFontUseDefault"
     />
   </div>
@@ -376,6 +377,7 @@ import { getTemplateProject, putTemplateProject } from '@/services/offline.store
 import {
   createEngineCanvas, loadDocument, serializeDocument,
   bringForward, sendBackward, setLayerLocked, setLayerVisible, rasterizeObject, restoreConvertedText,
+  refreshTextMetricsPreservingLayout, mutateTextPreservingLayout,
 } from '@/utils/canvasEngine';
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
@@ -428,6 +430,8 @@ const SHORTCUTS = [
   { action: 'Nudge / large nudge', keys: 'Arrows / Shift + arrows' },
   { action: 'Select, Pen, Brush, Clone, Dodge, Eraser', keys: 'V P B S O E' },
   { action: 'Actual size / fit', keys: 'Ctrl/Cmd + 1 / 0' },
+  { action: 'Zoom in / out by 5%', keys: 'Ctrl/Cmd + / −' },
+  { action: 'Toggle snap to grid', keys: 'Ctrl/Cmd + Shift + ;' },
   { action: 'Cancel tool or close selection', keys: 'Esc' },
   { action: 'Shortcut reference', keys: '?' },
 ];
@@ -911,6 +915,17 @@ function onKeyDown(e) {
     if (e.shiftKey) save(); else saveLocalDraft({ notify: true });
     return;
   }
+  if (mod && e.shiftKey && (e.key === ';' || e.key === ':')) {
+    e.preventDefault();
+    snapToGrid.value = !snapToGrid.value;
+    toast.success(`Snap to grid ${snapToGrid.value ? 'enabled' : 'disabled'}`);
+    return;
+  }
+  if (mod && ['+', '=', '-', '_'].includes(e.key)) {
+    e.preventDefault();
+    zoomBy(e.key === '+' || e.key === '=' ? 5 : -5);
+    return;
+  }
   // Font size — Ctrl/Cmd+Shift+. to grow, Ctrl/Cmd+Shift+, to shrink,
   // matching Illustrator/Figma's convention. Checked BEFORE the generic
   // "typing in a field" bail-out below, because Fabric's own text-editing
@@ -995,6 +1010,11 @@ function onKeyDown(e) {
   if (mod && (e.key === '0' || e.key === '1')) {
     e.preventDefault();
     if (e.key === '0') { fitZoomToViewport(); applyZoom(); } else resetZoom();
+    return;
+  }
+  if (!mod && ['+', '-', '_'].includes(e.key)) {
+    e.preventDefault();
+    zoomBy(e.key === '+' ? 5 : -5);
     return;
   }
   if (e.key === '[' || e.key === ']') {
@@ -1994,26 +2014,23 @@ async function preloadDocumentFonts(doc) {
     // healthy. Never hold the entire Studio behind an unbounded FontFace or
     // Google stylesheet request; paint with a fallback, then the missing-font
     // workflow can resolve the family explicitly.
-    await Promise.allSettled(rows.map((font) => {
+    const matchesFamily = (font, family) => {
+      const wanted = family.toLowerCase();
+      return font.family?.toLowerCase() === wanted
+        || (font.aliases || []).some((alias) => alias.toLowerCase() === wanted);
+    };
+    await Promise.allSettled(families.map((family) => {
+      const font = rows.find((row) => matchesFamily(row, family));
+      if (!font) return Promise.resolve();
       // Do not cancel a slow font after the five-second paint budget. Let it
       // finish in the background and explicitly refresh Fabric's text metrics
       // when it arrives; otherwise a successful late BellMTBold download
       // remained visually stuck in the fallback face until another edit.
-      const eventualLoad = loadFont(font).then(() => {
-        const refreshText = (objects) => {
-          for (const obj of objects || []) {
-            if (obj.type === 'group') refreshText(obj.getObjects());
-            else if (['textbox', 'text', 'i-text'].includes(obj.type)) {
-              obj.initDimensions?.();
-              obj.setCoords();
-              obj.dirty = true;
-            }
-          }
-        };
-        if (fabricCanvasRaw) {
-          refreshText(fabricCanvasRaw.getObjects());
-          fabricCanvasRaw.requestRenderAll();
-        }
+      const eventualLoad = loadFont(font, family).then(() => {
+        if (fabricCanvasRaw) refreshTextMetricsPreservingLayout(
+          fabricCanvasRaw,
+          (obj) => fabricTextUsesFamily(obj, family),
+        );
       });
       return Promise.race([
       eventualLoad,
@@ -2083,7 +2100,8 @@ async function refreshMissingFonts(doc, { open = true } = {}) {
   let available = new Set();
   try {
     const rows = await getFontsByFamilies(candidates);
-    available = new Set(rows.map((row) => row.family?.toLowerCase()).filter(Boolean));
+    available = new Set(rows.flatMap((row) => [row.family, ...(row.aliases || [])])
+      .map((family) => family?.toLowerCase()).filter(Boolean));
   } catch {
     // Offline: retain the importer's explicit list, but do not accuse every
     // historical document font of being missing without an exact lookup.
@@ -2134,6 +2152,7 @@ function fabricTextUsesFamily(obj, family) {
 async function resolveMissingFont(family, replacement) {
   if (!fabricCanvasRaw) return;
   let pendingRestored = null;
+  const changedTextObjects = [];
   async function walk(objects) {
     for (const obj of [...objects]) {
       if (obj.type === 'group') {
@@ -2141,11 +2160,11 @@ async function resolveMissingFont(family, replacement) {
         continue;
       }
       if (['textbox', 'text', 'i-text'].includes(obj.type)) {
-        if (obj.fontFamily?.toLowerCase() === family.toLowerCase()) obj.set('fontFamily', replacement);
-        replaceFabricStyleFamilies(obj.styles, family, replacement);
-        obj.initDimensions?.();
-        obj.setCoords();
-        obj.dirty = true;
+        mutateTextPreservingLayout(obj, () => {
+          if (obj.fontFamily?.toLowerCase() === family.toLowerCase()) obj.set('fontFamily', replacement);
+          replaceFabricStyleFamilies(obj.styles, family, replacement);
+        });
+        changedTextObjects.push(obj);
         continue;
       }
       if (obj.type !== 'image') continue;
@@ -2161,6 +2180,9 @@ async function resolveMissingFont(family, replacement) {
   }
 
   await walk(fabricCanvasRaw.getObjects());
+  // The mutation above already remeasured each object against its pre-change
+  // rectangle; this call also refreshes any nested group coordinate caches.
+  refreshTextMetricsPreservingLayout(changedTextObjects);
   missingFonts.value = missingFonts.value.filter((item) => item.family.toLowerCase() !== family.toLowerCase());
   document.value.missingFontFamilies = missingFonts.value.map((item) => item.family);
   if (!missingFonts.value.length) missingFontsOpen.value = false;
@@ -2183,6 +2205,13 @@ async function resolveMissingFont(family, replacement) {
 async function onMissingFontUploaded(family) {
   await resolveMissingFont(family, family);
   toast.success(`“${family}” uploaded. Its PSD text is editable now.`);
+}
+
+async function onFontsImported() {
+  await preloadDocumentFonts(document.value);
+  await refreshMissingFonts(document.value, { open: true });
+  fabricCanvasRaw?.requestRenderAll();
+  toast.success('Font pack imported. Matching PSD text has been refreshed.');
 }
 
 async function onMissingFontUseDefault(family) {
@@ -2569,7 +2598,13 @@ async function save() {
     await router.replace(destination);
     // Save under the final route-derived project key. This matters for a
     // brand-new template, whose draft initially lives under `template:new`.
-    await saveLocalDraft({ notify: false, dirty: false });
+    try {
+      await saveLocalDraft({ notify: false, dirty: false });
+    } catch {
+      // The cloud write already succeeded. A browser storage/quota problem
+      // must not misreport the entire save as failed.
+      toast.error('Saved to cloud, but this browser could not refresh its offline draft.');
+    }
     autosaveStatus.value = 'cloud';
     toast.success('Saved to cloud');
   } catch (err) {

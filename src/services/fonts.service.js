@@ -24,14 +24,13 @@ export const searchGoogleCatalog = (params) => http.get('/fonts/google-catalog',
 
 export const addGoogleFont = (family) => http.post('/admin/fonts/google', { family }).then(unwrap);
 
-export async function uploadFontVariant(file, { family, weight, style, category }) {
+export async function uploadFontVariant(file, { family, category } = {}) {
   const form = new FormData();
   form.append('file', file);
-  form.append('family', family);
-  const expectedWeight = Number(weight ?? 400);
-  const expectedStyle = style || 'normal';
-  form.append('weight', String(expectedWeight));
-  form.append('style', expectedStyle);
+  // Family/weight/style come from the font's own name and OS/2 tables. A
+  // family hint is only used by the missing-PSD-font flow, where Photoshop's
+  // embedded alias must remain the CSS family used by that document.
+  if (family) form.append('familyHint', family);
   if (category) form.append('category', category);
   try {
     // Font uploads are small, but a slow client-to-origin path can lose the
@@ -44,22 +43,34 @@ export async function uploadFontVariant(file, { family, weight, style, category 
     });
     return unwrap(res);
   } catch (error) {
-    // POST is idempotent for family + weight + style: the backend replaces
-    // that variant. If its response was lost, reconcile with the exact font
+    // POST is idempotent for detected family + weight + style: the backend
+    // replaces that variant. If its response was lost, reconcile with the
     // roster before declaring failure. This is the case that previously left
     // BellMTBold stored successfully while the modal said "network error".
     const responseLost = !error?.response || ['ECONNABORTED', 'ETIMEDOUT', 'ERR_NETWORK'].includes(error?.code);
-    if (responseLost) {
+    if (responseLost && family) {
       try {
         const rows = await getFontsByFamilies([family]);
-        const saved = rows.find((row) => row.family?.toLowerCase() === family.toLowerCase()
-          && (row.variants || []).some((variant) =>
-            Number(variant.weight) === expectedWeight && variant.style === expectedStyle));
+        const wanted = family.toLowerCase();
+        const saved = rows.find((row) => row.family?.toLowerCase() === wanted
+          || (row.aliases || []).some((alias) => alias.toLowerCase() === wanted));
         if (saved) return saved;
       } catch { /* retain the original upload error */ }
     }
     throw error;
   }
+}
+
+export async function uploadFontFiles(files) {
+  const list = [...(files || [])];
+  if (!list.length) return { fonts: [], failed: [], total: 0 };
+  const form = new FormData();
+  list.forEach((file) => form.append('files', file));
+  const response = await http.post('/admin/fonts/upload-batch', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000,
+  });
+  return unwrap(response);
 }
 
 export const deleteFont = (id) => http.delete(`/admin/fonts/${id}`).then(unwrap);

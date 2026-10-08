@@ -67,12 +67,13 @@ export async function loadUploadedFontVariant(family, variant) {
   }
 }
 
-export async function loadUploadedFont(fontDoc) {
-  await Promise.all((fontDoc.variants || []).map((v) => loadUploadedFontVariant(fontDoc.family, v)));
+export async function loadUploadedFont(fontDoc, familyOverride) {
+  const family = familyOverride || fontDoc.family;
+  await Promise.all((fontDoc.variants || []).map((v) => loadUploadedFontVariant(family, v)));
 }
 
 /** Dispatches to the right loader based on a Font document's `source`. */
-export function loadFont(fontDoc) {
-  if (fontDoc.source === 'google') return loadGoogleFont(fontDoc.googleFamily || fontDoc.family);
-  return loadUploadedFont(fontDoc);
+export function loadFont(fontDoc, familyOverride) {
+  if (fontDoc.source === 'google') return loadGoogleFont(familyOverride || fontDoc.googleFamily || fontDoc.family);
+  return loadUploadedFont(fontDoc, familyOverride);
 }

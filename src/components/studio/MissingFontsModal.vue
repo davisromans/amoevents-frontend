@@ -7,6 +7,20 @@
         <p class="mt-1">Upload the matching font to keep the original design, or replace it with Inter. Text stays editable either way.</p>
       </div>
 
+      <div class="rounded-xl border border-surface-mist p-3 dark:border-surface-fog">
+        <label class="btn-secondary !py-2 !px-3 !text-xs cursor-pointer inline-flex"
+               :class="{ 'pointer-events-none opacity-60': batchUploading || uploadingFamily }">
+          {{ batchUploading ? 'Reading font metadata…' : 'Import several font files' }}
+          <input type="file" multiple accept=".ttf,.otf,.woff,.woff2" class="hidden"
+                 :disabled="batchUploading || !!uploadingFamily" @change="uploadBatch" />
+        </label>
+        <p class="mt-1.5 text-2xs text-surface-slate dark:text-surface-ash">
+          Select a whole font family at once. Names, weights and italic styles are detected automatically.
+        </p>
+        <p v-if="batchMessage" class="mt-1.5 text-2xs text-emerald-600 dark:text-emerald-400">{{ batchMessage }}</p>
+        <p v-if="batchError" class="mt-1.5 whitespace-pre-line text-2xs text-red-600 dark:text-red-400">{{ batchError }}</p>
+      </div>
+
       <div v-for="font in fonts" :key="font.family"
            class="rounded-xl border border-surface-mist p-3 dark:border-surface-fog">
         <div class="flex items-start justify-between gap-3">
@@ -54,7 +68,7 @@
 <script setup>
 import { reactive, ref } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
-import { uploadFontVariant } from '@/services/fonts.service';
+import { uploadFontFiles, uploadFontVariant } from '@/services/fonts.service';
 import { apiErrorMessage } from '@/services/http';
 import { loadUploadedFontVariant } from '@/utils/fontLoader';
 
@@ -62,11 +76,35 @@ defineProps({
   modelValue: { type: Boolean, default: false },
   fonts: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['update:modelValue', 'uploaded', 'use-default']);
+const emit = defineEmits(['update:modelValue', 'uploaded', 'imported', 'use-default']);
 
 const uploadingFamily = ref('');
 const errors = reactive({});
 const savedVariants = reactive({});
+const batchUploading = ref(false);
+const batchMessage = ref('');
+const batchError = ref('');
+
+async function uploadBatch(event) {
+  const files = [...(event.target.files || [])];
+  event.target.value = '';
+  if (!files.length || batchUploading.value) return;
+  batchUploading.value = true;
+  batchMessage.value = '';
+  batchError.value = '';
+  try {
+    const result = await uploadFontFiles(files);
+    const imported = result.fonts || [];
+    const failed = result.failed || [];
+    batchMessage.value = `${imported.length} of ${files.length} font file${files.length === 1 ? '' : 's'} imported.`;
+    if (failed.length) batchError.value = failed.map((item) => `${item.fileName}: ${item.error}`).join('\n');
+    emit('imported', imported);
+  } catch (error) {
+    batchError.value = apiErrorMessage(error) || 'The selected font files could not be imported.';
+  } finally {
+    batchUploading.value = false;
+  }
+}
 
 async function activate(font) {
   const variant = savedVariants[font.family];
@@ -91,13 +129,10 @@ async function upload(font, event) {
   uploadingFamily.value = font.family;
   errors[font.family] = '';
   try {
-    const uploaded = await uploadFontVariant(file, {
-      family: font.family,
-      weight: font.weight || 400,
-      style: font.style || 'normal',
-    });
+    const uploaded = await uploadFontVariant(file, { family: font.family });
+    const detected = uploaded.detectedMetadata || {};
     const variant = (uploaded.variants || []).find((item) =>
-      Number(item.weight) === Number(font.weight || 400) && item.style === (font.style || 'normal'))
+      Number(item.weight) === Number(detected.weight) && item.style === detected.style)
       || uploaded.variants?.at(-1);
     if (!variant) throw new Error('The server saved the font without a matching variant.');
     savedVariants[font.family] = variant;

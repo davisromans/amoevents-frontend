@@ -117,6 +117,71 @@ function applyCharStyles(textbox, charStyles) {
   }
 }
 
+function isFabricText(obj) {
+  return ['textbox', 'text', 'i-text'].includes(obj?.type);
+}
+
+/**
+ * Recalculate glyph metrics while keeping the authored layer rectangle.
+ * Browsers and Photoshop do not always report identical ascent/descent and
+ * kerning. Fabric therefore changes an object's width/height when a missing
+ * font arrives, which used to move the following lines into each other. The
+ * exact PSD/saved rectangle is the layout contract; fit the recalculated
+ * glyphs back into it instead of allowing font activation to reflow design.
+ */
+export function refreshTextMetricsPreservingLayout(objectsOrCanvas, predicate = () => true) {
+  const roots = typeof objectsOrCanvas?.getObjects === 'function'
+    ? objectsOrCanvas.getObjects()
+    : (objectsOrCanvas || []);
+  const visit = (objects) => {
+    for (const obj of objects || []) {
+      if (obj.type === 'group') {
+        visit(obj.getObjects());
+        obj.setCoords();
+        obj.dirty = true;
+        continue;
+      }
+      if (!isFabricText(obj) || !predicate(obj)) continue;
+      mutateTextPreservingLayout(obj, () => {});
+    }
+  };
+  visit(roots);
+  objectsOrCanvas?.requestRenderAll?.();
+}
+
+export function mutateTextPreservingLayout(obj, mutation) {
+  if (!isFabricText(obj)) {
+    mutation?.();
+    return;
+  }
+  const targetWidth = Math.max(0.01, obj.getScaledWidth?.() || (obj.width || 0) * (obj.scaleX || 1));
+  const targetHeight = Math.max(0.01, obj.getScaledHeight?.() || (obj.height || 0) * (obj.scaleY || 1));
+  const left = obj.left;
+  const top = obj.top;
+  mutation?.();
+  obj.initDimensions?.();
+  obj.set({
+    left,
+    top,
+    scaleX: targetWidth / Math.max(0.01, obj.width || 0.01),
+    scaleY: targetHeight / Math.max(0.01, obj.height || 0.01),
+  });
+  obj.setCoords();
+  obj.dirty = true;
+}
+
+function fitNewTextToLayerBounds(textbox, layer) {
+  const targetWidth = Number(layer.width);
+  const targetHeight = Number(layer.height);
+  if (!(targetWidth > 0) || !(targetHeight > 0)) return;
+  textbox.initDimensions?.();
+  textbox.set({
+    scaleX: targetWidth / Math.max(0.01, textbox.width || 0.01),
+    scaleY: targetHeight / Math.max(0.01, textbox.height || 0.01),
+  });
+  textbox.setCoords();
+}
+
 function clonePlain(value) {
   if (value == null) return value;
   try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
@@ -234,6 +299,9 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     });
     applyCommon(textbox, layer);
     applyCharStyles(textbox, layer.charStyles);
+    // Keep the saved/PSD layer rectangle stable even when the browser's text
+    // engine measures this font differently from Photoshop or node-canvas.
+    fitNewTextToLayerBounds(textbox, layer);
     return textbox;
   }
 

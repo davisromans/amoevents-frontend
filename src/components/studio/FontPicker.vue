@@ -9,7 +9,7 @@
       <div v-if="requiredFamily && requiredAvailable === false" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-2xs text-amber-800 dark:text-amber-200">
         <p class="font-bold">Missing original PSD font</p>
         <p class="mt-0.5">Upload “{{ requiredFamily }}” to make this text match the source design.</p>
-        <button class="mt-1.5 font-bold underline" @click="openRequiredUpload">Upload this font</button>
+        <button class="mt-1.5 font-bold underline" @click="openRequiredUpload">Import matching font</button>
       </div>
       <input v-model="q" type="text" placeholder="Search fonts…" class="field-input !py-1.5 !text-xs" autofocus />
       <div class="flex gap-1 overflow-x-auto hide-scrollbar">
@@ -41,36 +41,18 @@
         </button>
       </div>
 
-      <!-- Upload a custom font file (e.g. an extra Montserrat weight the
-           Google family is missing). Uploading again with the SAME family
-           name adds another weight/style variant to that family instead of
-           creating a duplicate — so a designer can build up a full set
-           (regular, italic, bold, black…) one file at a time. -->
       <div class="border-t border-surface-mist dark:border-surface-fog pt-2">
-        <button v-if="!uploadOpen" class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-2xs font-bold flex items-center gap-1.5"
-                @click="uploadOpen = true">
-          <ArrowUpTrayIcon class="w-3.5 h-3.5 shrink-0" /> Upload font file…
-        </button>
-        <div v-else class="flex flex-col gap-1.5 px-1">
-          <input v-model="uploadFamily" type="text" placeholder="Family name (e.g. Montserrat)" class="field-input !py-1.5 !text-xs" />
-          <div class="flex gap-1.5">
-            <select v-model.number="uploadWeight" class="field-input !py-1.5 !text-xs flex-1">
-              <option v-for="w in FONT_WEIGHTS" :key="w.value" :value="w.value">{{ w.label }}</option>
-            </select>
-            <select v-model="uploadStyle" class="field-input !py-1.5 !text-xs flex-1">
-              <option value="normal">Normal</option>
-              <option value="italic">Italic</option>
-            </select>
-          </div>
-          <input ref="fontFileRef" type="file" accept=".ttf,.otf,.woff,.woff2" class="text-2xs" @change="onFontFileChosen" />
-          <p v-if="uploadError" class="text-2xs text-red-500">{{ uploadError }}</p>
-          <div class="flex gap-1.5 justify-end">
-            <button class="btn-ghost !text-2xs !py-1 !px-2" @click="uploadOpen = false">Cancel</button>
-            <button class="btn-ghost !text-2xs !py-1 !px-2 bg-brand-primary-glow text-brand-primary-deep" :disabled="uploading" @click="submitUpload">
-              {{ uploading ? 'Uploading…' : 'Upload' }}
-            </button>
-          </div>
-        </div>
+        <label class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-2xs font-bold flex items-center gap-1.5 cursor-pointer"
+               :class="{ 'pointer-events-none opacity-60': uploading }">
+          <ArrowUpTrayIcon class="w-3.5 h-3.5 shrink-0" />
+          {{ uploading ? 'Reading and importing fonts…' : 'Import font files…' }}
+          <input ref="fontFileRef" type="file" multiple accept=".ttf,.otf,.woff,.woff2" class="hidden" @change="onFontFilesChosen" />
+        </label>
+        <p class="px-2 text-[10px] leading-tight text-surface-slate dark:text-surface-ash">
+          Select one font or a whole family. Name, weight and italic style are read automatically from every file.
+        </p>
+        <p v-if="uploadMessage" class="px-2 mt-1 text-2xs text-emerald-600 dark:text-emerald-400">{{ uploadMessage }}</p>
+        <p v-if="uploadError" class="px-2 mt-1 text-2xs text-red-500 whitespace-pre-line">{{ uploadError }}</p>
       </div>
     </div>
   </div>
@@ -79,8 +61,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { ChevronDownIcon, PlusCircleIcon, ArrowUpTrayIcon } from '@heroicons/vue/24/outline';
-import { listFonts, searchGoogleCatalog, addGoogleFont, uploadFontVariant, getFontsByFamilies } from '@/services/fonts.service';
-import { loadFont, loadGoogleFont, loadUploadedFontVariant } from '@/utils/fontLoader';
+import { listFonts, searchGoogleCatalog, addGoogleFont, uploadFontVariant, uploadFontFiles, getFontsByFamilies } from '@/services/fonts.service';
+import { apiErrorMessage } from '@/services/http';
+import { loadFont, loadGoogleFont } from '@/utils/fontLoader';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -99,25 +82,17 @@ const category = ref('');
 const active = ref([]);
 const catalog = ref([]);
 
-const FONT_WEIGHTS = [
-  { value: 100, label: 'Thin (100)' }, { value: 200, label: 'Extra Light (200)' }, { value: 300, label: 'Light (300)' },
-  { value: 400, label: 'Regular (400)' }, { value: 500, label: 'Medium (500)' }, { value: 600, label: 'Semi Bold (600)' },
-  { value: 700, label: 'Bold (700)' }, { value: 800, label: 'Extra Bold (800)' }, { value: 900, label: 'Black (900)' },
-];
-const uploadOpen = ref(false);
-const uploadFamily = ref('');
-const uploadWeight = ref(400);
-const uploadStyle = ref('normal');
 const uploadError = ref('');
+const uploadMessage = ref('');
 const uploading = ref(false);
 const fontFileRef = ref(null);
 const requiredAvailable = ref(null);
-let uploadFile = null;
+let pendingFamilyHint = '';
 const SYSTEM_FONTS = new Set(['arial', 'helvetica', 'times new roman', 'georgia', 'courier new', 'verdana', 'trebuchet ms', 'system-ui', 'sans-serif', 'serif', 'monospace']);
 
 function openRequiredUpload() {
-  uploadOpen.value = true;
-  uploadFamily.value = props.requiredFamily;
+  pendingFamilyHint = props.requiredFamily;
+  fontFileRef.value?.click();
 }
 
 async function checkRequiredFamily() {
@@ -125,35 +100,44 @@ async function checkRequiredFamily() {
   if (SYSTEM_FONTS.has(props.requiredFamily.toLowerCase())) { requiredAvailable.value = true; return; }
   try {
     const rows = await getFontsByFamilies([props.requiredFamily]);
-    requiredAvailable.value = rows.some((row) => row.family?.toLowerCase() === props.requiredFamily.toLowerCase());
+    const wanted = props.requiredFamily.toLowerCase();
+    requiredAvailable.value = rows.some((row) => row.family?.toLowerCase() === wanted
+      || (row.aliases || []).some((alias) => alias.toLowerCase() === wanted));
   } catch { requiredAvailable.value = null; }
 }
 
-function onFontFileChosen(e) {
-  uploadFile = e.target.files?.[0] || null;
+async function onFontFilesChosen(event) {
+  const files = [...(event.target.files || [])];
+  event.target.value = '';
+  if (!files.length || uploading.value) return;
   uploadError.value = '';
-}
-
-async function submitUpload() {
-  uploadError.value = '';
-  const family = uploadFamily.value.trim();
-  if (!family) { uploadError.value = 'Family name is required.'; return; }
-  if (!uploadFile) { uploadError.value = 'Choose a font file.'; return; }
+  uploadMessage.value = '';
   uploading.value = true;
   try {
-    const font = await uploadFontVariant(uploadFile, { family, weight: uploadWeight.value, style: uploadStyle.value });
-    const variant = (font.variants || []).find((v) => v.weight === uploadWeight.value && v.style === uploadStyle.value) || font.variants?.[font.variants.length - 1];
-    if (variant) await loadUploadedFontVariant(family, variant);
+    let imported;
+    let failed = [];
+    if (pendingFamilyHint && files.length === 1) {
+      imported = [await uploadFontVariant(files[0], { family: pendingFamilyHint })];
+    } else {
+      const result = await uploadFontFiles(files);
+      imported = result.fonts || [];
+      failed = result.failed || [];
+    }
+    await Promise.allSettled(imported.map((font) => loadFont(font)));
     await refreshActive();
-    requiredAvailable.value = family.toLowerCase() === props.requiredFamily.toLowerCase() ? true : requiredAvailable.value;
-    choose(family);
-    uploadOpen.value = false;
-    uploadFamily.value = '';
-    uploadFile = null;
-    if (fontFileRef.value) fontFileRef.value.value = '';
+    const importedNames = imported.map((font) => font.family);
+    uploadMessage.value = `${imported.length} font file${imported.length === 1 ? '' : 's'} imported${importedNames.length ? `: ${importedNames.join(', ')}` : ''}.`;
+    if (failed.length) uploadError.value = failed.map((item) => `${item.fileName}: ${item.error}`).join('\n');
+    if (pendingFamilyHint && imported.length) {
+      requiredAvailable.value = true;
+      choose(pendingFamilyHint);
+    } else if (imported.length === 1) {
+      choose(imported[0].family);
+    }
   } catch (err) {
-    uploadError.value = err?.response?.data?.message || 'Upload failed. Please try a different file.';
+    uploadError.value = apiErrorMessage(err) || 'The selected font files could not be imported.';
   } finally {
+    pendingFamilyHint = '';
     uploading.value = false;
   }
 }

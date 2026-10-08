@@ -47,9 +47,12 @@ export default defineConfig({
             options: { cacheName: 'route-chunks', expiration: { maxEntries: 60, maxAgeSeconds: 30 * 24 * 3600 } },
           },
           {
-            urlPattern: /\.(?:woff2?|ttf)$/,
+            // Uploaded fonts are served as signed URLs, so include both OTF
+            // and the query string. Without this, Bell MT worked online but
+            // disappeared back to a fallback when Studio reopened offline.
+            urlPattern: /\.(?:woff2?|ttf|otf)(?:\?.*)?$/,
             handler: 'CacheFirst',
-            options: { cacheName: 'fonts', expiration: { maxEntries: 30, maxAgeSeconds: 365 * 24 * 3600 } },
+            options: { cacheName: 'fonts', expiration: { maxEntries: 200, maxAgeSeconds: 365 * 24 * 3600 } },
           },
           {
             // The local background-removal model is large, so it is not
