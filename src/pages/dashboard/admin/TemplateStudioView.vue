@@ -1994,10 +1994,32 @@ async function preloadDocumentFonts(doc) {
     // healthy. Never hold the entire Studio behind an unbounded FontFace or
     // Google stylesheet request; paint with a fallback, then the missing-font
     // workflow can resolve the family explicitly.
-    await Promise.allSettled(rows.map((font) => Promise.race([
-      loadFont(font),
+    await Promise.allSettled(rows.map((font) => {
+      // Do not cancel a slow font after the five-second paint budget. Let it
+      // finish in the background and explicitly refresh Fabric's text metrics
+      // when it arrives; otherwise a successful late BellMTBold download
+      // remained visually stuck in the fallback face until another edit.
+      const eventualLoad = loadFont(font).then(() => {
+        const refreshText = (objects) => {
+          for (const obj of objects || []) {
+            if (obj.type === 'group') refreshText(obj.getObjects());
+            else if (['textbox', 'text', 'i-text'].includes(obj.type)) {
+              obj.initDimensions?.();
+              obj.setCoords();
+              obj.dirty = true;
+            }
+          }
+        };
+        if (fabricCanvasRaw) {
+          refreshText(fabricCanvasRaw.getObjects());
+          fabricCanvasRaw.requestRenderAll();
+        }
+      });
+      return Promise.race([
+      eventualLoad,
       new Promise((resolve) => window.setTimeout(resolve, 5000)),
-    ])));
+      ]);
+    }));
   } catch { /* rendering falls back to the browser default font; not worth surfacing */ }
 }
 
