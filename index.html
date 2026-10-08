@@ -102,7 +102,11 @@
       });
       window.setTimeout(function () {
         if (document.getElementById('amoevents-boot')) window.__showAmoEventsRecovery('Application boot timed out');
-      }, 12000);
+      // A cold browser may still be downloading the current hashed bundle.
+      // Twelve seconds was short enough to restart a healthy load and create
+      // a recovery loop on slower connections. Missing bundle files already
+      // trigger the error listener above, so this is only the final fallback.
+      }, 30000);
     </script>
   </head>
   <body class="h-full bg-surface-cream dark:bg-surface-night text-surface-charcoal dark:text-surface-bone">

@@ -4,6 +4,15 @@ import { getOfflineMedia, putOfflineMedia } from '@/services/offline.store';
 const cache = new Map();
 const objectUrls = new Map();
 
+function objectUrlForAsset(assetId, blob) {
+  const old = objectUrls.get(assetId);
+  if (old) URL.revokeObjectURL(old);
+  const url = URL.createObjectURL(blob);
+  objectUrls.set(assetId, url);
+  cache.set(assetId, url);
+  return url;
+}
+
 function offlineAssetKey(assetId) {
   return `template-asset:${assetId}`;
 }
@@ -20,12 +29,7 @@ async function cachedObjectUrl(assetId) {
 export async function cacheLocalTemplateAsset(assetId, blob) {
   if (!assetId || !blob) return null;
   await putOfflineMedia(offlineAssetKey(assetId), blob);
-  const old = objectUrls.get(assetId);
-  if (old) URL.revokeObjectURL(old);
-  const url = URL.createObjectURL(blob);
-  objectUrls.set(assetId, url);
-  cache.set(assetId, url);
-  return url;
+  return objectUrlForAsset(assetId, blob);
 }
 
 export function getCachedTemplateAssetBlob(assetId) {
@@ -49,20 +53,18 @@ export async function resolveAssetUrl(assetId) {
   }
   try {
     const asset = await http.get(`/admin/template-assets/${assetId}`).then(unwrap);
-    // Render from the signed URL immediately. The old path blocked canvas
-    // startup until every image had first downloaded and been written to
-    // IndexedDB, sequentially for top-level PSD layers. Cache in the
-    // background instead so offline support never becomes an online loading
-    // gate. A later page load will prefer the completed local copy.
-    cache.set(assetId, asset.url);
-    fetch(asset.url)
-      .then(async (response) => {
-        if (!response.ok) return;
-        const blob = await response.blob();
-        await putOfflineMedia(offlineAssetKey(assetId), blob);
-      })
-      .catch(() => {});
-    return asset.url;
+    // Fetch each asset exactly once, then let both Fabric and the offline
+    // cache consume that same Blob. Returning the signed URL while also
+    // pre-caching it doubled every PSD request; a large document could fill
+    // the browser connection pool and make all Fabric image decodes hit their
+    // 15-second timeout. loadDocument already resolves top-level layers in
+    // parallel, so waiting for this single fetch does not serialize the PSD.
+    const response = await fetch(asset.url);
+    if (!response.ok) throw new Error(`Template asset ${assetId} returned ${response.status}`);
+    const blob = await response.blob();
+    const url = objectUrlForAsset(assetId, blob);
+    putOfflineMedia(offlineAssetKey(assetId), blob).catch(() => {});
+    return url;
   } catch (err) {
     const localUrl = await cachedObjectUrl(assetId);
     if (localUrl) {
