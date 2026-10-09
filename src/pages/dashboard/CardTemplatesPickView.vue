@@ -73,6 +73,7 @@ import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import { startMissingCardGeneration } from '@/composables/useMissingCardGeneration';
 
 const CATEGORIES = [
   { value: '', label: 'All' },
@@ -112,13 +113,14 @@ async function pick(tpl) {
   if (!(await askConfirm(prompt))) return;
   try {
     if (fillMissingMode.value) {
-      const result = await api.generateMissingCards(tpl._id, route.params.id);
-      if (result.failed?.length) {
-        toast.error(`Generated ${result.generated}; ${result.failed.length} failed.`);
-      } else {
-        toast.success(`Generated ${result.generated} missing card${result.generated === 1 ? '' : 's'}.`);
-      }
-      router.push(`/app/events/${route.params.id}/cards`);
+      startMissingCardGeneration({
+        eventId: route.params.id,
+        templateId: tpl._id,
+        templateName: tpl.name,
+        total: missingCount.value,
+      });
+      toast.success('Card generation started. Progress is shown on the Cards page.');
+      await router.push(`/app/events/${route.params.id}/cards`);
       return;
     }
     await api.cloneTemplate(tpl._id, route.params.id);

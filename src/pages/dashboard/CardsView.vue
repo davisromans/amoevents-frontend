@@ -26,6 +26,37 @@
       </div>
     </div>
 
+    <div v-if="generation.status !== 'idle'" class="surface-card p-4 mb-5 border border-brand-gold/30">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-heading">
+            <span v-if="generation.status === 'running'">Generating missing cards…</span>
+            <span v-else-if="generation.status === 'complete'">Missing cards generated</span>
+            <span v-else-if="generation.status === 'partial'">Card generation completed with failures</span>
+            <span v-else>Card generation failed</span>
+          </p>
+          <p class="text-subtext mt-1">
+            <template v-if="generation.status === 'running'">
+              {{ generation.completed }} of {{ generation.total }} finished<span v-if="generation.templateName"> using {{ generation.templateName }}</span>. You can remain on this page or continue working elsewhere.
+            </template>
+            <template v-else-if="generation.status === 'complete'">
+              {{ generation.completed }} card{{ generation.completed === 1 ? '' : 's' }} created successfully.
+            </template>
+            <template v-else-if="generation.status === 'partial'">
+              {{ generation.completed }} created · {{ generation.failed }} failed.
+            </template>
+            <template v-else>{{ generation.error || 'The cards could not be generated.' }}</template>
+          </p>
+        </div>
+        <button v-if="generation.status !== 'running'" class="btn-ghost !text-xs" @click="dismissGeneration">Dismiss</button>
+      </div>
+      <div v-if="generation.status === 'running'" class="h-2 bg-surface-mist dark:bg-surface-fog rounded-full overflow-hidden mt-3">
+        <div class="h-full bg-gradient-gold transition-all duration-500"
+             :class="{ 'animate-pulse': generation.completed === 0 }"
+             :style="{ width: `${generationPercent}%` }" />
+      </div>
+    </div>
+
     <!-- Photoshop data-merge export: pick which guests + how names are
          cased, download a plain .txt ready for Variables/Data Sets. -->
     <AppModal v-model="exportOpen" title="Export guest names" :maxWidth="480">
@@ -182,7 +213,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { PhotoIcon, ArrowDownTrayIcon, TrashIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
 import {
@@ -196,9 +227,20 @@ import SummaryTile from '@/components/events/EventStat.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import CardVariantsView from '@/pages/dashboard/CardVariantsView.vue';
 import { listVariants } from '@/services/cardVariants.service';
+import {
+  clearMissingCardGeneration,
+  getMissingCardGeneration,
+  observeMissingCardProgress,
+} from '@/composables/useMissingCardGeneration';
 
 const route = useRoute();
 const toast = useToast();
+const generation = getMissingCardGeneration(route.params.id);
+const generationPercent = computed(() => {
+  if (!generation.total) return 8;
+  return Math.max(8, Math.min(100, Math.round((generation.completed / generation.total) * 100)));
+});
+let generationPoll = null;
 const checkingTemplate = ref(true);
 const activeTemplate = ref(null);
 
@@ -253,8 +295,8 @@ async function loadThumb(guestId) {
   } catch (_) { /* skip */ }
 }
 
-async function refresh() {
-  loading.value = true;
+async function refresh({ background = false } = {}) {
+  if (!background) loading.value = true;
   try {
     const [data, guests] = await Promise.all([
       listCards(route.params.id),
@@ -263,13 +305,39 @@ async function refresh() {
     matched.value = data.matched || [];
     unmatched.value = data.unmatched || [];
     guestOptions.value = guests.items || [];
+    observeMissingCardProgress(route.params.id, guestOptions.value.filter((guest) => !guest.cardImagePath).length);
     // Stagger thumb fetches so a 500-card event doesn't fire 500 concurrent requests.
     matched.value.forEach((m, i) => {
       if (!thumbs[m.guestId]) setTimeout(() => loadThumb(m.guestId), i * 30);
     });
   } catch (err) { toast.error(apiErrorMessage(err)); }
-  finally { loading.value = false; }
+  finally { if (!background) loading.value = false; }
 }
+
+function stopGenerationPolling() {
+  if (generationPoll) clearInterval(generationPoll);
+  generationPoll = null;
+}
+
+function startGenerationPolling() {
+  if (generationPoll || generation.status !== 'running') return;
+  generationPoll = setInterval(() => refresh({ background: true }), 1200);
+}
+
+function dismissGeneration() {
+  clearMissingCardGeneration(route.params.id);
+}
+
+watch(() => generation.status, async (status, previous) => {
+  if (status === 'running') startGenerationPolling();
+  if (previous === 'running' && status !== 'running') {
+    stopGenerationPolling();
+    await refresh({ background: true });
+    if (status === 'complete') toast.success(`${generation.completed} missing card${generation.completed === 1 ? '' : 's'} generated.`);
+    else if (status === 'partial') toast.error(`${generation.completed} generated; ${generation.failed} failed.`);
+    else if (status === 'failed') toast.error(generation.error || 'Card generation failed.');
+  }
+});
 
 function onDrop(e) {
   dragging.value = false;
@@ -492,5 +560,9 @@ async function initialiseCardsPage() {
   if (!activeTemplate.value) await refresh();
 }
 
-onMounted(initialiseCardsPage);
+onMounted(async () => {
+  await initialiseCardsPage();
+  startGenerationPolling();
+});
+onBeforeUnmount(stopGenerationPolling);
 </script>
