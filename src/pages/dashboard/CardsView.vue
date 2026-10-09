@@ -10,10 +10,13 @@
         <input v-model="search" type="text" placeholder="Search cards by name, phone, memberId…"
                class="field-input !pl-9 !py-2 !text-sm w-full" />
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <button class="btn-secondary !text-sm" @click="exportOpen = true">
           Export names…
         </button>
+        <router-link v-if="missingCardCount" :to="`/app/events/${route.params.id}/cards/templates?mode=missing&count=${missingCardCount}`" class="btn-primary !text-sm">
+          Generate {{ missingCardCount }} missing card{{ missingCardCount === 1 ? '' : 's' }}
+        </router-link>
         <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">
           Browse templates
         </router-link>
@@ -241,6 +244,7 @@ const visibleMatched = computed(() => {
     (m.pubCode || '').toLowerCase().includes(q),
   );
 });
+const missingCardCount = computed(() => guestOptions.value.filter((guest) => !guest.cardImagePath).length);
 
 async function loadThumb(guestId) {
   try {

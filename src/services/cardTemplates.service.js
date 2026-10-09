@@ -7,6 +7,9 @@ export const listTemplates = (category) =>
 export const cloneTemplate = (templateId, eventId, opts = {}) =>
   http.post(`/card-templates/${templateId}/clone/${eventId}`, opts).then(unwrap);
 
+export const generateMissingCards = (templateId, eventId) =>
+  http.post(`/card-templates/${templateId}/generate-missing/${eventId}`, {}, { timeout: 5 * 60 * 1000 }).then(unwrap);
+
 // Super-admin CRUD
 export const adminList = () => http.get('/admin/card-templates').then(unwrap);
 export const adminUpdate = (id, patch) => http.patch(`/admin/card-templates/${id}`, patch).then(unwrap);

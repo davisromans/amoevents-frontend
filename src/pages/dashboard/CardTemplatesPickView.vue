@@ -1,11 +1,11 @@
 <template>
   <div class="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-    <router-link :to="`/app/events/${route.params.id}/cards/variants`" class="btn-ghost !text-sm !px-2 !py-1 mb-1">
-      <ChevronLeftIcon class="w-3.5 h-3.5" /> Back to variants
+    <router-link :to="fillMissingMode ? `/app/events/${route.params.id}/cards` : `/app/events/${route.params.id}/cards/variants`" class="btn-ghost !text-sm !px-2 !py-1 mb-1">
+      <ChevronLeftIcon class="w-3.5 h-3.5" /> {{ fillMissingMode ? 'Back to cards' : 'Back to variants' }}
     </router-link>
     <div class="flex items-end justify-between gap-3 mb-1">
       <h1 class="section-title text-2xl">Templates library</h1>
-      <div class="flex gap-2">
+      <div v-if="!fillMissingMode" class="flex gap-2">
         <label class="btn-secondary !text-sm cursor-pointer">
           <input type="file" accept=".psd" class="hidden" @change="onImportPsd" />
           {{ importing ? 'Importing…' : 'Import your own PSD' }}
@@ -15,7 +15,11 @@
         </button>
       </div>
     </div>
-    <p class="text-subtext mb-5">
+    <div v-if="fillMissingMode" class="surface-inset rounded-xl p-3 mb-5 text-sm">
+      <p class="font-bold">Generate {{ missingCount }} missing card{{ missingCount === 1 ? '' : 's' }}</p>
+      <p class="text-subtext mt-1">Choose a template below. It will be flattened into a personalised JPEG for only the guests without artwork. Existing cards will not be changed, and the template will not become the event's active design.</p>
+    </div>
+    <p v-else class="text-subtext mb-5">
       Pick a design from our shared library — templates marked <span class="chip-success !text-2xs">Editable</span>
       clone into this event as your own copy you can customize (text, artwork, QR position). Or import your own
       PSD design, or start blank — either way, your edits are yours alone; nothing you change here touches the
@@ -88,6 +92,8 @@ const items = ref([]);
 const loading = ref(true);
 const search = ref('');
 const filtered = computed(() => items.value.filter((t) => !search.value || t.name.toLowerCase().includes(search.value.toLowerCase())));
+const fillMissingMode = computed(() => route.query.mode === 'missing');
+const missingCount = computed(() => Number(route.query.count) || 0);
 
 async function load() {
   loading.value = true;
@@ -100,8 +106,21 @@ watch(category, load);
 onMounted(load);
 
 async function pick(tpl) {
-  if (!(await askConfirm(`Use “${tpl.name}” as this event’s card design?`))) return;
+  const prompt = fillMissingMode.value
+    ? `Generate personalised JPEG cards from “${tpl.name}” for ${missingCount.value || 'all'} guests without artwork? Existing cards will not be changed.`
+    : `Use “${tpl.name}” as this event’s card design?`;
+  if (!(await askConfirm(prompt))) return;
   try {
+    if (fillMissingMode.value) {
+      const result = await api.generateMissingCards(tpl._id, route.params.id);
+      if (result.failed?.length) {
+        toast.error(`Generated ${result.generated}; ${result.failed.length} failed.`);
+      } else {
+        toast.success(`Generated ${result.generated} missing card${result.generated === 1 ? '' : 's'}.`);
+      }
+      router.push(`/app/events/${route.params.id}/cards`);
+      return;
+    }
     await api.cloneTemplate(tpl._id, route.params.id);
     toast.success('Template added. Guest cards are being generated.');
     // Selecting a template is primarily a generation action. Opening the
