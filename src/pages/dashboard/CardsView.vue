@@ -477,7 +477,7 @@ async function initialiseCardsPage() {
   try {
     const variants = await listVariants(route.params.id);
     activeTemplate.value = variants.find((variant) => variant.isActive && variant.isDefault)
-      || variants.find((variant) => variant.isActive)
+      || [...variants].filter((variant) => variant.isActive).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0]
       || null;
   } catch (_) {
     // A temporary variant lookup failure must not hide the existing upload workflow.

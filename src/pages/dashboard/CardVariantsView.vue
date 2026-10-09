@@ -95,7 +95,7 @@
       <div v-if="samplerVariant" class="surface-card p-3 mb-5 flex items-center gap-3">
         <img v-if="samplerThumbUrl" :src="samplerThumbUrl" class="w-16 h-20 object-contain rounded-md bg-surface-mist dark:bg-surface-fog" />
         <div class="min-w-0 flex-1">
-          <p class="text-heading truncate">Active template: {{ samplerVariant.name || 'Untitled template' }}</p>
+          <p class="text-heading truncate">Active template: {{ activeTemplateName }}</p>
           <p class="text-2xs text-surface-slate dark:text-surface-ash">
             Variables auto-mapped: first name, last name, memberId, phone, seat type, date, venue.
           </p>
@@ -459,6 +459,8 @@ const anyOwnArtwork = computed(() => guests.value.some((g) => coverage[g._id] ==
 // hasn't resolved yet, or the current page filters coverage out.
 const anyGuestHasCardImage = computed(() => guests.value.some((g) => !!g.cardImagePath));
 const samplerThumbUrl = ref(null);
+const activeTemplateName = computed(() => samplerVariant.value?.sourceTemplateId?.name
+  || String(samplerVariant.value?.name || 'Untitled template').replace(/\s*\(from library\)\s*$/i, ''));
 const allSelected = computed(() =>
   visibleGuests.value.length > 0 && selected.value.size === visibleGuests.value.length,
 );
@@ -559,7 +561,7 @@ async function refresh() {
     // one — same rule the backend resolveBaseCard() uses.
     variants.value = vs;
     samplerVariant.value = vs.find((v) => v.isActive && v.isDefault)
-      || vs.find((v) => v.isActive)
+      || [...vs].filter((v) => v.isActive).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0]
       || null;
     // Show the active-template thumbnail chip.
     if (samplerVariant.value?._id) {
