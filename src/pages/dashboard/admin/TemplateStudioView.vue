@@ -320,6 +320,7 @@
             @start-crop="onStartCrop"
             @toggle-shared="onToggleShared"
             @replace-source="onReplaceSource"
+            @update-qr="onUpdateQr"
           />
         </div>
         <div class="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
@@ -1233,13 +1234,26 @@ async function insertQrLayer() {
   const size = Math.min(document.value.width, document.value.height) * 0.25;
   const qr = await renderQrImage({});
   qr.set({
-    left: (document.value.width - size) / 2, top: (document.value.height - size) / 2,
-    scaleX: size / qr.width, scaleY: size / qr.height,
+    left: (document.value.width - size) / 2, top: (document.value.height - size * (qr.height / qr.width)) / 2,
+    scaleX: size / qr.width, scaleY: size / qr.width,
     originX: 'left', originY: 'top',
   });
-  qr.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'QR code', isQr: true, fg: '#000000', bg: '#FFFFFF' });
+  qr.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'QR code', isQr: true });
   fabricCanvasRaw.add(qr);
   fabricCanvasRaw.setActiveObject(qr);
+  refreshLayersList();
+}
+
+async function onUpdateQr(obj, patch) {
+  if (!obj) return;
+  const data = { ...(obj.get('data') || {}), ...patch, isQr: true };
+  const width = obj.getScaledWidth();
+  const fresh = await renderQrImage(data);
+  obj.setElement(fresh.getElement());
+  obj.set({ scaleX: width / obj.width, scaleY: width / obj.width, data });
+  obj.setCoords();
+  fabricCanvasRaw.requestRenderAll();
+  fabricCanvasRaw.fire('object:modified', { target: obj });
   refreshLayersList();
 }
 

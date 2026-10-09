@@ -1,5 +1,9 @@
 <template>
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+  <CardVariantsView v-if="activeTemplate" />
+  <div v-else-if="checkingTemplate" class="max-w-6xl mx-auto px-4 sm:px-6 py-16 text-center text-subtext">
+    Loading cards…
+  </div>
+  <div v-else class="max-w-6xl mx-auto px-4 sm:px-6 py-6">
     <div class="flex flex-wrap items-center gap-3 mb-5">
       <div class="relative flex-1 min-w-[220px]">
         <MagnifyingGlassIcon class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-surface-slate" />
@@ -187,9 +191,13 @@ import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
 import SummaryTile from '@/components/events/EventStat.vue';
 import AppModal from '@/components/common/AppModal.vue';
+import CardVariantsView from '@/pages/dashboard/CardVariantsView.vue';
+import { listVariants } from '@/services/cardVariants.service';
 
 const route = useRoute();
 const toast = useToast();
+const checkingTemplate = ref(true);
+const activeTemplate = ref(null);
 
 const dragging = ref(false);
 const uploading = ref(false);
@@ -465,5 +473,20 @@ async function removeOne(m) {
   finally { delete busy[m.guestId]; }
 }
 
-onMounted(refresh);
+async function initialiseCardsPage() {
+  try {
+    const variants = await listVariants(route.params.id);
+    activeTemplate.value = variants.find((variant) => variant.isActive && variant.isDefault)
+      || variants.find((variant) => variant.isActive)
+      || null;
+  } catch (_) {
+    // A temporary variant lookup failure must not hide the existing upload workflow.
+    activeTemplate.value = null;
+  } finally {
+    checkingTemplate.value = false;
+  }
+  if (!activeTemplate.value) await refresh();
+}
+
+onMounted(initialiseCardsPage);
 </script>

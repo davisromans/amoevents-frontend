@@ -127,6 +127,45 @@
           </div>
         </div>
 
+        <div v-else-if="obj.type === 'image' && obj.get('data')?.isQr" class="space-y-3">
+          <p class="section-eyebrow">QR code</p>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="text-2xs font-bold">QR color<input type="color" class="mt-1 w-full h-8 rounded" :value="qrData.fg" @input="updateQr({ fg: $event.target.value })" /></label>
+            <label class="text-2xs font-bold">Background<input type="color" class="mt-1 w-full h-8 rounded" :value="qrData.bg" @input="updateQr({ bg: $event.target.value })" /></label>
+            <label class="text-2xs font-bold">Border<input type="color" class="mt-1 w-full h-8 rounded" :value="qrData.borderColor" @input="updateQr({ borderColor: $event.target.value })" /></label>
+            <label class="text-2xs font-bold">Border width<input type="number" min="0" max="40" class="field-input !py-1.5 !text-xs mt-1" :value="qrData.borderWidth" @change="updateQr({ borderWidth: Number($event.target.value) })" /></label>
+            <label class="text-2xs font-bold">Corner radius<input type="number" min="0" max="160" class="field-input !py-1.5 !text-xs mt-1" :value="qrData.borderRadius" @change="updateQr({ borderRadius: Number($event.target.value) })" /></label>
+            <label class="text-2xs font-bold">Padding<input type="number" min="0" max="100" class="field-input !py-1.5 !text-xs mt-1" :value="qrData.padding" @change="updateQr({ padding: Number($event.target.value) })" /></label>
+          </div>
+          <div v-for="position in ['top','bottom']" :key="position" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-2">
+            <label class="flex items-center gap-2 text-2xs font-bold capitalize">
+              <input type="checkbox" class="accent-brand-gold" :checked="qrData[`show${position[0].toUpperCase() + position.slice(1)}Label`]" @change="updateQr({ [`show${position[0].toUpperCase() + position.slice(1)}Label`]: $event.target.checked })" />
+              Show {{ position }} label
+            </label>
+            <template v-if="qrData[`show${position[0].toUpperCase() + position.slice(1)}Label`]">
+              <div class="grid grid-cols-2 gap-2">
+                <label class="text-2xs">Color<input type="color" class="mt-1 w-full h-7 rounded" :value="qrData[`${position}LabelColor`]" @input="updateQr({ [`${position}LabelColor`]: $event.target.value })" /></label>
+                <label class="text-2xs">Size<input type="number" min="8" max="120" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelFontSize`]" @change="updateQr({ [`${position}LabelFontSize`]: Number($event.target.value) })" /></label>
+                <label class="text-2xs col-span-2">Font<input type="text" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelFontFamily`]" @change="updateQr({ [`${position}LabelFontFamily`]: $event.target.value || 'Arial' })" /></label>
+                <label class="text-2xs">Weight
+                  <select class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelFontWeight`]" @change="updateQr({ [`${position}LabelFontWeight`]: Number($event.target.value) })">
+                    <option :value="400">Regular</option><option :value="600">Semi bold</option><option :value="700">Bold</option><option :value="900">Black</option>
+                  </select>
+                </label>
+                <label class="text-2xs">Style
+                  <select class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelFontStyle`]" @change="updateQr({ [`${position}LabelFontStyle`]: $event.target.value })">
+                    <option value="normal">Normal</option><option value="italic">Italic</option>
+                  </select>
+                </label>
+                <label class="text-2xs col-span-2">Letter spacing<input type="number" min="-5" max="30" step="0.5" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelLetterSpacing`]" @change="updateQr({ [`${position}LabelLetterSpacing`]: Number($event.target.value) })" /></label>
+                <label class="text-2xs">Offset X<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelOffsetX`]" @change="updateQr({ [`${position}LabelOffsetX`]: Number($event.target.value) })" /></label>
+                <label class="text-2xs">Offset Y<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelOffsetY`]" @change="updateQr({ [`${position}LabelOffsetY`]: Number($event.target.value) })" /></label>
+              </div>
+            </template>
+          </div>
+          <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">These settings belong to this template and override the event's general QR settings. Missing settings fall back to the event defaults.</p>
+        </div>
+
         <div v-else-if="obj.type === 'image'" class="space-y-3">
           <p class="section-eyebrow">Crop & style</p>
           <div v-if="obj.get('data')?.sourceLayer?.convertedFromText" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2 text-2xs text-amber-800 dark:text-amber-200">
@@ -308,7 +347,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'rasterize', 'restore-text']);
+const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'rasterize', 'restore-text', 'update-qr']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which
@@ -338,6 +377,15 @@ watch(() => props.canvas, (canvas) => {
 onBeforeUnmount(() => detachTick?.());
 
 const obj = computed(() => { void tick.value; return props.selected[0]; });
+const qrData = computed(() => ({
+  fg: '#111111', bg: '#FFFFFF', borderColor: '#111111', borderWidth: 0, borderRadius: 0, padding: 12,
+  showTopLabel: true, showBottomLabel: true, topLabelColor: '#111111', bottomLabelColor: '#111111',
+  topLabelFontFamily: 'Arial', bottomLabelFontFamily: 'Arial', topLabelFontWeight: 700, bottomLabelFontWeight: 700,
+  topLabelFontStyle: 'normal', bottomLabelFontStyle: 'normal', topLabelLetterSpacing: 1, bottomLabelLetterSpacing: 1,
+  topLabelFontSize: 28, bottomLabelFontSize: 28, topLabelOffsetX: 0, topLabelOffsetY: 0,
+  bottomLabelOffsetX: 0, bottomLabelOffsetY: 0, ...(obj.value?.get('data') || {}),
+}));
+function updateQr(patch) { emit('update-qr', obj.value, patch); }
 function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type); }
 const originalPsdFont = computed(() => obj.value?.get('data')?.sourceLayer?.convertedFromText?.fontFamily
   || obj.value?.get('data')?.sourceLayer?.fontFamily

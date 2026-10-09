@@ -471,10 +471,10 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // sample text only. The real per-guest signed payload is generated
     // server-side at export (Batch 28), never in the editor.
     const { renderQrImage } = await import('./qrLayerRenderer');
-    const qrImg = await renderQrImage({ fg: layer.fg || '#000000', bg: layer.bg || '#FFFFFF' });
+    const qrImg = await renderQrImage(layer);
     qrImg.set({ scaleX: layer.width / qrImg.width, scaleY: layer.height / qrImg.height });
     applyCommon(qrImg, layer);
-    qrImg.set('data', { ...qrImg.get('data'), isQr: true, fg: layer.fg, bg: layer.bg });
+    qrImg.set('data', { ...qrImg.get('data'), ...clonePlain(layer), isQr: true });
     return qrImg;
   }
 
@@ -567,7 +567,8 @@ function fabricToLayer(obj) {
   if (obj.type === 'image') {
     const imgData = obj.get('data') || {};
     if (imgData.isQr) {
-      return { ...base, type: 'qr', bindingSource: 'guest_qr_payload', fg: imgData.fg || '#000000', bg: imgData.bg || '#FFFFFF', errorCorrection: 'M' };
+      const { layerId, name, isQr, locked, binding, sourceLayer, ...qrStyle } = imgData;
+      return { ...base, ...clonePlain(qrStyle), type: 'qr', bindingSource: 'guest_qr_payload', fg: imgData.fg || '#111111', bg: imgData.bg || '#FFFFFF', errorCorrection: imgData.errorCorrection || 'M' };
     }
     const sourceWidth = imgData.sourceWidth || obj.getElement?.()?.naturalWidth || obj.width || 1;
     const sourceHeight = imgData.sourceHeight || obj.getElement?.()?.naturalHeight || obj.height || 1;
