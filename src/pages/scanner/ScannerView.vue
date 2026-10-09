@@ -248,6 +248,7 @@ const headline = computed(() => ({
   ok_family_increment: 'Admitted (multi-scan)',
   manual: 'Admitted manually',
   already_arrived: 'Already arrived',
+  event_ended: 'Event has ended',
   wrong_event: 'Wrong event',
   invalid: 'Invalid code',
 }[lastResult.value?.result] || 'Scanned'));

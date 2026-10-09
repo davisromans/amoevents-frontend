@@ -45,6 +45,11 @@
           <p class="text-xs text-surface-slate dark:text-surface-ash">{{ result.message || 'This QR is for a different event.' }}</p>
         </template>
 
+        <template v-else-if="result.result === 'event_ended'">
+          <p class="text-xl font-black text-surface-charcoal dark:text-surface-bone mt-1">This event has ended</p>
+          <p class="text-xs text-surface-slate dark:text-surface-ash">This QR can no longer be used for check-in.</p>
+        </template>
+
         <!-- Warning line (unpaid, etc.) -->
         <p v-if="result.warning" class="text-2xs font-bold text-amber-700 dark:text-amber-400 mt-1">
           ⚠ {{ result.warning }}
@@ -69,6 +74,7 @@ const headline = computed(() => ({
   ok_family_increment: 'Admitted (multi-scan)',
   manual: 'Manual entry',
   already_arrived: 'Already arrived',
+  event_ended: 'Event has ended',
   wrong_event: 'Wrong event',
   invalid: 'Invalid QR',
 }[props.result.result] || 'Scanned'));
