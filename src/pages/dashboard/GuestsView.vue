@@ -86,6 +86,8 @@
               </th>
               <th class="text-left px-2 py-2 w-8 hidden sm:table-cell">#</th>
               <th class="text-left px-4 py-2">Guest</th>
+              <th class="text-left px-4 py-2">Seats</th>
+              <th class="text-left px-4 py-2">Pledge</th>
               <th class="text-left px-4 py-2 hidden sm:table-cell">Phone</th>
               <th class="text-left px-4 py-2 hidden md:table-cell">Tags</th>
               <th class="text-left px-4 py-2">RSVP</th>
@@ -116,6 +118,15 @@
                     <p class="text-2xs text-surface-slate dark:text-surface-ash font-mono">{{ g.memberId }}</p>
                   </div>
                 </div>
+              </td>
+              <td class="px-4 py-3 tabular-nums">
+                <Badge size="sm" tone="neutral">{{ seatTypeLabel(g) }}</Badge>
+              </td>
+              <td class="px-4 py-3 tabular-nums">
+                <span v-if="g.pledge?.amount > 0" class="text-sm font-bold text-surface-charcoal dark:text-surface-bone">
+                  {{ fmtPledge(g.pledge.amount) }}
+                </span>
+                <span v-else class="text-surface-slate dark:text-surface-ash">-</span>
               </td>
               <td class="px-4 py-3 hidden sm:table-cell tabular-nums">
                 <template v-if="isPlaceholderPhone(g.phone)">
@@ -590,6 +601,7 @@ function gradientFor(g) {
   const grads = ['linear-gradient(135deg,#D084FF,#9B59B6)', 'linear-gradient(135deg,#FFB86B,#E5722F)', 'linear-gradient(135deg,#79E0B3,#2FA675)', 'linear-gradient(135deg,#7CC5FF,#3B7BD9)', 'linear-gradient(135deg,#FFB0D4,#D9457A)', 'linear-gradient(135deg,#B79CFF,#6C4CD9)'];
   return grads[h % grads.length];
 }
+function fmtPledge(amount) { return Number(amount || 0).toLocaleString('sw-TZ'); }
 function rsvpLabel(s) { return ({ yes: 'Yes', no: 'No', maybe: 'Maybe', pending: 'Pending' })[s] || 'Pending'; }
 function rsvpTone(s)  { return ({ yes: 'success', no: 'danger', maybe: 'warning' })[s] || 'neutral'; }
 function allowedEntries(g) {

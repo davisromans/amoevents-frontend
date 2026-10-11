@@ -76,6 +76,7 @@
             @change="changeRole(c, $event.target.value)"
           >
             <option value="collaborator">Collaborator</option>
+            <option value="editor">Editor (guests + pledges only)</option>
             <option value="scanner">Scanner</option>
           </select>
           <button class="btn-danger !text-sm !py-1.5 !px-3" @click="revoke(c)">
@@ -103,6 +104,7 @@ import StatTile from '@/components/events/EventBigStat.vue';
 
 const ROLES = [
   { value: 'collaborator', label: 'Collaborator' },
+  { value: 'editor', label: 'Editor (guests + pledges only)' },
   { value: 'scanner', label: 'Scanner (gate only)' },
 ];
 
