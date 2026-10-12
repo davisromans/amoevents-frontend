@@ -111,9 +111,9 @@
          the top bar showing controls for whichever tool is active. Was
          previously crammed into the 48px-wide vertical rail, where a
          select + color swatch + range slider had no room to be usable. -->
-    <div v-if="['brush','clone','dodge','eraser','healing'].includes(tool)" class="h-11 shrink-0 flex items-center gap-3 px-4 border-b border-surface-mist dark:border-surface-fog surface-card !rounded-none">
+    <div v-if="['brush','clone','dodge','eraser','healing','liquify'].includes(tool)" class="h-11 shrink-0 flex items-center gap-3 px-4 border-b border-surface-mist dark:border-surface-fog surface-card !rounded-none">
       <span class="text-2xs font-bold uppercase tracking-widest text-surface-slate dark:text-surface-ash">
-        {{ tool === 'brush' ? 'Brush' : tool === 'clone' ? 'Clone stamp' : tool === 'eraser' ? 'Eraser' : tool === 'healing' ? 'Healing brush' : 'Dodge / Burn' }}
+        {{ tool === 'brush' ? 'Brush' : tool === 'clone' ? 'Clone stamp' : tool === 'eraser' ? 'Eraser' : tool === 'healing' ? 'Healing brush' : tool === 'liquify' ? 'Liquify push' : 'Dodge / Burn' }}
       </span>
       <label v-if="tool === 'brush'" class="flex items-center gap-1.5 text-2xs">
         Color <input type="color" v-model="brushColor" class="w-6 h-6 rounded cursor-pointer" />
@@ -399,7 +399,7 @@ import {
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
-import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paintBucketAt, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
+import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
@@ -755,7 +755,7 @@ const brushHardness = ref(0.7); // 0 = soft falloff from center, 1 = hard edge �
 // via a soft vs hard edge, the current hardness) — previously there was no
 // visual feedback at all for how big a stroke would land until you'd
 // already painted it.
-const BRUSH_CURSOR_TOOLS = ['brush', 'eraser', 'clone', 'dodge', 'healing'];
+const BRUSH_CURSOR_TOOLS = ['brush', 'eraser', 'clone', 'dodge', 'healing', 'liquify'];
 const cursorPreview = ref({ visible: false, x: 0, y: 0 });
 function updateBrushCursor(opt) {
   if (!BRUSH_CURSOR_TOOLS.includes(tool.value) || !viewportRef.value) { cursorPreview.value = { ...cursorPreview.value, visible: false }; return; }
@@ -815,7 +815,7 @@ function restoreObjectDragging() {
 
 function teardownActiveTool() {
   if (tool.value === 'pen' && penTool?.active) penTool.cancel();
-  if (['brush', 'clone', 'dodge', 'eraser', 'healing'].includes(tool.value)) {
+  if (['brush', 'clone', 'dodge', 'eraser', 'healing', 'liquify'].includes(tool.value)) {
     fabricCanvasRaw.off('mouse:down', retouchMouseDown);
     fabricCanvasRaw.off('mouse:move', retouchMouseMove);
     fabricCanvasRaw.off('mouse:up', retouchMouseUp);
@@ -824,7 +824,8 @@ function teardownActiveTool() {
     cloneController = null;
     cloneReady.value = false;
   }
-  if (['eyedropper', 'bucket'].includes(tool.value)) fabricCanvasRaw.off('mouse:down', utilityToolMouseDown);
+  if (['eyedropper', 'bucket', 'magic-wand'].includes(tool.value)) fabricCanvasRaw.off('mouse:down', utilityToolMouseDown);
+  if (tool.value === 'lasso') teardownLasso();
 }
 
 function setTool(next) {
@@ -836,7 +837,7 @@ function setTool(next) {
     penTool = new PenTool(fabricCanvasRaw, { stroke: '#111827', strokeWidth: 2 });
     penTool.onComplete = () => { tool.value = 'select'; refreshLayersList(); };
     penTool.start();
-  } else if (['brush', 'clone', 'dodge', 'eraser', 'healing'].includes(next)) {
+  } else if (['brush', 'clone', 'dodge', 'eraser', 'healing', 'liquify'].includes(next)) {
     // Brush paints directly onto a raster layer's own pixels (same as the
     // eraser, clone stamp, and dodge/burn) instead of drawing a separate
     // vector stroke object on top — this is also what makes "soft" a real
@@ -852,8 +853,10 @@ function setTool(next) {
     fabricCanvasRaw.on('mouse:down', retouchMouseDown);
     fabricCanvasRaw.on('mouse:move', retouchMouseMove);
     fabricCanvasRaw.on('mouse:up', retouchMouseUp);
-  } else if (['eyedropper', 'bucket'].includes(next)) {
+  } else if (['eyedropper', 'bucket', 'magic-wand'].includes(next)) {
     fabricCanvasRaw.on('mouse:down', utilityToolMouseDown);
+  } else if (next === 'lasso') {
+    setupLasso();
   }
 }
 function utilityToolMouseDown(opt) {
@@ -864,10 +867,49 @@ function utilityToolMouseDown(opt) {
     brushColor.value = sampleColorAt(target, point);
     toast.success(`Sampled ${brushColor.value}`);
     setTool('brush');
-  } else {
+  } else if (tool.value === 'bucket') {
     paintBucketAt(target, point, { color: brushColor.value });
     refreshAfterRetouch(fabricCanvasRaw, target);
+  } else {
+    magicWandAt(target, point, { tolerance: 28 });
+    refreshAfterRetouch(fabricCanvasRaw, target);
+    toast.success('Contiguous color region retained. Use Select & Mask to refine it.');
+    setTool('select');
   }
+}
+
+let lassoPoints = [];
+let lassoPreview = null;
+function pointInsidePolygon(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i], b = polygon[j];
+    if (((a.y > point.y) !== (b.y > point.y)) && point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || 1e-9) + a.x) inside = !inside;
+  }
+  return inside;
+}
+function lassoDown(opt) {
+  lassoPoints = [fabricCanvasRaw.getScenePoint(opt.e)];
+  lassoPreview = new fabric.Polyline(lassoPoints, { fill: 'rgba(192,111,239,0.08)', stroke: '#C06FEF', strokeWidth: 1 / zoom.value, strokeDashArray: [6, 4], selectable: false, evented: false });
+  fabricCanvasRaw.add(lassoPreview);
+}
+function lassoMove(opt) {
+  if (!lassoPreview) return; lassoPoints.push(fabricCanvasRaw.getScenePoint(opt.e));
+  lassoPreview.set({ points: [...lassoPoints] }); fabricCanvasRaw.requestRenderAll();
+}
+function lassoUp() {
+  if (!lassoPreview) return;
+  fabricCanvasRaw.remove(lassoPreview); lassoPreview = null;
+  const enclosed = fabricCanvasRaw.getObjects().filter((obj) => obj.evented !== false && pointInsidePolygon(obj.getCenterPoint(), lassoPoints));
+  fabricCanvasRaw.discardActiveObject();
+  if (enclosed.length === 1) fabricCanvasRaw.setActiveObject(enclosed[0]);
+  else if (enclosed.length > 1) fabricCanvasRaw.setActiveObject(new fabric.ActiveSelection(enclosed, { canvas: fabricCanvasRaw }));
+  fabricCanvasRaw.requestRenderAll(); teardownLasso(); tool.value = 'select';
+}
+function setupLasso() { fabricCanvasRaw.selection = false; fabricCanvasRaw.on('mouse:down', lassoDown); fabricCanvasRaw.on('mouse:move', lassoMove); fabricCanvasRaw.on('mouse:up', lassoUp); }
+function teardownLasso() {
+  fabricCanvasRaw?.off('mouse:down', lassoDown); fabricCanvasRaw?.off('mouse:move', lassoMove); fabricCanvasRaw?.off('mouse:up', lassoUp);
+  if (lassoPreview) fabricCanvasRaw?.remove(lassoPreview); lassoPreview = null; lassoPoints = []; if (fabricCanvasRaw) fabricCanvasRaw.selection = true;
 }
 function retouchMouseUp() { retouchPainting = false; strokeTarget = null; lastStrokePoint = null; }
 
@@ -913,6 +955,7 @@ function doStamp(p) {
   else if (tool.value === 'eraser') eraseAt(strokeTarget, p, { brushSize: brushSize.value, hardness: brushHardness.value });
   else if (tool.value === 'dodge') dodgeBurnAt(strokeTarget, p, { mode: dodgeMode.value, brushSize: brushSize.value });
   else if (tool.value === 'healing') healAt(strokeTarget, p, { brushSize: brushSize.value });
+  else if (tool.value === 'liquify') liquifyPushAt(strokeTarget, lastStrokePoint || p, p, { brushSize: brushSize.value });
 }
 function retouchMouseDown(opt) {
   const p = fabricCanvasRaw.getScenePoint(opt.e);
@@ -1139,6 +1182,8 @@ function onKeyDown(e) {
   if (e.key === 'i' || e.key === 'I') setTool('eyedropper');
   if (e.key === 'j' || e.key === 'J') setTool('healing');
   if (e.key === 'g' || e.key === 'G') setTool('bucket');
+  if (e.key === 'w' || e.key === 'W') setTool('magic-wand');
+  if (e.key === 'l' || e.key === 'L') setTool('lasso');
   if (e.key === 'Delete' || e.key === 'Backspace') {
     // Was fabricCanvasRaw.remove(o) directly — a no-op for any object
     // nested inside a Fabric Group (true for virtually every PSD-imported
@@ -2947,7 +2992,10 @@ async function exportPdf() {
     fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll();
     const dataUrl = fabricCanvasRaw.toDataURL({ format: 'png', multiplier: 1 / (fabricCanvasRaw.getZoom() || 1) });
     const png = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
-    const { PDFDocument } = await import('pdf-lib');
+    // pdf-lib 1.17.1 advertises an `es/index.js` module entry that is absent
+    // from some npm mirrors. Its shipped ESM bundle is complete and avoids
+    // making Studio PDF export depend on that broken package entrypoint.
+    const { PDFDocument } = await import('pdf-lib/dist/pdf-lib.esm.js');
     const pdf = await PDFDocument.create();
     const image = await pdf.embedPng(png);
     const page = pdf.addPage([document.value.width, document.value.height]);

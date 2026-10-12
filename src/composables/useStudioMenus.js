@@ -431,7 +431,8 @@ export function useStudioMenus(ctx) {
         ] },
         { label: 'Distort', items: [
           { label: 'Twirl…', disabled: notImage, action: () => adjust('Twirl', ADJ.twirl) },
-          SOON('Ripple…'), SOON('Pinch…'), SOON('Spherize…'), SOON('Liquify…'),
+          SOON('Ripple…'), SOON('Pinch…'), SOON('Spherize…'),
+          { label: 'Liquify…', disabled: notImage, action: () => ctx.setTool('liquify') },
         ] },
         { label: 'Photo Looks', items: [
           ...['vintage', 'kodachrome', 'technicolor', 'polaroid', 'brownie'].map((id) => ({
@@ -468,7 +469,8 @@ export function useStudioMenus(ctx) {
           { label: 'Eraser', shortcut: 'E', action: () => ctx.setTool('eraser') },
           { label: 'Clone Stamp', shortcut: 'S', action: () => ctx.setTool('clone') },
           { label: 'Dodge / Burn', shortcut: 'O', action: () => ctx.setTool('dodge') },
-          SOON('Magic Wand'), SOON('Lasso'),
+          { label: 'Magic Wand', shortcut: 'W', action: () => ctx.setTool('magic-wand') },
+          { label: 'Lasso', shortcut: 'L', action: () => ctx.setTool('lasso') },
           { label: 'Marquee', shortcut: 'M', action: () => { ctx.setTool('select'); ctx.toast('Drag on empty canvas to select every enclosed layer.'); } },
           SOON('Gradient Tool'),
           { label: 'Eyedropper', shortcut: 'I', action: () => ctx.setTool('eyedropper') },
