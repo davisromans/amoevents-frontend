@@ -484,7 +484,9 @@ export function useStudioMenus(ctx) {
           { label: 'Paint Bucket', shortcut: 'G', action: () => ctx.setTool('bucket') },
         ] },
         { label: 'History Panel', checked: () => ctx.rightPanelTab.value === 'history', action: () => { ctx.rightPanelTab.value = 'history'; } },
-        SOON('Swatches'), SOON('Character / Paragraph'), SOON('Brushes Panel'), SOON('Actions'),
+        { label: 'Swatches', checked: () => ctx.rightPanelTab.value === 'swatches', action: () => { ctx.rightPanelTab.value = 'swatches'; } },
+        { label: 'Character / Paragraph', checked: () => ctx.rightPanelTab.value === 'properties', action: () => { ctx.rightPanelTab.value = 'properties'; } },
+        SOON('Brushes Panel'), SOON('Actions'),
       ],
     },
     {
