@@ -206,6 +206,43 @@ export function paintBucketAt(fabricImg, scenePoint, { color = '#111827', tolera
   ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
 }
 
+export function magicWandAt(fabricImg, scenePoint, { tolerance = 28 } = {}) {
+  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
+  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
+  const sx = Math.max(0, Math.min(canvas.width - 1, Math.round(x)));
+  const sy = Math.max(0, Math.min(canvas.height - 1, Math.round(y)));
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const data = image.data;
+  const start = (sy * canvas.width + sx) * 4;
+  const source = [data[start], data[start + 1], data[start + 2], data[start + 3]];
+  const matches = (i) => Math.max(Math.abs(data[i] - source[0]), Math.abs(data[i + 1] - source[1]), Math.abs(data[i + 2] - source[2]), Math.abs(data[i + 3] - source[3])) <= tolerance;
+  const selected = new Uint8Array(canvas.width * canvas.height); const stack = [sy * canvas.width + sx];
+  while (stack.length) {
+    const p = stack.pop(); if (selected[p]) continue;
+    const i = p * 4; if (!matches(i)) continue; selected[p] = 1;
+    const px = p % canvas.width, py = Math.floor(p / canvas.width);
+    if (px > 0) stack.push(p - 1); if (px < canvas.width - 1) stack.push(p + 1);
+    if (py > 0) stack.push(p - canvas.width); if (py < canvas.height - 1) stack.push(p + canvas.width);
+  }
+  // The selected contiguous region becomes the retained image area. This is
+  // equivalent to selecting then adding a reveal-selection mask.
+  for (let p = 0; p < selected.length; p += 1) if (!selected[p]) data[p * 4 + 3] = 0;
+  ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
+}
+
+export function liquifyPushAt(fabricImg, fromScene, toScene, { brushSize = 80, strength = 0.65 } = {}) {
+  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
+  const from = sceneToImagePixel(fabricImg, fromScene); const to = sceneToImagePixel(fabricImg, toScene);
+  const r = Math.max(2, brushSize / to.sceneScale / 2);
+  const size = Math.max(2, Math.ceil(r * 2));
+  const sourceX = Math.max(0, Math.min(canvas.width - size, Math.round(from.x - r)));
+  const sourceY = Math.max(0, Math.min(canvas.height - size, Math.round(from.y - r)));
+  const patch = window.document.createElement('canvas'); patch.width = size; patch.height = size;
+  patch.getContext('2d').drawImage(canvas, sourceX, sourceY, size, size, 0, 0, size, size);
+  const dx = (to.x - from.x) * strength, dy = (to.y - from.y) * strength;
+  ctx.save(); ctx.beginPath(); ctx.arc(to.x, to.y, r, 0, Math.PI * 2); ctx.clip();
+  ctx.drawImage(patch, sourceX + dx, sourceY + dy); ctx.restore(); fabricImg.dirty = true;
+}
+
 export function healAt(fabricImg, scenePoint, { brushSize = 40, strength = 0.65 } = {}) {
   const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
   const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
