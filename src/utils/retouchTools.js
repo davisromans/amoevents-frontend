@@ -29,7 +29,7 @@ export function ensureLiveCanvas(fabricImg) {
   return canvas;
 }
 
-function sceneToImagePixel(fabricImg, scenePoint) {
+export function sceneToImagePixel(fabricImg, scenePoint) {
   // Invert the complete object transform (rotation, group transforms,
   // negative scale from flipping, and resizing). The previous left/top
   // subtraction only worked for an unrotated top-level image and made
@@ -169,6 +169,55 @@ export function paintBrushAt(fabricImg, scenePoint, { brushSize = 20, hardness =
     : '17,24,39';
   stampAt(ctx, x, y, brushSize / sceneScale / 2, hardness, 'source-over', rgb);
   fabricImg.dirty = true;
+}
+
+export function sampleColorAt(fabricImg, scenePoint) {
+  const canvas = ensureLiveCanvas(fabricImg);
+  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
+  const pixel = canvas.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data;
+  return `#${[pixel[0], pixel[1], pixel[2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function paintBucketAt(fabricImg, scenePoint, { color = '#111827', tolerance = 28 } = {}) {
+  const canvas = ensureLiveCanvas(fabricImg);
+  const ctx = canvas.getContext('2d');
+  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
+  const sx = Math.max(0, Math.min(canvas.width - 1, Math.round(x)));
+  const sy = Math.max(0, Math.min(canvas.height - 1, Math.round(y)));
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data; const start = (sy * canvas.width + sx) * 4;
+  const source = [data[start], data[start + 1], data[start + 2], data[start + 3]];
+  const parsed = new fabric.Color(color).getSource();
+  const replacement = [parsed[0], parsed[1], parsed[2], Math.round((parsed[3] ?? 1) * 255)];
+  const matches = (i) => Math.max(
+    Math.abs(data[i] - source[0]), Math.abs(data[i + 1] - source[1]),
+    Math.abs(data[i + 2] - source[2]), Math.abs(data[i + 3] - source[3]),
+  ) <= tolerance;
+  const visited = new Uint8Array(canvas.width * canvas.height);
+  const stack = [sy * canvas.width + sx];
+  while (stack.length) {
+    const p = stack.pop(); if (visited[p]) continue; visited[p] = 1;
+    const i = p * 4; if (!matches(i)) continue;
+    data[i] = replacement[0]; data[i + 1] = replacement[1]; data[i + 2] = replacement[2]; data[i + 3] = replacement[3];
+    const px = p % canvas.width, py = Math.floor(p / canvas.width);
+    if (px > 0) stack.push(p - 1); if (px < canvas.width - 1) stack.push(p + 1);
+    if (py > 0) stack.push(p - canvas.width); if (py < canvas.height - 1) stack.push(p + canvas.width);
+  }
+  ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
+}
+
+export function healAt(fabricImg, scenePoint, { brushSize = 40, strength = 0.65 } = {}) {
+  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
+  const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
+  const r = Math.max(2, brushSize / sceneScale / 2);
+  const size = Math.max(1, Math.round(r * 2));
+  const dx = Math.max(0, Math.min(canvas.width - size, Math.round(x - r)));
+  const dy = Math.max(0, Math.min(canvas.height - size, Math.round(y - r)));
+  const sourceX = Math.max(0, Math.min(canvas.width - size, dx - size));
+  const patchCanvas = window.document.createElement('canvas'); patchCanvas.width = size; patchCanvas.height = size;
+  patchCanvas.getContext('2d').drawImage(canvas, sourceX, dy, size, size, 0, 0, size, size);
+  ctx.save(); ctx.globalAlpha = strength; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+  ctx.drawImage(patchCanvas, dx, dy); ctx.restore(); fabricImg.dirty = true;
 }
 
 export function refreshAfterRetouch(canvas, fabricImg) {
