@@ -298,6 +298,8 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     adjustments: clonePlain(layer.adjustments || {}),
     galleryFilters: clonePlain(layer.galleryFilters || {}),
     clipMaskSourceLayerId: layer.clipMaskSourceLayerId || null,
+    smartObject: !!layer.smartObject,
+    smartObjectSource: clonePlain(layer.smartObjectSource || null),
   });
   applyLayerEffects(fabricObj, layer);
 }
@@ -549,6 +551,8 @@ function fabricToLayer(obj) {
     blendMode: Object.keys(BLEND_MODE_TO_COMPOSITE).find((k) => BLEND_MODE_TO_COMPOSITE[k] === obj.globalCompositeOperation) || 'normal',
     binding: data.binding || null,
     clipMaskSourceLayerId: data.clipMaskSourceLayerId || null,
+    smartObject: !!data.smartObject,
+    smartObjectSource: clonePlain(data.smartObjectSource || preserved.smartObjectSource || null),
     effects: preservedEffects,
   };
 
