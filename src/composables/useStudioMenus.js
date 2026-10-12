@@ -211,6 +211,7 @@ export function useStudioMenus(ctx) {
       label: 'File',
       items: [
         { label: 'Open PSD…', shortcut: '⌘O', action: ctx.openPsd },
+        { label: 'Open AmoEditor Project…', action: ctx.openProject },
         { label: 'Place Image…', action: ctx.placeImage },
         { label: 'Place from Library…', action: ctx.openSharedAssets },
         { label: 'Import Fonts…', action: ctx.importFonts },
@@ -229,6 +230,7 @@ export function useStudioMenus(ctx) {
           { label: 'Export Layered PSD', action: ctx.exportPsd },
           { label: 'Export as PDF', action: ctx.exportPdf },
           { label: 'Export Layers to Files', action: ctx.exportLayers },
+          { label: 'Export Portable AmoEditor Project', action: ctx.exportProject },
         ] },
         SEP,
         { label: 'Close Studio', action: ctx.closeStudio },
