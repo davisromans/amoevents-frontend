@@ -267,10 +267,11 @@
            resizable column, keeping the left side dedicated to tools. -->
       <aside class="shrink-0 border-l border-surface-mist dark:border-surface-fog surface-card !rounded-none relative flex flex-col"
              :style="{ width: layersPanelWidth + 'px' }">
-        <div class="shrink-0 grid grid-cols-3 border-b border-surface-mist dark:border-surface-fog">
+        <div class="shrink-0 grid grid-cols-4 border-b border-surface-mist dark:border-surface-fog">
           <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'layers' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'layers'">Layers</button>
           <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'properties' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'properties'">Properties</button>
           <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'history' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'history'">History</button>
+          <button class="px-2 py-2 text-xs font-bold" :class="rightPanelTab === 'swatches' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'swatches'">Colors</button>
         </div>
 
         <template v-if="rightPanelTab === 'layers'">
@@ -328,13 +329,23 @@
             @update-qr="onUpdateQr"
           />
         </div>
-        <div v-else class="flex-1 overflow-y-auto p-2 space-y-1">
+        <div v-else-if="rightPanelTab === 'history'" class="flex-1 overflow-y-auto p-2 space-y-1">
           <button v-for="entry in historyEntries" :key="entry.index"
                   class="w-full text-left rounded-lg px-3 py-2 text-xs"
                   :class="entry.current ? 'bg-brand-primary-glow text-brand-primary-deep font-bold' : 'hover:bg-surface-mist dark:hover:bg-surface-fog'"
                   @click="jumpToHistory(entry.index)">
             {{ entry.index === 0 ? 'Opened document' : `Edit ${entry.index}` }}
           </button>
+        </div>
+        <div v-else class="flex-1 overflow-y-auto p-3">
+          <div class="flex items-center gap-2 mb-3">
+            <input v-model="brushColor" type="color" class="w-10 h-9 rounded cursor-pointer" title="Current color" />
+            <button class="btn-ghost !text-2xs !py-1.5 flex-1" @click="addCurrentSwatch">Add current color</button>
+          </div>
+          <div class="grid grid-cols-6 gap-2">
+            <button v-for="color in studioSwatches" :key="color" class="aspect-square rounded-md border border-black/10 shadow-sm" :style="{ background: color }" :title="`${color} — click to use, Shift+click to remove`" @click="useSwatch(color, $event)" />
+          </div>
+          <p class="mt-3 text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Click applies the color to the active brush and selected text or shape. Shift-click removes a custom swatch.</p>
         </div>
         <div class="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
              @mousedown="startLayersPanelResize" title="Drag to resize" />
@@ -532,6 +543,17 @@ const gridMenuOpen = ref(false);
 const layersPanelWidth = ref(Math.max(260, Number(localStorage.getItem('studio.layersPanelWidth')) || 320));
 const rightPanelTab = ref(localStorage.getItem('studio.rightPanelTab') || 'layers');
 watch(rightPanelTab, (v) => localStorage.setItem('studio.rightPanelTab', v));
+const studioSwatches = ref(JSON.parse(localStorage.getItem('studio.swatches') || 'null') || ['#111827','#FFFFFF','#C06FEF','#8B5CF6','#D9B45E','#EF4444','#F97316','#FACC15','#22C55E','#06B6D4','#3B82F6','#EC4899']);
+watch(studioSwatches, (colors) => localStorage.setItem('studio.swatches', JSON.stringify(colors)), { deep: true });
+function addCurrentSwatch() { if (!studioSwatches.value.includes(brushColor.value)) studioSwatches.value.push(brushColor.value); }
+function useSwatch(color, event) {
+  if (event.shiftKey) { studioSwatches.value = studioSwatches.value.filter((v) => v !== color); return; }
+  brushColor.value = color;
+  const target = selectedObjects.value[0];
+  if (target && ['rect','ellipse','path','textbox','text','i-text'].includes(target.type)) {
+    target.set('fill', color); fabricCanvasRaw.requestRenderAll(); fabricCanvasRaw.fire('object:modified', { target });
+  }
+}
 function startLayersPanelResize(e) {
   e.preventDefault();
   const startX = e.clientX;
