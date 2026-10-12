@@ -330,6 +330,8 @@ export function useStudioMenus(ctx) {
         { label: 'Duplicate Layer', shortcut: '⌘J', disabled: notOne, action: () => ctx.onDuplicateLayer(one(), parentOf(one())) },
         { label: 'Delete Layer', disabled: none, action: deleteSelected },
         { label: 'Rename Layer…', disabled: notOne, action: renameSelected },
+        { label: 'Convert to Smart Object', disabled: notOne, action: () => ctx.onMakeSmartObject(one()) },
+        { label: 'Edit Smart Object Contents', disabled: () => !one()?.get('data')?.smartObjectSource, action: () => ctx.onEditSmartObject(one()) },
         SEP,
         { label: 'Layer Style', items: [
           { label: 'Drop Shadow', disabled: notOne, checked: () => !!one()?.shadow, action: toggleShadow },

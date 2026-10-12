@@ -1925,6 +1925,38 @@ async function onRasterizeLayer(obj) {
   fabricCanvasRaw.fire('object:modified', {});
 }
 
+async function onMakeSmartObject(obj) {
+  if (!obj || !fabricCanvasRaw) return;
+  const source = obj.toObject(['data']);
+  const originalName = obj.get('data')?.name || obj.type;
+  const rasterized = await rasterizeObject(fabricCanvasRaw, obj);
+  rasterized.set('data', {
+    ...(rasterized.get('data') || {}),
+    name: originalName,
+    smartObject: true,
+    smartObjectSource: source,
+  });
+  selectedObjects.value = [markRaw(rasterized)];
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: rasterized });
+  toast.success('Converted to Smart Object. The editable source is preserved.');
+}
+
+async function onEditSmartObject(obj) {
+  const source = obj?.get('data')?.smartObjectSource;
+  if (!source) { toast.error('This layer is not a Smart Object.'); return; }
+  const [restored] = await fabric.util.enlivenObjects([source]);
+  const parent = findParentGroup(obj, fabricCanvasRaw.getObjects());
+  const collection = parent || fabricCanvasRaw;
+  const index = collection.getObjects().indexOf(obj);
+  collection.remove(obj); collection.insertAt(Math.max(0, index), restored);
+  if (!parent) fabricCanvasRaw.setActiveObject(restored);
+  selectedObjects.value = [markRaw(restored)]; selectedParent.value = parent;
+  fabricCanvasRaw.requestRenderAll(); refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: restored });
+  toast.success('Smart Object source restored for editing. Convert it again when finished.');
+}
+
 async function onRestoreText(obj, { notify = true } = {}) {
   if (!fabricCanvasRaw) return;
   const restored = await restoreConvertedText(fabricCanvasRaw, obj);
@@ -2385,7 +2417,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
-  onSelectSubject,
+  onSelectSubject, onMakeSmartObject, onEditSmartObject,
 });
 function onDocSizeApply(payload) {
   if (docSizeMode.value === 'canvas') resizeCanvas(payload); else resizeImage(payload);
