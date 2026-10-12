@@ -238,10 +238,19 @@
           {{ obj.type }} — no type-specific controls yet.
         </p>
 
-        <!-- Layer style — drop shadow (Batch 14) -->
+        <!-- Layer styles -->
         <div class="border-t border-surface-mist dark:border-surface-fog pt-3 space-y-2">
+          <p class="section-eyebrow">Layer styles</p>
           <label class="flex items-center gap-2 text-2xs font-bold">
-            <input type="checkbox" class="accent-brand-gold" :checked="!!obj.shadow" @change="toggleShadow($event.target.checked)" />
+            <input type="checkbox" class="accent-brand-gold" :checked="styleStrokeEnabled" @change="toggleStyleStroke($event.target.checked)" />
+            Stroke
+          </label>
+          <div v-if="styleStrokeEnabled" class="grid grid-cols-2 gap-2">
+            <label class="text-2xs">Color<input type="color" class="mt-1 w-full h-8 rounded" :value="styleStrokeColor" @input="setStyleStrokeColor($event.target.value)" /></label>
+            <label class="text-2xs">Width<input type="number" min="1" max="100" class="field-input !py-1.5 !text-xs mt-1" :value="obj.strokeWidth || 1" @change="setProp('strokeWidth', Math.max(1, Number($event.target.value)))" /></label>
+          </div>
+          <label class="flex items-center gap-2 text-2xs font-bold">
+            <input type="checkbox" class="accent-brand-gold" :checked="!!obj.shadow && !isOuterGlow" @change="toggleShadow($event.target.checked)" />
             Drop shadow
           </label>
           <template v-if="obj.shadow">
@@ -264,6 +273,17 @@
               <input type="color" class="w-full h-8 rounded-md cursor-pointer" :value="shadowHex" @input="setShadowColor($event.target.value)" />
             </div>
           </template>
+          <label class="flex items-center gap-2 text-2xs font-bold">
+            <input type="checkbox" class="accent-brand-gold" :checked="isOuterGlow" @change="toggleOuterGlow($event.target.checked)" />
+            Outer glow
+          </label>
+          <div v-if="isOuterGlow" class="grid grid-cols-2 gap-2">
+            <label class="text-2xs">Color<input type="color" class="mt-1 w-full h-8 rounded" :value="shadowHex" @input="setShadowColor($event.target.value)" /></label>
+            <label class="text-2xs">Size<input type="number" min="1" max="160" class="field-input !py-1.5 !text-xs mt-1" :value="obj.shadow?.blur || 20" @change="setShadowProp('blur', Number($event.target.value))" /></label>
+          </div>
+          <label v-if="['rect','ellipse','path','textbox','text','i-text'].includes(obj.type)" class="text-2xs font-bold block">Color overlay
+            <input type="color" class="mt-1 w-full h-8 rounded" :value="toHex(obj.fill)" @input="setProp('fill', $event.target.value)" />
+          </label>
         </div>
 
         <!-- Masking (Batch 12) -->
@@ -307,6 +327,18 @@
             <input type="range" min="-180" max="180" class="w-full accent-brand-gold" :value="obj.angle || 0" @input="setProp('angle', Number($event.target.value))" />
             <button v-if="obj.angle" class="mt-1 text-2xs font-bold text-brand-primary" @click="setProp('angle', 0)">Reset rotation</button>
           </div>
+          <div>
+            <p class="field-label mb-1">Skew / distort</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="text-2xs">Horizontal
+                <input type="number" min="-85" max="85" step="1" class="field-input !py-1.5 !text-xs mt-1" :value="Math.round(obj.skewX || 0)" @change="setProp('skewX', clampSkew($event.target.value))" />
+              </label>
+              <label class="text-2xs">Vertical
+                <input type="number" min="-85" max="85" step="1" class="field-input !py-1.5 !text-xs mt-1" :value="Math.round(obj.skewY || 0)" @change="setProp('skewY', clampSkew($event.target.value))" />
+              </label>
+            </div>
+            <button v-if="obj.skewX || obj.skewY" class="mt-1 text-2xs font-bold text-brand-primary" @click="resetSkew">Reset distortion</button>
+          </div>
           <div class="grid grid-cols-2 gap-1">
             <button class="btn-ghost !text-2xs !py-1.5" @click="flip('x')">Flip horizontal</button>
             <button class="btn-ghost !text-2xs !py-1.5" @click="flip('y')">Flip vertical</button>
@@ -336,6 +368,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import * as fabric from 'fabric';
 import {
   BoldIcon, ItalicIcon, Bars3BottomLeftIcon, Bars3Icon, Bars3BottomRightIcon,
   Bars3BottomLeftIcon as AlignLeftIcon, ArrowsRightLeftIcon as AlignCenterHIcon, Bars3BottomRightIcon as AlignRightIcon,
@@ -451,6 +484,13 @@ function setProp(key, value) {
   obj.value.setCoords();
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target: obj.value }); // feeds the history stack (Batch 8)
+}
+function clampSkew(value) { return Math.max(-85, Math.min(85, Number(value) || 0)); }
+function resetSkew() {
+  obj.value.set({ skewX: 0, skewY: 0 });
+  obj.value.setCoords();
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target: obj.value });
 }
 function flip(axis) {
   const key = axis === 'x' ? 'scaleX' : 'scaleY';
@@ -674,9 +714,30 @@ const shadowHex = computed(() => {
   if (!m) return '#000000';
   return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
 });
+const styleStrokeEnabled = computed(() => !!obj.value?.stroke && Number(obj.value?.strokeWidth || 0) > 0);
+const styleStrokeColor = computed(() => toHex(obj.value?.stroke) || '#000000');
+function toggleStyleStroke(on) {
+  obj.value.set({ stroke: on ? (obj.value.stroke || '#000000') : null, strokeWidth: on ? Math.max(1, Number(obj.value.strokeWidth || 2)) : 0 });
+  obj.value.setCoords();
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target: obj.value });
+}
+function setStyleStrokeColor(color) { obj.value.set({ stroke: color, strokeWidth: Math.max(1, Number(obj.value.strokeWidth || 2)) }); props.canvas.requestRenderAll(); props.canvas.fire('object:modified', { target: obj.value }); }
+const isOuterGlow = computed(() => !!obj.value?.get('data')?.outerGlow);
 function toggleShadow(on) {
-  if (on) setDropShadow(props.canvas, obj.value, {});
+  if (on) {
+    obj.value.set('data', { ...(obj.value.get('data') || {}), outerGlow: false });
+    setDropShadow(props.canvas, obj.value, {});
+  }
   else clearDropShadow(props.canvas, obj.value);
+}
+function toggleOuterGlow(on) {
+  const data = obj.value.get('data') || {};
+  obj.value.set('data', { ...data, outerGlow: on });
+  if (on) obj.value.set('shadow', new fabric.Shadow({ color: 'rgba(192,111,239,0.75)', blur: 24, offsetX: 0, offsetY: 0 }));
+  else clearDropShadow(props.canvas, obj.value);
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target: obj.value });
 }
 function setShadowProp(key, value) {
   obj.value.shadow.set(key, value);
