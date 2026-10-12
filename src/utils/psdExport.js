@@ -14,6 +14,38 @@ function safeName(obj) {
   return obj.get('data')?.name || obj.text?.slice(0, 40) || obj.type || 'Layer';
 }
 
+function colorToPsd(value) {
+  const c = new fabric.Color(value || '#000000').getSource();
+  return { r: c[0], g: c[1], b: c[2], a: (c[3] ?? 1) * 255 };
+}
+
+function fabricTextToPsd(obj) {
+  const text = String(obj.text || '');
+  const data = {
+    text,
+    transform: obj.calcTransformMatrix().slice(0, 6),
+    antiAlias: 'smooth',
+    orientation: 'horizontal',
+    shapeType: obj.type === 'textbox' ? 'box' : 'point',
+    style: {
+      font: { name: String(obj.fontFamily || 'Arial').replace(/\s+/g, '') || 'ArialMT' },
+      fontSize: Number(obj.fontSize) || 24,
+      fauxBold: Number(obj.fontWeight) >= 600 || String(obj.fontWeight).toLowerCase() === 'bold',
+      fauxItalic: obj.fontStyle === 'italic',
+      underline: !!obj.underline,
+      strikethrough: !!obj.linethrough,
+      tracking: Number(obj.charSpacing) || 0,
+      fillColor: colorToPsd(obj.fill),
+      ...(obj.stroke ? { strokeColor: colorToPsd(obj.stroke), strokeFlag: true, outlineWidth: Number(obj.strokeWidth) || 1 } : {}),
+    },
+    paragraphStyle: {
+      justification: ({ left: 'left', center: 'center', right: 'right', justify: 'justify-all' })[obj.textAlign] || 'left',
+    },
+  };
+  if (obj.type === 'textbox') data.boxBounds = [0, 0, Number(obj.width) || 1, Number(obj.height) || 1];
+  return data;
+}
+
 async function rasterizeLeaf(obj) {
   const clone = await obj.clone(['data']);
   // calcTransformMatrix includes every parent-group transform. Applying it
@@ -52,6 +84,10 @@ async function rasterizeLeaf(obj) {
   return { canvas, left: Math.floor(bounds.left), top: Math.floor(bounds.top) };
 }
 
+export async function rasterizeFabricObject(obj) {
+  return rasterizeLeaf(obj);
+}
+
 async function objectToPsdLayer(obj) {
   const common = {
     name: safeName(obj),
@@ -66,14 +102,16 @@ async function objectToPsdLayer(obj) {
     return { ...common, children, opened: true };
   }
   const bitmap = await rasterizeLeaf(obj);
+  if (['textbox', 'text', 'i-text'].includes(obj.type)) {
+    return { ...common, ...bitmap, text: fabricTextToPsd(obj) };
+  }
   return { ...common, ...bitmap };
 }
 
 /**
- * Exports a layered, Photoshop-readable PSD. Every layer's visible result
- * is rasterized so fonts, masks, filters and Fabric effects remain faithful;
- * the layer names, hierarchy, visibility, opacity, order and blend modes stay
- * editable. This intentionally avoids ag-psd's incomplete text writer.
+ * Exports a layered, Photoshop-readable PSD. Every layer keeps a bitmap
+ * fallback so masks, filters and Fabric effects remain faithful. Text layers
+ * additionally carry editable PSD type metadata.
  */
 export async function exportCanvasAsPsd(canvas, { width, height }) {
   // Keep the sizeable PSD codec out of the editor's initial bundle. It is
