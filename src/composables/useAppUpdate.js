@@ -16,7 +16,11 @@ import { ref, onMounted } from 'vue';
 
 const needRefresh = ref(false);
 
-let loadedVersion = null;
+// This value is compiled into the JavaScript bundle by Vite.  It must not be
+// read from /version.json: an old bundle would otherwise fetch the newest
+// version, compare it with the same newest version on the next poll, and
+// incorrectly conclude that it is current forever.
+let loadedVersion = typeof __BUILD_VERSION__ !== 'undefined' ? __BUILD_VERSION__ : null;
 let candidateVersion = null;
 let pollTimer = null;
 let focusHooked = false;
@@ -45,8 +49,11 @@ async function checkVersion() {
   if (localStorage.getItem(APPLIED_KEY) === v) return;
 
   if (candidateVersion === v) {
-    // Confirmed on two consecutive polls → surface the banner.
+    // Confirmed on two consecutive polls. Update automatically so users do
+    // not remain trapped on a stale app shell. Auth in localStorage and event
+    // data in IndexedDB are deliberately preserved by applyUpdate().
     needRefresh.value = true;
+    await applyUpdate();
   } else {
     candidateVersion = v;
   }
@@ -89,6 +96,18 @@ export function useAppUpdate() {
       }
     } catch {}
 
+    // Ask the browser to discover an updated worker immediately instead of
+    // waiting for its normal update interval.
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((registration) => registration.update().catch(() => {})));
+      }
+    } catch {}
+
+    // Two quick checks confirm a deploy without making the user wait a minute.
+    await checkVersion();
+    window.setTimeout(checkVersion, 1_500);
     if (!pollTimer) pollTimer = setInterval(checkVersion, 60_000);
     if (!focusHooked) {
       focusHooked = true;
