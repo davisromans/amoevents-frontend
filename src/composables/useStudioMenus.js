@@ -187,6 +187,21 @@ export function useStudioMenus(ctx) {
     noise: [{ key: 'noise', label: 'Amount', kind: 'gallery', min: 0, max: 400, step: 1, default: 60 }],
     pixelate: [{ key: 'pixelate', label: 'Cell size', kind: 'gallery', min: 1, max: 40, step: 1, default: 8, neutral: 1 }],
     twirl: [{ key: 'twirl', label: 'Angle', kind: 'gallery', min: -6, max: 6, default: 2 }],
+    levels: [
+      { key: 'levelsBlack', label: 'Black point', kind: 'adj', min: 0, max: 254, step: 1, default: 0, neutral: 0 },
+      { key: 'levelsGamma', label: 'Midtone gamma', kind: 'adj', min: 0.1, max: 3, step: 0.01, default: 1, neutral: 1 },
+      { key: 'levelsWhite', label: 'White point', kind: 'adj', min: 1, max: 255, step: 1, default: 255, neutral: 255 },
+    ],
+    curves: [
+      { key: 'curvesShadows', label: 'Shadows', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'curvesMidtones', label: 'Midtones', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'curvesHighlights', label: 'Highlights', kind: 'adj', min: -1, max: 1, default: 0 },
+    ],
+    colorBalance: [
+      { key: 'balanceRed', label: 'Cyan / Red', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'balanceGreen', label: 'Magenta / Green', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'balanceBlue', label: 'Yellow / Blue', kind: 'adj', min: -1, max: 1, default: 0 },
+    ],
   };
   const SOON = (label, shortcut) => ({ label, shortcut, soon: true });
   const SEP = { separator: true };
@@ -212,8 +227,8 @@ export function useStudioMenus(ctx) {
           { label: 'Export as PNG', action: () => ctx.exportImage('png') },
           { label: 'Export as JPEG', action: () => ctx.exportImage('jpeg') },
           { label: 'Export Layered PSD', action: ctx.exportPsd },
-          SOON('Export as PDF'),
-          SOON('Export Layers to Files'),
+          { label: 'Export as PDF', action: ctx.exportPdf },
+          { label: 'Export Layers to Files', action: ctx.exportLayers },
         ] },
         SEP,
         { label: 'Close Studio', action: ctx.closeStudio },
@@ -259,7 +274,9 @@ export function useStudioMenus(ctx) {
           { label: 'Hue/Saturation…', shortcut: '⌘U', disabled: notImage, action: () => adjust('Hue/Saturation', ADJ.hueSaturation) },
           { label: 'Vibrance…', disabled: notImage, action: () => adjust('Vibrance', ADJ.vibrance) },
           { label: 'Exposure (Gamma)…', disabled: notImage, action: () => adjust('Exposure', ADJ.exposure) },
-          SOON('Levels…', '⌘L'), SOON('Curves…', '⌘M'), SOON('Color Balance…', '⌘B'),
+          { label: 'Levels…', shortcut: '⌘L', disabled: notImage, action: () => adjust('Levels', ADJ.levels) },
+          { label: 'Curves…', shortcut: '⌘M', disabled: notImage, action: () => adjust('Curves', ADJ.curves) },
+          { label: 'Color Balance…', shortcut: '⌘B', disabled: notImage, action: () => adjust('Color Balance', ADJ.colorBalance) },
           SEP,
           { label: 'Black & White', disabled: notImage, checked: hasFilter('blackWhite'), action: () => toggleFilter('blackWhite') },
           { label: 'Desaturate', shortcut: '⇧⌘U', disabled: notImage, checked: hasFilter('grayscale'), action: () => toggleFilter('grayscale') },
@@ -408,7 +425,7 @@ export function useStudioMenus(ctx) {
           SOON('Oil Paint…'),
         ] },
         { label: 'Distort', items: [
-          { label: 'Twirl…', hint: 'Editor preview only', disabled: notImage, action: () => adjust('Twirl', ADJ.twirl) },
+          { label: 'Twirl…', disabled: notImage, action: () => adjust('Twirl', ADJ.twirl) },
           SOON('Ripple…'), SOON('Pinch…'), SOON('Spherize…'), SOON('Liquify…'),
         ] },
         { label: 'Photo Looks', items: [
@@ -431,7 +448,7 @@ export function useStudioMenus(ctx) {
         { label: 'Rulers', shortcut: '⌘R', checked: () => ctx.showRulers.value, action: () => { ctx.showRulers.value = !ctx.showRulers.value; } },
         { label: 'Grid', shortcut: "⌘'", checked: () => ctx.showGrid.value, action: () => { ctx.showGrid.value = !ctx.showGrid.value; } },
         { label: 'Snap to Grid', shortcut: '⇧⌘;', checked: () => ctx.snapToGrid.value, action: () => { ctx.snapToGrid.value = !ctx.snapToGrid.value; } },
-        SOON('Guides'), SOON('Smart Guides'),
+        { label: 'Smart Guides', checked: () => ctx.smartGuides.value, action: () => { ctx.smartGuides.value = !ctx.smartGuides.value; } },
         SEP,
         { label: 'Preview with Sample Data', checked: () => ctx.previewMode.value, action: ctx.togglePreview },
       ],
@@ -448,7 +465,8 @@ export function useStudioMenus(ctx) {
           { label: 'Dodge / Burn', shortcut: 'O', action: () => ctx.setTool('dodge') },
           SOON('Magic Wand'), SOON('Lasso'), SOON('Marquee'), SOON('Gradient Tool'), SOON('Eyedropper'), SOON('Healing Brush'), SOON('Paint Bucket'),
         ] },
-        SOON('History Panel'), SOON('Swatches'), SOON('Character / Paragraph'), SOON('Brushes Panel'), SOON('Actions'),
+        { label: 'History Panel', checked: () => ctx.rightPanelTab.value === 'history', action: () => { ctx.rightPanelTab.value = 'history'; } },
+        SOON('Swatches'), SOON('Character / Paragraph'), SOON('Brushes Panel'), SOON('Actions'),
       ],
     },
     {

@@ -266,9 +266,10 @@
            resizable column, keeping the left side dedicated to tools. -->
       <aside class="shrink-0 border-l border-surface-mist dark:border-surface-fog surface-card !rounded-none relative flex flex-col"
              :style="{ width: layersPanelWidth + 'px' }">
-        <div class="shrink-0 grid grid-cols-2 border-b border-surface-mist dark:border-surface-fog">
+        <div class="shrink-0 grid grid-cols-3 border-b border-surface-mist dark:border-surface-fog">
           <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'layers' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'layers'">Layers</button>
           <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'properties' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'properties'">Properties</button>
+          <button class="px-3 py-2 text-xs font-bold" :class="rightPanelTab === 'history' ? 'text-brand-primary border-b-2 border-brand-primary' : 'text-surface-slate dark:text-surface-ash'" @click="rightPanelTab = 'history'">History</button>
         </div>
 
         <template v-if="rightPanelTab === 'layers'">
@@ -307,7 +308,7 @@
           </div>
         </template>
 
-        <div v-else class="flex-1 overflow-y-auto p-3">
+        <div v-else-if="rightPanelTab === 'properties'" class="flex-1 overflow-y-auto p-3">
           <PropertiesPanel
             v-if="fabricCanvas"
             :canvas="fabricCanvas"
@@ -325,6 +326,14 @@
             @replace-source="onReplaceSource"
             @update-qr="onUpdateQr"
           />
+        </div>
+        <div v-else class="flex-1 overflow-y-auto p-2 space-y-1">
+          <button v-for="entry in historyEntries" :key="entry.index"
+                  class="w-full text-left rounded-lg px-3 py-2 text-xs"
+                  :class="entry.current ? 'bg-brand-primary-glow text-brand-primary-deep font-bold' : 'hover:bg-surface-mist dark:hover:bg-surface-fog'"
+                  @click="jumpToHistory(entry.index)">
+            {{ entry.index === 0 ? 'Opened document' : `Edit ${entry.index}` }}
+          </button>
         </div>
         <div class="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
              @mousedown="startLayersPanelResize" title="Drag to resize" />
@@ -393,7 +402,8 @@ import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
-import { exportCanvasAsPsd } from '@/utils/psdExport';
+import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
+import { toggleGalleryFilter } from '@/utils/filtersGallery';
 import { importPsdLocally } from '@/utils/localPsdImport';
 import { BINDING_FIELDS, sampleValueFor } from '@/utils/bindingRegistry';
 import * as fabric from 'fabric';
@@ -507,6 +517,7 @@ const fabricCanvas = ref(null); // reactive wrapper so PropertiesPanel/LayersPan
 
 const zoom = ref(1);
 const showGrid = ref(false);
+const smartGuides = ref(true);
 const showRulers = ref(false);
 const GRID_SIZES = [10, 20, 40, 80];
 const gridSize = ref(Number(localStorage.getItem('studio.gridSize')) || 20);
@@ -542,6 +553,8 @@ let history = null;
 const historyRevision = ref(0);
 const historyCanUndo = computed(() => { void historyRevision.value; return !!history?.canUndo; });
 const historyCanRedo = computed(() => { void historyRevision.value; return !!history?.canRedo; });
+const historyEntries = computed(() => { void historyRevision.value; return history?.entries || []; });
+async function jumpToHistory(index) { await history?.jumpTo(index); refreshLayersList(); }
 function resetHistory() {
   history?.detach();
   history = new HistoryStack(fabricCanvasRaw, {
@@ -933,10 +946,56 @@ function onKeyDown(e) {
   const key = e.key.toLowerCase();
   const active = fabricCanvasRaw?.getActiveObject();
   const activeText = ['textbox', 'text', 'i-text'].includes(active?.type) ? active : null;
+  const activeImage = active?.type === 'image' ? active : null;
   if (mod && key === 's') {
     e.preventDefault();
     if (e.shiftKey) save(); else saveLocalDraft({ notify: true });
     return;
+  }
+  if (mod && e.altKey && key === 'i') { e.preventDefault(); openDocSize('image'); return; }
+  if (mod && e.altKey && key === 'c') { e.preventDefault(); openDocSize('canvas'); return; }
+  if (mod && activeImage && ['l', 'm', 'u'].includes(key)) {
+    e.preventDefault();
+    const config = key === 'l'
+      ? ['Levels', [
+        { key: 'levelsBlack', label: 'Black point', kind: 'adj', min: 0, max: 254, step: 1, default: 0, neutral: 0 },
+        { key: 'levelsGamma', label: 'Midtone gamma', kind: 'adj', min: 0.1, max: 3, step: 0.01, default: 1, neutral: 1 },
+        { key: 'levelsWhite', label: 'White point', kind: 'adj', min: 1, max: 255, step: 1, default: 255, neutral: 255 },
+      ]]
+      : key === 'm'
+        ? ['Curves', [
+          { key: 'curvesShadows', label: 'Shadows', kind: 'adj', min: -1, max: 1, default: 0 },
+          { key: 'curvesMidtones', label: 'Midtones', kind: 'adj', min: -1, max: 1, default: 0 },
+          { key: 'curvesHighlights', label: 'Highlights', kind: 'adj', min: -1, max: 1, default: 0 },
+        ]]
+        : ['Hue/Saturation', [
+          { key: 'hue', label: 'Hue', kind: 'adj', min: -1, max: 1, default: 0 },
+          { key: 'saturation', label: 'Saturation', kind: 'adj', min: -1, max: 1, default: 0 },
+        ]];
+    openAdjust(config[0], config[1]);
+    return;
+  }
+  if (mod && activeImage && key === 'b' && !activeText) {
+    e.preventDefault();
+    openAdjust('Color Balance', [
+      { key: 'balanceRed', label: 'Cyan / Red', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'balanceGreen', label: 'Magenta / Green', kind: 'adj', min: -1, max: 1, default: 0 },
+      { key: 'balanceBlue', label: 'Yellow / Blue', kind: 'adj', min: -1, max: 1, default: 0 },
+    ]);
+    return;
+  }
+  if (mod && activeImage && key === 'i' && !e.shiftKey) {
+    e.preventDefault(); toggleGalleryFilter(activeImage, 'invert', activeImage.get('data')?.galleryFilters?.invert === undefined ? true : null);
+    fabricCanvasRaw.fire('object:modified', { target: activeImage }); fabricCanvasRaw.requestRenderAll(); return;
+  }
+  if (mod && key === 'r') { e.preventDefault(); showRulers.value = !showRulers.value; return; }
+  if (mod && e.key === "'") { e.preventDefault(); showGrid.value = !showGrid.value; return; }
+  if (mod && key === 't') { e.preventDefault(); setTool('select'); return; }
+  if (mod && key === '/' && selectedObjects.value.length) {
+    e.preventDefault(); selectedObjects.value.forEach(onToggleLock); return;
+  }
+  if (mod && key === ',' && !e.shiftKey && selectedObjects.value.length) {
+    e.preventDefault(); selectedObjects.value.forEach(onToggleVisible); return;
   }
   if (mod && e.shiftKey && (e.key === ';' || e.key === ':')) {
     e.preventDefault();
@@ -1446,6 +1505,7 @@ function onWindowClickCloseShapesMenu(e) {
 // have at all before.
 const GUIDE_SNAP_SCREEN_PX = 6; // threshold in screen pixels, independent of zoom
 function onObjectMovingShowGuides(opt) {
+  if (!smartGuides.value) { clearGuides(); return; }
   const obj = opt.target;
   if (!obj || !document.value) { clearGuides(); return; }
   const snapDocPx = GUIDE_SNAP_SCREEN_PX / zoom.value;
@@ -2278,7 +2338,7 @@ function onAdjustCommit() {
 const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   canvas: () => fabricCanvasRaw,
   selected: selectedObjects,
-  document, pages, activePage, showGrid, showRulers, snapToGrid, previewMode, showShortcuts, isOnline,
+  document, pages, activePage, showGrid, showRulers, snapToGrid, smartGuides, rightPanelTab, previewMode, showShortcuts, isOnline,
   canUndo: historyCanUndo, canRedo: historyCanRedo, undo, redo,
   toast: (m) => toast.success(m),
   findParentGroup, refreshLayersList, applyZoom, setTool, zoomBy, resetZoom,
@@ -2290,7 +2350,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   importFonts: () => fontInputRef.value?.click(),
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
-  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, closeStudio,
+  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, closeStudio,
   insertEmptyLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
@@ -2803,6 +2863,54 @@ async function exportPsd() {
   } finally {
     exporting.value = false;
   }
+}
+
+function safeExportName(value) {
+  return String(value || 'layer').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'layer';
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = window.document.createElement('a');
+  link.href = url; link.download = filename;
+  window.document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function exportPdf() {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true; exportMenuOpen.value = false;
+  try {
+    fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll();
+    const dataUrl = fabricCanvasRaw.toDataURL({ format: 'png', multiplier: 1 / (fabricCanvasRaw.getZoom() || 1) });
+    const png = Uint8Array.from(atob(dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+    const { PDFDocument } = await import('pdf-lib');
+    const pdf = await PDFDocument.create();
+    const image = await pdf.embedPng(png);
+    const page = pdf.addPage([document.value.width, document.value.height]);
+    page.drawImage(image, { x: 0, y: 0, width: document.value.width, height: document.value.height });
+    triggerBlobDownload(new Blob([await pdf.save()], { type: 'application/pdf' }), `${safeExportName(name.value || 'template')}.pdf`);
+  } catch (err) { console.error(err); toast.error('PDF export failed.'); }
+  finally { exporting.value = false; }
+}
+
+async function exportLayers() {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true; exportMenuOpen.value = false;
+  try {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    const used = new Map();
+    for (const obj of [...fabricCanvasRaw.getObjects()].reverse()) {
+      const base = safeExportName(obj.get('data')?.name || obj.type || 'layer');
+      const count = (used.get(base) || 0) + 1; used.set(base, count);
+      const { canvas } = await rasterizeFabricObject(obj);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      zip.file(`${base}${count > 1 ? `-${count}` : ''}.png`, blob);
+    }
+    triggerBlobDownload(await zip.generateAsync({ type: 'blob' }), `${safeExportName(name.value || 'template')}-layers.zip`);
+  } catch (err) { console.error(err); toast.error('Layer export failed.'); }
+  finally { exporting.value = false; }
 }
 
 onMounted(() => {

@@ -24,6 +24,15 @@ export class HistoryStack {
 
   get canUndo() { return this.pointer > 0; }
   get canRedo() { return this.pointer < this.stack.length - 1; }
+  get entries() { return this.stack.map((_, index) => ({ index, current: index === this.pointer })); }
+
+  async jumpTo(index) {
+    const target = Math.max(0, Math.min(this.stack.length - 1, Number(index)));
+    if (!Number.isFinite(target) || target === this.pointer) return;
+    this.pointer = target;
+    await this._restore(target);
+    this.onChange?.();
+  }
 
   /** Call once after the initial document load so undo can't go "past the start". */
   init() {

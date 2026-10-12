@@ -51,6 +51,26 @@ class TwirlFilter extends fabric.filters.BaseFilter {
   sendUniformData(gl, uniformLocations) {
     gl.uniform1f(uniformLocations.uAngle, this.angle);
   }
+  applyTo2d({ imageData }) {
+    const { width, height, data } = imageData;
+    const source = new Uint8ClampedArray(data);
+    const cx = (width - 1) / 2, cy = (height - 1) / 2;
+    const radius = Math.max(1, Math.min(width, height) / 2);
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const dx = x - cx, dy = y - cy;
+      const distance = Math.hypot(dx, dy);
+      if (distance >= radius) continue;
+      const t = 1 - distance / radius;
+      const rotation = -Number(this.angle || 0) * t * t;
+      const sin = Math.sin(rotation), cos = Math.cos(rotation);
+      const sx = Math.round(cx + dx * cos - dy * sin);
+      const sy = Math.round(cy + dx * sin + dy * cos);
+      const target = (y * width + x) * 4;
+      const sample = (Math.max(0, Math.min(height - 1, sy)) * width + Math.max(0, Math.min(width - 1, sx))) * 4;
+      data[target] = source[sample]; data[target + 1] = source[sample + 1];
+      data[target + 2] = source[sample + 2]; data[target + 3] = source[sample + 3];
+    }
+  }
 }
 fabric.classRegistry.setClass(TwirlFilter, 'Twirl');
 
@@ -82,6 +102,33 @@ export const FILTER_GALLERY = [
 ];
 
 export const findGalleryFilter = (id) => FILTER_GALLERY.find((f) => f.id === id);
+
+function addAdvancedAdjustments(filters, adj) {
+  if (adj.levelsBlack !== undefined || adj.levelsWhite !== undefined || adj.levelsGamma !== undefined) {
+    const black = Number(adj.levelsBlack || 0) / 255;
+    const white = Number(adj.levelsWhite ?? 255) / 255;
+    const span = Math.max(0.01, white - black);
+    filters.push(new fabric.filters.Brightness({ brightness: -black }));
+    filters.push(new fabric.filters.Contrast({ contrast: Math.max(-0.99, Math.min(0.99, (1 / span - 1) / 2)) }));
+    const gamma = Math.max(0.1, Number(adj.levelsGamma || 1));
+    filters.push(new fabric.filters.Gamma({ gamma: [gamma, gamma, gamma] }));
+  }
+  if (adj.curvesShadows || adj.curvesMidtones || adj.curvesHighlights) {
+    const shadows = Number(adj.curvesShadows || 0), mid = Number(adj.curvesMidtones || 0), highlights = Number(adj.curvesHighlights || 0);
+    filters.push(new fabric.filters.Brightness({ brightness: Math.max(-1, Math.min(1, (shadows + highlights) * 0.22)) }));
+    filters.push(new fabric.filters.Contrast({ contrast: Math.max(-0.99, Math.min(0.99, (highlights - shadows) * 0.45)) }));
+    const gamma = Math.max(0.2, Math.min(2.2, 1 - mid * 0.7));
+    filters.push(new fabric.filters.Gamma({ gamma: [gamma, gamma, gamma] }));
+  }
+  if (adj.balanceRed || adj.balanceGreen || adj.balanceBlue) {
+    filters.push(new fabric.filters.ColorMatrix({ matrix: [
+      1, 0, 0, 0, Number(adj.balanceRed || 0),
+      0, 1, 0, 0, Number(adj.balanceGreen || 0),
+      0, 0, 1, 0, Number(adj.balanceBlue || 0),
+      0, 0, 0, 1, 0,
+    ] }));
+  }
+}
 
 /**
  * Applies (or removes) one named filter on an image layer, alongside
@@ -117,6 +164,7 @@ export function rebuildFilterStack(obj) {
   if (adj.contrast) filters.push(new fabric.filters.Contrast({ contrast: adj.contrast }));
   if (adj.saturation) filters.push(new fabric.filters.Saturation({ saturation: adj.saturation }));
   if (adj.hue) filters.push(new fabric.filters.HueRotation({ rotation: adj.hue }));
+  addAdvancedAdjustments(filters, adj);
 
   const gallery = data.galleryFilters || {};
   for (const [id, value] of Object.entries(gallery)) {
