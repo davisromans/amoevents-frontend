@@ -13,6 +13,7 @@
 
       <input ref="imageInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileChosen" />
       <input ref="psdInputRef" type="file" accept=".psd,image/vnd.adobe.photoshop" class="hidden" @change="onPsdFileChosen" />
+      <input ref="projectInputRef" type="file" accept=".amo,application/zip" class="hidden" @change="onProjectFileChosen" />
 
       <!-- Preview toggle (Batch 22) — swaps every bound text layer between its {{binding}} placeholder and sample data -->
       <button class="btn-ghost !text-2xs !py-1.5 !px-3 ml-1" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': previewMode }" @click="togglePreview">
@@ -2453,11 +2454,12 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   hasClipboard: () => !!studioClipboard?.objects?.length,
   copySelectedLayers, pasteSelectedLayers, adjustFontSize,
   openPsd: () => psdInputRef.value?.click(),
+  openProject: () => projectInputRef.value?.click(),
   placeImage: () => imageInputRef.value?.click(),
   importFonts: () => fontInputRef.value?.click(),
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
-  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, closeStudio,
+  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
   insertEmptyLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
@@ -2871,6 +2873,85 @@ async function save() {
 const exportMenuOpen = ref(false);
 const exporting = ref(false);
 const psdInputRef = ref(null);
+const projectInputRef = ref(null);
+
+function visitDocumentAssets(doc, visitor) {
+  const walk = async (layers) => {
+    for (const layer of layers || []) {
+      if (layer.children) await walk(layer.children);
+      if (layer.type === 'image') await visitor(layer, false);
+      if (layer.mask) await visitor(layer, true);
+    }
+  };
+  return walk(doc?.layers);
+}
+
+async function exportProject() {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true; exportMenuOpen.value = false;
+  try {
+    await persistLiveCanvasLayers({ cloud: false });
+    captureActivePage();
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    const packagePages = structuredClone(pages.value);
+    let assetIndex = 0;
+    for (const page of packagePages) {
+      await visitDocumentAssets(page.document, async (layer, isMask) => {
+        const record = isMask ? layer.mask : layer;
+        const id = record.localAssetId || record.assetId;
+        let blob = id ? await getCachedTemplateAssetBlob(id) : null;
+        if (!blob && record.assetId) {
+          const response = await fetch(await resolveAssetUrl(record.assetId));
+          if (response.ok) blob = await response.blob();
+        }
+        if (!blob) return;
+        const localId = `amo:${crypto.randomUUID()}`;
+        const path = `assets/${++assetIndex}.png`;
+        zip.file(path, blob);
+        record.localAssetId = localId;
+        record.packagePath = path;
+      });
+    }
+    zip.file('project.json', JSON.stringify({ format: 'amoeditor-project', version: 1, name: name.value, pages: packagePages }, null, 2));
+    triggerBlobDownload(await zip.generateAsync({ type: 'blob' }), `${safeExportName(name.value || 'template')}.amo`);
+    toast.success('Portable AmoEditor project exported with its local artwork.');
+  } catch (err) { console.error(err); toast.error(`Project export failed: ${apiErrorMessage(err)}`); }
+  finally { exporting.value = false; }
+}
+
+async function onProjectFileChosen(e) {
+  const file = e.target.files?.[0]; e.target.value = '';
+  if (!file || !fabricCanvasRaw) return;
+  if (document.value?.layers?.length && !(await askConfirm('Replace the current canvas with this AmoEditor project?'))) return;
+  loading.value = true; readyForAutosave = false;
+  try {
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file('project.json');
+    if (!manifestEntry) throw new Error('This file is not a valid AmoEditor project.');
+    const manifest = JSON.parse(await manifestEntry.async('text'));
+    if (manifest.format !== 'amoeditor-project' || !Array.isArray(manifest.pages)) throw new Error('Unsupported AmoEditor project format.');
+    for (const page of manifest.pages) {
+      await visitDocumentAssets(page.document, async (layer, isMask) => {
+        const record = isMask ? layer.mask : layer;
+        if (!record.packagePath) return;
+        const entry = zip.file(record.packagePath);
+        if (!entry) throw new Error(`Missing packaged artwork: ${record.packagePath}`);
+        await cacheLocalTemplateAsset(record.localAssetId, await entry.async('blob'));
+        delete record.packagePath;
+      });
+    }
+    name.value = manifest.name || file.name.replace(/\.amo$/i, '') || 'Untitled template';
+    pages.value = manifest.pages; activePage.value = 0; document.value = pages.value[0].document;
+    canvasBackground.value = document.value.background || '#FFFFFF';
+    await loadDocument(fabricCanvasRaw, document.value, { resolveAssetUrl });
+    fitZoomToViewport(); applyZoom(); refreshLayersList(); resetHistory();
+    readyForAutosave = true; await saveLocalDraft({ notify: false, dirty: true });
+    toast.success('AmoEditor project opened locally.');
+  } catch (err) { console.error(err); toast.error(`Could not open project: ${apiErrorMessage(err)}`); }
+  finally { readyForAutosave = true; loading.value = false; }
+}
 
 async function onPsdFileChosen(e) {
   const file = e.target.files?.[0];
