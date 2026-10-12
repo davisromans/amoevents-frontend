@@ -6,8 +6,13 @@
 // entry, not one per intermediate frame — matching how Photoshop's history
 // panel collapses a single drag into one step.
 export class HistoryStack {
-  constructor(canvas, { limit = 100, debounceMs = 400, onChange = null } = {}) {
+  // getExtra/setExtra carry document-level state that lives outside the
+  // Fabric canvas (e.g. document width/height changed by Canvas Size or
+  // Rotate Canvas) so undo restores it together with the layers.
+  constructor(canvas, { limit = 100, debounceMs = 400, onChange = null, getExtra = null, setExtra = null } = {}) {
     this.canvas = canvas;
+    this.getExtra = getExtra;
+    this.setExtra = setExtra;
     this.limit = limit;
     this.debounceMs = debounceMs;
     this.stack = [];
@@ -42,7 +47,8 @@ export class HistoryStack {
   detach() { this._detach?.(); clearTimeout(this._timer); }
 
   _snapshot() {
-    return JSON.stringify(this.canvas.toObject(['data']));
+    const canvasState = this.canvas.toObject(['data']);
+    return JSON.stringify(this.getExtra ? { canvas: canvasState, extra: this.getExtra() } : canvasState);
   }
 
   pushDebounced() {
@@ -66,7 +72,10 @@ export class HistoryStack {
 
   async _restore(index) {
     this._suspended = true; // loading JSON fires object:added per object — don't let that re-push
-    await this.canvas.loadFromJSON(JSON.parse(this.stack[index]));
+    const state = JSON.parse(this.stack[index]);
+    const withExtra = this.getExtra && state && state.canvas && 'extra' in state;
+    await this.canvas.loadFromJSON(withExtra ? state.canvas : state);
+    if (withExtra) this.setExtra?.(state.extra);
     this.canvas.renderAll();
     this._suspended = false;
   }

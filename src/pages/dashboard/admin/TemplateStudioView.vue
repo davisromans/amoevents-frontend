@@ -84,6 +84,9 @@
       <AppButton :loading="saving" :disabled="!isOnline" @click="save">Save to cloud</AppButton>
     </div>
 
+    <StudioMenuBar :menus="studioMenus" />
+    <input ref="fontInputRef" type="file" multiple accept=".ttf,.otf,.woff,.woff2" class="hidden" @change="onFontFilesChosen" />
+
     <!-- Page tabs — only shown once a document actually has more than one
          page (front/back, etc). No "+ Add page" entry point in the main
          UI; that space is Layers panel territory now. -->
@@ -356,6 +359,10 @@
       @imported="onFontsImported"
       @use-default="onMissingFontUseDefault"
     />
+    <AdjustDialog v-if="adjustState" :canvas="fabricCanvasRawRef()" :target="adjustState.target" :title="adjustState.title"
+                  :controls="adjustState.controls" @commit="onAdjustCommit" @close="adjustState = null" />
+    <DocumentSizeDialog v-if="docSizeMode && document" :mode="docSizeMode" :width="document.width" :height="document.height"
+                        @apply="onDocSizeApply" @close="docSizeMode = null" />
   </div>
 </template>
 
@@ -371,7 +378,7 @@ import {
 } from '@heroicons/vue/24/outline';
 import * as templateApi from '@/services/cardTemplates.service';
 import * as variantApi from '@/services/cardVariants.service';
-import { getFontsByFamilies } from '@/services/fonts.service';
+import { getFontsByFamilies, uploadFontFiles } from '@/services/fonts.service';
 import { loadFont } from '@/utils/fontLoader';
 import { resolveAssetUrl, listSharedAssets, setAssetShared, replaceAsset, uploadAsset, cacheLocalTemplateAsset, getCachedTemplateAssetBlob } from '@/services/templateAssets.service';
 import { getTemplateProject, putTemplateProject } from '@/services/offline.store';
@@ -398,6 +405,10 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import LayersPanel from '@/components/studio/LayersPanel.vue';
 import PropertiesPanel from '@/components/studio/PropertiesPanel.vue';
 import MissingFontsModal from '@/components/studio/MissingFontsModal.vue';
+import StudioMenuBar from '@/components/studio/StudioMenuBar.vue';
+import AdjustDialog from '@/components/studio/AdjustDialog.vue';
+import DocumentSizeDialog from '@/components/studio/DocumentSizeDialog.vue';
+import { useStudioMenus } from '@/composables/useStudioMenus';
 
 const route = useRoute();
 const router = useRouter();
@@ -533,7 +544,18 @@ const historyCanUndo = computed(() => { void historyRevision.value; return !!his
 const historyCanRedo = computed(() => { void historyRevision.value; return !!history?.canRedo; });
 function resetHistory() {
   history?.detach();
-  history = new HistoryStack(fabricCanvasRaw, { onChange: () => { historyRevision.value += 1; } });
+  history = new HistoryStack(fabricCanvasRaw, {
+    onChange: () => { historyRevision.value += 1; },
+    // Canvas/Image Size and Rotate Canvas change the document dimensions,
+    // so undo has to restore them alongside the objects.
+    getExtra: () => ({ width: document.value?.width, height: document.value?.height }),
+    setExtra: (extra) => {
+      if (!extra?.width || !document.value) return;
+      if (extra.width === document.value.width && extra.height === document.value.height) return;
+      document.value.width = extra.width; document.value.height = extra.height;
+      applyZoom();
+    },
+  });
   history.init();
   history.attach();
 }
@@ -2226,6 +2248,51 @@ async function onFontsImported() {
   await refreshMissingFonts(document.value, { open: true });
   fabricCanvasRaw?.requestRenderAll();
   toast.success('Font pack imported. Matching PSD text has been refreshed.');
+}
+
+// ── Photoshop-style menu bar ─────────────────────────────────────────
+const fontInputRef = ref(null);
+const adjustState = ref(null);
+const docSizeMode = ref(null);
+const fabricCanvasRawRef = () => fabricCanvasRaw;
+async function onFontFilesChosen(e) {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  if (!files.length) return;
+  try {
+    await uploadFontFiles(files);
+    await onFontsImported();
+  } catch (err) { toast.error(apiErrorMessage(err)); }
+}
+function onAdjustCommit() {
+  const target = adjustState.value?.target;
+  fabricCanvasRaw.requestRenderAll();
+  refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target });
+}
+const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
+  canvas: () => fabricCanvasRaw,
+  selected: selectedObjects,
+  document, pages, activePage, showGrid, showRulers, snapToGrid, previewMode, showShortcuts, isOnline,
+  canUndo: historyCanUndo, canRedo: historyCanRedo, undo, redo,
+  toast: (m) => toast.success(m),
+  findParentGroup, refreshLayersList, applyZoom, setTool, zoomBy, resetZoom,
+  fitZoom: () => { fitZoomToViewport(); applyZoom(); },
+  hasClipboard: () => !!studioClipboard?.objects?.length,
+  copySelectedLayers, pasteSelectedLayers, adjustFontSize,
+  openPsd: () => psdInputRef.value?.click(),
+  placeImage: () => imageInputRef.value?.click(),
+  importFonts: () => fontInputRef.value?.click(),
+  openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
+  openDocSize: (mode) => { docSizeMode.value = mode; },
+  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, closeStudio,
+  insertEmptyLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
+  createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
+  onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
+  onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
+});
+function onDocSizeApply(payload) {
+  if (docSizeMode.value === 'canvas') resizeCanvas(payload); else resizeImage(payload);
 }
 
 async function onMissingFontUseDefault(family) {

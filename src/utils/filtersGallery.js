@@ -65,7 +65,23 @@ export const FILTER_GALLERY = [
   { id: 'emboss', label: 'Emboss', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.emboss }) },
   { id: 'findEdges', label: 'Find edges', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.findEdges }) },
   { id: 'twirl', label: 'Twirl (distort)', param: { key: 'angle', min: -6, max: 6, default: 2 }, make: (v) => new TwirlFilter({ angle: v }) },
+  // One-click adjustments (Image > Adjustments) and photo looks. Keep this
+  // list in sync with cardRenderer.service.js's GALLERY_FILTERS so the final
+  // printed card matches the editor.
+  { id: 'invert', label: 'Invert', param: null, make: () => new fabric.filters.Invert() },
+  { id: 'grayscale', label: 'Desaturate', param: null, make: () => new fabric.filters.Grayscale() },
+  { id: 'blackWhite', label: 'Black & White', param: null, make: () => new fabric.filters.BlackWhite() },
+  { id: 'sepia', label: 'Sepia', param: null, make: () => new fabric.filters.Sepia() },
+  { id: 'vibrance', label: 'Vibrance', param: { key: 'vibrance', min: -1, max: 1, default: 0.3 }, make: (v) => new fabric.filters.Vibrance({ vibrance: v }) },
+  { id: 'gamma', label: 'Gamma', param: { key: 'gamma', min: 0.2, max: 2.2, default: 1 }, make: (v) => new fabric.filters.Gamma({ gamma: [v, v, v] }) },
+  { id: 'vintage', label: 'Vintage', param: null, make: () => new fabric.filters.Vintage() },
+  { id: 'kodachrome', label: 'Kodachrome', param: null, make: () => new fabric.filters.Kodachrome() },
+  { id: 'technicolor', label: 'Technicolor', param: null, make: () => new fabric.filters.Technicolor() },
+  { id: 'polaroid', label: 'Polaroid', param: null, make: () => new fabric.filters.Polaroid() },
+  { id: 'brownie', label: 'Brownie', param: null, make: () => new fabric.filters.Brownie() },
 ];
+
+export const findGalleryFilter = (id) => FILTER_GALLERY.find((f) => f.id === id);
 
 /**
  * Applies (or removes) one named filter on an image layer, alongside
