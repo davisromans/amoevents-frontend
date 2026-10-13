@@ -34,7 +34,17 @@
       <!-- Single selection -->
       <template v-else>
         <!-- Text controls (Batch 10) -->
-        <div v-if="isTextObject(obj)" class="space-y-3">
+        <div v-if="obj.get('data')?.isAdjustmentLayer" class="space-y-3">
+          <p class="section-eyebrow">{{ obj.get('data')?.name || 'Adjustment layer' }}</p>
+          <div v-for="control in adjustmentLayerControls" :key="control.key">
+            <p class="field-label mb-1">{{ control.label }} — {{ adjustmentLayerValues[control.key] ?? control.default }}</p>
+            <input type="range" class="w-full accent-brand-gold" :min="control.min" :max="control.max" :step="control.step || 0.01"
+                   :value="adjustmentLayerValues[control.key] ?? control.default" @input="setAdjustmentLayerValue(control.key, Number($event.target.value))" />
+          </div>
+          <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Affects image layers below it. Move this layer in the Layers panel to change its scope.</p>
+        </div>
+
+        <div v-else-if="isTextObject(obj)" class="space-y-3">
           <div v-if="!currentBinding">
             <p class="field-label mb-1">Text</p>
             <textarea class="field-input !text-xs w-full" rows="3" :value="obj.text" @change="setProp('text', $event.target.value)" />
@@ -410,6 +420,33 @@ watch(() => props.canvas, (canvas) => {
 onBeforeUnmount(() => detachTick?.());
 
 const obj = computed(() => { void tick.value; return props.selected[0]; });
+const ADJUSTMENT_LAYER_CONTROLS = {
+  brightnessContrast: [
+    { key: 'brightness', label: 'Brightness', min: -1, max: 1, default: 0 },
+    { key: 'contrast', label: 'Contrast', min: -1, max: 1, default: 0 },
+  ],
+  hueSaturation: [
+    { key: 'hue', label: 'Hue', min: -1, max: 1, default: 0 },
+    { key: 'saturation', label: 'Saturation', min: -1, max: 1, default: 0 },
+  ],
+  levels: [
+    { key: 'levelsBlack', label: 'Black point', min: 0, max: 254, step: 1, default: 0 },
+    { key: 'levelsGamma', label: 'Gamma', min: 0.1, max: 3, step: 0.01, default: 1 },
+    { key: 'levelsWhite', label: 'White point', min: 1, max: 255, step: 1, default: 255 },
+  ],
+  colorBalance: [
+    { key: 'balanceRed', label: 'Cyan / Red', min: -1, max: 1, default: 0 },
+    { key: 'balanceGreen', label: 'Magenta / Green', min: -1, max: 1, default: 0 },
+    { key: 'balanceBlue', label: 'Yellow / Blue', min: -1, max: 1, default: 0 },
+  ],
+};
+const adjustmentLayerValues = computed(() => obj.value?.get('data')?.adjustmentValues || {});
+const adjustmentLayerControls = computed(() => ADJUSTMENT_LAYER_CONTROLS[obj.value?.get('data')?.adjustmentKind] || ADJUSTMENT_LAYER_CONTROLS.brightnessContrast);
+function setAdjustmentLayerValue(key, value) {
+  const data = obj.value.get('data') || {};
+  obj.value.set('data', { ...data, adjustmentValues: { ...(data.adjustmentValues || {}), [key]: value } });
+  props.canvas.fire('object:modified', { target: obj.value });
+}
 const qrData = computed(() => ({
   fg: '#111111', bg: '#FFFFFF', borderColor: '#111111', borderWidth: 0, borderRadius: 0, padding: 12,
   showTopLabel: true, showBottomLabel: true, topLabelColor: '#111111', bottomLabelColor: '#111111',

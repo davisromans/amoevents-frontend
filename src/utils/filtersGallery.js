@@ -159,7 +159,7 @@ export function rebuildFilterStack(obj) {
   const data = obj.get('data') || {};
   const filters = [];
 
-  const adj = data.adjustments || {};
+  const adj = { ...(data.adjustments || {}), ...(data.inheritedAdjustments || {}) };
   if (adj.brightness) filters.push(new fabric.filters.Brightness({ brightness: adj.brightness }));
   if (adj.contrast) filters.push(new fabric.filters.Contrast({ contrast: adj.contrast }));
   if (adj.saturation) filters.push(new fabric.filters.Saturation({ saturation: adj.saturation }));
