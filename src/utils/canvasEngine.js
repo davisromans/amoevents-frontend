@@ -298,6 +298,8 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     originX: 'left',
     originY: 'top',
     angle: layer.rotation || 0,
+    skewX: layer.skewX || 0,
+    skewY: layer.skewY || 0,
     opacity: layer.opacity ?? 1,
     visible: layer.visible !== false,
     selectable: !layer.locked,
@@ -316,6 +318,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     textResizeMode: layer.textResizeMode || ((layer.textMode === 'box' || layerUsesVariable(layer)) ? 'frame' : 'content'),
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
+    outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
   });
   applyLayerEffects(fabricObj, layer);
 }
@@ -331,6 +334,13 @@ function loadFabricImage(url, timeoutMs = 15000) {
 }
 
 async function layerToFabric(layer, { resolveAssetUrl }) {
+  if (layer.type === 'adjustment') {
+    const controller = new fabric.Rect({ width: Math.max(1, layer.width || 1), height: Math.max(1, layer.height || 1), fill: 'transparent', stroke: null });
+    applyCommon(controller, layer);
+    controller.set({ evented: false, opacity: 0 });
+    controller.set('data', { ...controller.get('data'), isAdjustmentLayer: true, adjustmentKind: layer.adjustmentKind || 'custom', adjustmentValues: clonePlain(layer.adjustments || {}) });
+    return controller;
+  }
   if (layer.type === 'group') {
     // Version 2 documents store every child relative to its group's top
     // left, matching PSD folders and avoiding the old absolute-coordinate
@@ -533,6 +543,7 @@ export async function loadDocument(canvas, document, { resolveAssetUrl }) {
     if (Array.isArray(obj)) canvas.add(...obj);
     else if (obj) canvas.add(obj);
   }
+  applyAdjustmentLayers(canvas);
   canvas.renderAll();
   return { failures };
 }
@@ -544,7 +555,7 @@ function fabricToLayer(obj) {
   const preservedEffects = (preserved.effects || []).filter((effect) => !['dropShadow', 'outerGlow'].includes(effect?.type));
   if (obj.shadow) {
     preservedEffects.push({
-      type: 'dropShadow',
+      type: data.outerGlow ? 'outerGlow' : 'dropShadow',
       color: obj.shadow.color || 'rgba(0,0,0,0.5)',
       blur: obj.shadow.blur || 0,
       offsetX: obj.shadow.offsetX || 0,
@@ -562,6 +573,8 @@ function fabricToLayer(obj) {
     width: Math.round(obj.getScaledWidth()),
     height: Math.round(obj.getScaledHeight()),
     rotation: obj.angle || 0,
+    skewX: obj.skewX || 0,
+    skewY: obj.skewY || 0,
     opacity: obj.opacity ?? 1,
     visible: obj.visible !== false,
     locked: !!data.locked,
@@ -572,6 +585,10 @@ function fabricToLayer(obj) {
     smartObjectSource: clonePlain(data.smartObjectSource || preserved.smartObjectSource || null),
     effects: preservedEffects,
   };
+
+  if (data.isAdjustmentLayer) {
+    return { ...base, type: 'adjustment', adjustmentKind: data.adjustmentKind || 'custom', adjustments: clonePlain(data.adjustmentValues || {}) };
+  }
 
   if (obj.type === 'textbox' || obj.type === 'text' || obj.type === 'i-text') {
     return {
@@ -689,6 +706,28 @@ export function serializeDocument(canvas, { previousDocument }) {
     fontFamilies: [...collectFontFamilies(layers)],
     layers,
   };
+}
+
+function applyAdjustmentStack(objects) {
+  for (let index = 0; index < objects.length; index += 1) {
+    const obj = objects[index];
+    if (obj.type === 'group') applyAdjustmentStack(obj.getObjects());
+    if (obj.type !== 'image' || obj.get('data')?.isQr) continue;
+    const inherited = {};
+    for (let cursor = index + 1; cursor < objects.length; cursor += 1) {
+      const candidate = objects[cursor];
+      const data = candidate.get('data') || {};
+      if (data.isAdjustmentLayer && candidate.visible !== false) Object.assign(inherited, data.adjustmentValues || {});
+    }
+    obj.set('data', { ...(obj.get('data') || {}), inheritedAdjustments: inherited });
+    rebuildFilterStack(obj);
+  }
+}
+
+export function applyAdjustmentLayers(canvas) {
+  if (!canvas) return;
+  applyAdjustmentStack(canvas.getObjects());
+  canvas.requestRenderAll();
 }
 
 /**

@@ -406,7 +406,7 @@ import { getTemplateProject, putTemplateProject } from '@/services/offline.store
 import {
   createEngineCanvas, loadDocument, serializeDocument,
   bringForward, sendBackward, setLayerLocked, setLayerVisible, rasterizeObject, restoreConvertedText,
-  refreshTextMetricsPreservingLayout, mutateTextPreservingLayout,
+  refreshTextMetricsPreservingLayout, mutateTextPreservingLayout, applyAdjustmentLayers,
 } from '@/utils/canvasEngine';
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
@@ -1463,6 +1463,21 @@ function insertTextLayer() {
   beginDrawTool('text');
 }
 
+const ADJUSTMENT_LAYER_DEFAULTS = {
+  brightnessContrast: { name: 'Brightness / Contrast', values: { brightness: 0.1, contrast: 0.1 } },
+  hueSaturation: { name: 'Hue / Saturation', values: { hue: 0, saturation: 0.15 } },
+  levels: { name: 'Levels', values: { levelsBlack: 0, levelsGamma: 1, levelsWhite: 255 } },
+  colorBalance: { name: 'Color Balance', values: { balanceRed: 0, balanceGreen: 0, balanceBlue: 0 } },
+};
+function insertAdjustmentLayer(kind = 'brightnessContrast') {
+  const preset = ADJUSTMENT_LAYER_DEFAULTS[kind] || ADJUSTMENT_LAYER_DEFAULTS.brightnessContrast;
+  const control = new fabric.Rect({ left: 0, top: 0, width: document.value.width, height: document.value.height, fill: 'transparent', opacity: 0, evented: false, originX: 'left', originY: 'top' });
+  control.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: preset.name, isAdjustmentLayer: true, adjustmentKind: kind, adjustmentValues: { ...preset.values } });
+  fabricCanvasRaw.add(control); fabricCanvasRaw.setActiveObject(control);
+  applyAdjustmentLayers(fabricCanvasRaw); refreshLayersList();
+  fabricCanvasRaw.fire('object:modified', { target: control });
+}
+
 // ── Draw-first creation ──────────────────────────────────────────────────
 // Photoshop convention: picking a shape/text tool arms it, then you drag
 // out the size on canvas — it doesn't insert a fixed-size default the
@@ -2482,7 +2497,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
-  insertEmptyLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
+  insertEmptyLayer, insertAdjustmentLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
@@ -2584,6 +2599,8 @@ async function boot() {
     fabricCanvasRaw.on('object:added', refreshLayersList);
     fabricCanvasRaw.on('object:removed', refreshLayersList);
     fabricCanvasRaw.on('object:modified', refreshLayersList);
+    fabricCanvasRaw.on('object:modified', () => applyAdjustmentLayers(fabricCanvasRaw));
+    fabricCanvasRaw.on('object:removed', () => applyAdjustmentLayers(fabricCanvasRaw));
     fabricCanvasRaw.on('object:modified', scheduleAutosave);
     fabricCanvasRaw.on('object:added', scheduleAutosave);
     fabricCanvasRaw.on('object:removed', scheduleAutosave);

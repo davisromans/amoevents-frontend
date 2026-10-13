@@ -321,7 +321,12 @@ export function useStudioMenus(ctx) {
           { label: 'Gradient…', action: () => newFillLayer('gradient') },
           SOON('Pattern…'),
         ] },
-        SOON('New Adjustment Layer'),
+        { label: 'New Adjustment Layer', items: [
+          { label: 'Brightness / Contrast', action: () => ctx.insertAdjustmentLayer('brightnessContrast') },
+          { label: 'Hue / Saturation', action: () => ctx.insertAdjustmentLayer('hueSaturation') },
+          { label: 'Levels', action: () => ctx.insertAdjustmentLayer('levels') },
+          { label: 'Color Balance', action: () => ctx.insertAdjustmentLayer('colorBalance') },
+        ] },
         { label: 'Shape', items: [
           { label: 'Rectangle', action: ctx.insertRectLayer },
           { label: 'Ellipse', action: ctx.insertEllipseLayer },
