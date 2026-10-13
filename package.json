@@ -12,6 +12,7 @@
     "@fontsource/inter": "^5.2.8",
     "@heroicons/vue": "^2.2.0",
     "@imgly/background-removal": "^1.7.0",
+    "@yft-design/psd-lib": "^1.0.1",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
     "ag-psd": "^31.0.2",
