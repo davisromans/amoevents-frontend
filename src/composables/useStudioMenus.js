@@ -262,7 +262,7 @@ export function useStudioMenus(ctx) {
           { label: 'Flip Vertical', disabled: none, action: () => flip('v') },
           SEP,
           { label: 'Skew / Distort…', disabled: none, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Use the horizontal and vertical distortion controls in Properties.'); } },
-          { label: 'Perspective / Warp…', disabled: notImage, action: () => { ctx.setTool('liquify'); ctx.toast('Use Liquify push for freeform raster warping, or Skew / Distort for editable transforms.'); } },
+          { label: 'Perspective / Warp…', disabled: notImage, action: () => ctx.openPerspectiveWarp(one()) },
         ] },
         SEP,
         { label: 'Keyboard Shortcuts…', shortcut: '?', action: () => { ctx.showShortcuts.value = true; } },

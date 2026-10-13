@@ -325,6 +325,7 @@
             @paint-mask="onPaintMask"
             @remove-mask="onRemoveMask"
             @start-crop="onStartCrop"
+            @perspective-warp="openPerspectiveWarp"
             @toggle-shared="onToggleShared"
             @replace-source="onReplaceSource"
             @update-qr="onUpdateQr"
@@ -399,6 +400,15 @@
         </template>
       </div>
     </AppModal>
+    <AppModal :model-value="!!perspectiveTarget" title="Perspective / four-corner warp" :maxWidth="560" @update:model-value="(open) => { if (!open) perspectiveTarget = null; }">
+      <div class="grid grid-cols-2 gap-3">
+        <label v-for="field in PERSPECTIVE_FIELDS" :key="field.key" class="text-xs font-bold">{{ field.label }} — {{ perspectiveConfig[field.key] }}%
+          <input v-model.number="perspectiveConfig[field.key]" type="range" min="-45" max="45" step="1" class="w-full accent-brand-gold mt-1" />
+        </label>
+      </div>
+      <p class="mt-3 text-xs text-surface-slate dark:text-surface-ash">Offsets are measured from each original corner. Applying converts the warp into pixels so PNG, PDF, PSD fallback, and generated guest cards keep the same appearance.</p>
+      <div class="mt-4 flex justify-end gap-2"><button class="btn-ghost" @click="perspectiveTarget = null">Cancel</button><AppButton @click="applyPerspectiveWarp">Apply warp</AppButton></div>
+    </AppModal>
     <MissingFontsModal
       v-model="missingFontsOpen"
       :fonts="missingFonts"
@@ -437,7 +447,7 @@ import {
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
-import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
+import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
@@ -1912,6 +1922,29 @@ function cancelCrop() {
   cropSession.value = null;
 }
 
+const PERSPECTIVE_FIELDS = [
+  { key: 'tlX', label: 'Top-left horizontal' }, { key: 'tlY', label: 'Top-left vertical' },
+  { key: 'trX', label: 'Top-right horizontal' }, { key: 'trY', label: 'Top-right vertical' },
+  { key: 'brX', label: 'Bottom-right horizontal' }, { key: 'brY', label: 'Bottom-right vertical' },
+  { key: 'blX', label: 'Bottom-left horizontal' }, { key: 'blY', label: 'Bottom-left vertical' },
+];
+const perspectiveTarget = ref(null);
+const perspectiveConfig = ref({ tlX: 0, tlY: 0, trX: 0, trY: 0, brX: 0, brY: 0, blX: 0, blY: 0 });
+function openPerspectiveWarp(target) {
+  if (target?.type !== 'image') return;
+  perspectiveTarget.value = markRaw(target);
+  perspectiveConfig.value = { tlX: 0, tlY: 0, trX: 0, trY: 0, brX: 0, brY: 0, blX: 0, blY: 0 };
+}
+function applyPerspectiveWarp() {
+  const target = perspectiveTarget.value; if (!target) return;
+  const source = ensureLiveCanvas(target), w = source.width, h = source.height, c = perspectiveConfig.value;
+  perspectiveWarp(target, {
+    tl: { x: w * c.tlX / 100, y: h * c.tlY / 100 }, tr: { x: w * (1 + c.trX / 100), y: h * c.trY / 100 },
+    br: { x: w * (1 + c.brX / 100), y: h * (1 + c.brY / 100) }, bl: { x: w * c.blX / 100, y: h * (1 + c.blY / 100) },
+  });
+  refreshAfterRetouch(fabricCanvasRaw, target); perspectiveTarget.value = null;
+}
+
 // ── History (Batch 8) ───────────────────────────────────────────────────
 async function undo() { await history?.undo(); refreshLayersList(); }
 async function redo() { await history?.redo(); refreshLayersList(); }
@@ -2586,6 +2619,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
+  openPerspectiveWarp,
   onSelectSubject, onMakeSmartObject, onEditSmartObject,
 });
 function onDocSizeApply(payload) {

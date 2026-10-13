@@ -192,6 +192,7 @@
             Make PSD text editable
           </button>
           <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('start-crop', obj)">Crop</button>
+          <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('perspective-warp', obj)">Perspective / four-corner warp…</button>
           <div>
             <p class="field-label mb-1">Straighten — {{ obj.angle?.toFixed(0) }}°</p>
             <input type="range" min="-45" max="45" class="w-full accent-brand-gold" :value="obj.angle || 0" @input="setProp('angle', Number($event.target.value))" />
@@ -390,7 +391,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'rasterize', 'restore-text', 'update-qr']);
+const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which
