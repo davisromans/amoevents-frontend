@@ -14,6 +14,7 @@
       <input ref="imageInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileChosen" />
       <input ref="psdInputRef" type="file" accept=".psd,image/vnd.adobe.photoshop" class="hidden" @change="onPsdFileChosen" />
       <input ref="projectInputRef" type="file" accept=".amo,application/zip" class="hidden" @change="onProjectFileChosen" />
+      <input ref="brushInputRef" type="file" accept=".abr" multiple class="hidden" @change="onBrushFilesChosen" />
 
       <!-- Preview toggle (Batch 22) — swaps every bound text layer between its {{binding}} placeholder and sample data -->
       <button class="btn-ghost !text-2xs !py-1.5 !px-3 ml-1" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': previewMode }" @click="togglePreview">
@@ -338,6 +339,10 @@
           </button>
         </div>
         <div v-else class="flex-1 overflow-y-auto p-3">
+          <div class="grid grid-cols-3 gap-1 mb-3">
+            <button v-for="mode in ['swatches','brushes','actions']" :key="mode" class="btn-ghost !text-2xs !py-1 capitalize" :class="{ 'bg-brand-primary-glow': utilityPanelMode === mode }" @click="utilityPanelMode = mode">{{ mode }}</button>
+          </div>
+          <template v-if="utilityPanelMode === 'swatches'">
           <div class="flex items-center gap-2 mb-3">
             <input v-model="brushColor" type="color" class="w-10 h-9 rounded cursor-pointer" title="Current color" />
             <button class="btn-ghost !text-2xs !py-1.5 flex-1" @click="addCurrentSwatch">Add current color</button>
@@ -346,6 +351,27 @@
             <button v-for="color in studioSwatches" :key="color" class="aspect-square rounded-md border border-black/10 shadow-sm" :style="{ background: color }" :title="`${color} — click to use, Shift+click to remove`" @click="useSwatch(color, $event)" />
           </div>
           <p class="mt-3 text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Click applies the color to the active brush and selected text or shape. Shift-click removes a custom swatch.</p>
+          </template>
+          <template v-else-if="utilityPanelMode === 'brushes'">
+            <button class="btn-ghost !text-2xs !py-1.5 w-full mb-2" @click="brushInputRef?.click()">Import Photoshop brushes (.abr)…</button>
+            <div class="space-y-1">
+              <button v-for="preset in brushPresets" :key="preset.id" class="w-full flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-surface-mist dark:hover:bg-surface-fog" @click="applyBrushPreset(preset)">
+                <span class="rounded-full bg-current border border-black/20 shrink-0" :style="{ width: Math.max(8, Math.min(34, preset.size / 3)) + 'px', height: Math.max(8, Math.min(34, preset.size / 3)) + 'px', opacity: 0.35 + preset.hardness * 0.65 }" />
+                <span class="min-w-0"><strong class="block text-xs truncate">{{ preset.name }}</strong><small class="text-[10px] text-surface-slate dark:text-surface-ash">{{ preset.size }}px · {{ Math.round(preset.hardness * 100) }}% hard</small></span>
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <button v-if="!actionRecording" class="btn-ghost !text-2xs !py-1.5 w-full" :disabled="selectedObjects.length !== 1" @click="startActionRecording">Record selected layer style</button>
+            <button v-else class="btn-danger !text-2xs !py-1.5 w-full" @click="stopActionRecording">Stop and save action</button>
+            <p class="my-2 text-[10px] text-surface-slate dark:text-surface-ash">Records transform, appearance, filters, and layer-style settings, then applies them to another compatible layer.</p>
+            <div class="space-y-1">
+              <div v-for="action in studioActions" :key="action.id" class="flex items-center gap-1">
+                <button class="btn-ghost !text-2xs !py-1.5 flex-1 !justify-start" :disabled="selectedObjects.length !== 1" @click="playStudioAction(action)">▶ {{ action.name }}</button>
+                <button class="btn-ghost !p-1.5 text-red-500" @click="deleteStudioAction(action.id)">×</button>
+              </div>
+            </div>
+          </template>
         </div>
         <div class="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-brand-primary/40 active:bg-brand-primary/60"
              @mousedown="startLayersPanelResize" title="Drag to resize" />
@@ -415,7 +441,7 @@ import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paint
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
-import { toggleGalleryFilter } from '@/utils/filtersGallery';
+import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { importPsdLocally } from '@/utils/localPsdImport';
 import { removeImageBackground } from '@/utils/backgroundRemoval';
 import { BINDING_FIELDS, sampleValueFor } from '@/utils/bindingRegistry';
@@ -545,6 +571,68 @@ const rightPanelTab = ref(localStorage.getItem('studio.rightPanelTab') || 'layer
 watch(rightPanelTab, (v) => localStorage.setItem('studio.rightPanelTab', v));
 const studioSwatches = ref(JSON.parse(localStorage.getItem('studio.swatches') || 'null') || ['#111827','#FFFFFF','#C06FEF','#8B5CF6','#D9B45E','#EF4444','#F97316','#FACC15','#22C55E','#06B6D4','#3B82F6','#EC4899']);
 watch(studioSwatches, (colors) => localStorage.setItem('studio.swatches', JSON.stringify(colors)), { deep: true });
+const utilityPanelMode = ref('swatches');
+const brushInputRef = ref(null);
+const brushPresets = ref(JSON.parse(localStorage.getItem('studio.brushPresets') || 'null') || [
+  { id: 'soft-round', name: 'Soft Round', size: 80, hardness: 0.15, spacing: 15 },
+  { id: 'hard-round', name: 'Hard Round', size: 24, hardness: 1, spacing: 10 },
+  { id: 'detail', name: 'Detail', size: 6, hardness: 0.9, spacing: 8 },
+]);
+watch(brushPresets, (presets) => localStorage.setItem('studio.brushPresets', JSON.stringify(presets)), { deep: true });
+function applyBrushPreset(preset) { brushSize.value = preset.size; brushHardness.value = preset.hardness; setTool('brush'); }
+async function onBrushFilesChosen(event) {
+  const files = [...(event.target.files || [])]; event.target.value = '';
+  if (!files.length) return;
+  try {
+    const { readAbr } = await import('@yft-design/psd-lib');
+    let imported = 0;
+    for (const file of files) {
+      const pack = readAbr(new Uint8Array(await file.arrayBuffer()), { logMissingFeatures: false });
+      for (const entry of pack.brushes || []) {
+        const shape = entry.shape || {};
+        brushPresets.value.push({
+          id: `abr:${crypto.randomUUID()}`,
+          name: entry.name || shape.name || file.name.replace(/\.abr$/i, ''),
+          size: Math.max(1, Math.round(Number(shape.size) || 20)),
+          hardness: Math.max(0, Math.min(1, Number(shape.hardness ?? 100) / (Number(shape.hardness) > 1 ? 100 : 1))),
+          spacing: Math.max(1, Number(shape.spacing || entry.spacing || 15)),
+          angle: Number(shape.angle || 0), roundness: Number(shape.roundness || 100), source: file.name,
+        });
+        imported += 1;
+      }
+    }
+    utilityPanelMode.value = 'brushes'; rightPanelTab.value = 'swatches';
+    toast.success(`Imported ${imported} Photoshop brush preset${imported === 1 ? '' : 's'}.`);
+  } catch (err) { console.error(err); toast.error(`Brush import failed: ${apiErrorMessage(err)}`); }
+}
+
+const studioActions = ref(JSON.parse(localStorage.getItem('studio.actions') || '[]'));
+watch(studioActions, (actions) => localStorage.setItem('studio.actions', JSON.stringify(actions)), { deep: true });
+const actionRecording = ref(null);
+const ACTION_PROPS = ['angle','skewX','skewY','scaleX','scaleY','flipX','flipY','opacity','fill','stroke','strokeWidth','strokeDashArray','globalCompositeOperation','rx','ry'];
+function actionSnapshot(target) {
+  const props = {}; for (const key of ACTION_PROPS) props[key] = target[key];
+  const data = target.get('data') || {};
+  return { type: target.type, props, data: { adjustments: data.adjustments || {}, galleryFilters: data.galleryFilters || {}, outerGlow: !!data.outerGlow } };
+}
+function startActionRecording() {
+  const target = selectedObjects.value[0]; if (!target) return;
+  actionRecording.value = { target, before: actionSnapshot(target) };
+  toast.success('Recording layer changes. Edit the layer, then press Stop and save action.');
+}
+function stopActionRecording() {
+  const recording = actionRecording.value; actionRecording.value = null; if (!recording?.target) return;
+  const name = window.prompt('Action name', 'Layer style action')?.trim(); if (!name) return;
+  studioActions.value.push({ id: crypto.randomUUID(), name, snapshot: actionSnapshot(recording.target) });
+}
+function playStudioAction(action) {
+  const target = selectedObjects.value[0]; if (!target || !action?.snapshot) return;
+  target.set(action.snapshot.props || {});
+  const data = target.get('data') || {}; target.set('data', { ...data, ...(action.snapshot.data || {}) });
+  if (target.type === 'image') rebuildFilterStack(target);
+  target.setCoords(); fabricCanvasRaw.requestRenderAll(); fabricCanvasRaw.fire('object:modified', { target });
+}
+function deleteStudioAction(id) { studioActions.value = studioActions.value.filter((action) => action.id !== id); }
 function addCurrentSwatch() { if (!studioSwatches.value.includes(brushColor.value)) studioSwatches.value.push(brushColor.value); }
 function useSwatch(color, event) {
   if (event.shiftKey) { studioSwatches.value = studioSwatches.value.filter((v) => v !== color); return; }
@@ -2489,6 +2577,8 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   openProject: () => projectInputRef.value?.click(),
   placeImage: () => imageInputRef.value?.click(),
   importFonts: () => fontInputRef.value?.click(),
+  importBrushes: () => brushInputRef.value?.click(),
+  openUtilityPanel: (mode) => { utilityPanelMode.value = mode; rightPanelTab.value = 'swatches'; },
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,

@@ -215,7 +215,7 @@ export function useStudioMenus(ctx) {
         { label: 'Place Image…', action: ctx.placeImage },
         { label: 'Place from Library…', action: ctx.openSharedAssets },
         { label: 'Import Fonts…', action: ctx.importFonts },
-        SOON('Import Brushes (.abr)…'),
+        { label: 'Import Brushes (.abr)…', action: ctx.importBrushes },
         SEP,
         { label: 'New Page', action: ctx.addPage },
         { label: 'Duplicate Page', action: () => ctx.duplicatePage(ctx.activePage.value) },
@@ -491,7 +491,8 @@ export function useStudioMenus(ctx) {
         { label: 'History Panel', checked: () => ctx.rightPanelTab.value === 'history', action: () => { ctx.rightPanelTab.value = 'history'; } },
         { label: 'Swatches', checked: () => ctx.rightPanelTab.value === 'swatches', action: () => { ctx.rightPanelTab.value = 'swatches'; } },
         { label: 'Character / Paragraph', checked: () => ctx.rightPanelTab.value === 'properties', action: () => { ctx.rightPanelTab.value = 'properties'; } },
-        SOON('Brushes Panel'), SOON('Actions'),
+        { label: 'Brushes Panel', action: () => ctx.openUtilityPanel('brushes') },
+        { label: 'Actions', action: () => ctx.openUtilityPanel('actions') },
       ],
     },
     {
