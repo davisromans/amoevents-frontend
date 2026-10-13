@@ -2247,6 +2247,17 @@ async function onMergeLayers(layers) {
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
+async function mergeVisibleLayers() {
+  const visible = fabricCanvasRaw.getObjects().filter((object) => object.visible !== false && !object.get('data')?.isAdjustmentLayer);
+  if (visible.length >= 2) await onMergeLayers(visible);
+}
+async function flattenImage() {
+  const all = [...fabricCanvasRaw.getObjects()];
+  const visible = all.filter((object) => object.visible !== false && !object.get('data')?.isAdjustmentLayer);
+  all.filter((object) => !visible.includes(object)).forEach((object) => fabricCanvasRaw.remove(object));
+  if (visible.length >= 2) await onMergeLayers(visible);
+  else { refreshLayersList(); fabricCanvasRaw.fire('object:modified', {}); }
+}
 
 // ── Masking (Batch 12) ──────────────────────────────────────────────────
 async function onClipMask(selected) {
@@ -2622,6 +2633,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
   insertEmptyLayer, insertAdjustmentLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
+  mergeVisibleLayers, flattenImage,
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
   openPerspectiveWarp,
