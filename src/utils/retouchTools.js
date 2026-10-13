@@ -243,6 +243,44 @@ export function liquifyPushAt(fabricImg, fromScene, toScene, { brushSize = 80, s
   ctx.drawImage(patch, sourceX + dx, sourceY + dy); ctx.restore(); fabricImg.dirty = true;
 }
 
+function drawMappedTriangle(ctx, source, src, dst) {
+  const [s1, s2, s3] = src, [d1, d2, d3] = dst;
+  const denominator = s1.x * (s2.y - s3.y) + s2.x * (s3.y - s1.y) + s3.x * (s1.y - s2.y);
+  if (Math.abs(denominator) < 1e-8) return;
+  const coefficients = (v1, v2, v3) => ({
+    x: (v1 * (s2.y - s3.y) + v2 * (s3.y - s1.y) + v3 * (s1.y - s2.y)) / denominator,
+    y: (v1 * (s3.x - s2.x) + v2 * (s1.x - s3.x) + v3 * (s2.x - s1.x)) / denominator,
+    o: (v1 * (s2.x * s3.y - s3.x * s2.y) + v2 * (s3.x * s1.y - s1.x * s3.y) + v3 * (s1.x * s2.y - s2.x * s1.y)) / denominator,
+  });
+  const horizontal = coefficients(d1.x, d2.x, d3.x); const vertical = coefficients(d1.y, d2.y, d3.y);
+  ctx.save(); ctx.beginPath(); ctx.moveTo(d1.x, d1.y); ctx.lineTo(d2.x, d2.y); ctx.lineTo(d3.x, d3.y); ctx.closePath(); ctx.clip();
+  ctx.setTransform(horizontal.x, vertical.x, horizontal.y, vertical.y, horizontal.o, vertical.o);
+  ctx.drawImage(source, 0, 0); ctx.restore();
+}
+
+export function perspectiveWarp(fabricImg, corners, subdivisions = 16) {
+  const source = ensureLiveCanvas(fabricImg);
+  const output = window.document.createElement('canvas'); output.width = source.width; output.height = source.height;
+  const ctx = output.getContext('2d');
+  const quad = {
+    tl: corners.tl || { x: 0, y: 0 }, tr: corners.tr || { x: source.width, y: 0 },
+    br: corners.br || { x: source.width, y: source.height }, bl: corners.bl || { x: 0, y: source.height },
+  };
+  const point = (u, v) => ({
+    x: (1-u)*(1-v)*quad.tl.x + u*(1-v)*quad.tr.x + u*v*quad.br.x + (1-u)*v*quad.bl.x,
+    y: (1-u)*(1-v)*quad.tl.y + u*(1-v)*quad.tr.y + u*v*quad.br.y + (1-u)*v*quad.bl.y,
+  });
+  const sourcePoint = (u, v) => ({ x: u * source.width, y: v * source.height });
+  for (let row = 0; row < subdivisions; row += 1) for (let column = 0; column < subdivisions; column += 1) {
+    const u0 = column / subdivisions, u1 = (column + 1) / subdivisions, v0 = row / subdivisions, v1 = (row + 1) / subdivisions;
+    const s00 = sourcePoint(u0,v0), s10 = sourcePoint(u1,v0), s11 = sourcePoint(u1,v1), s01 = sourcePoint(u0,v1);
+    const d00 = point(u0,v0), d10 = point(u1,v0), d11 = point(u1,v1), d01 = point(u0,v1);
+    drawMappedTriangle(ctx, source, [s00,s10,s11], [d00,d10,d11]); drawMappedTriangle(ctx, source, [s00,s11,s01], [d00,d11,d01]);
+  }
+  fabricImg.setElement(output); fabricImg.set('objectCaching', false);
+  fabricImg.set('data', { ...(fabricImg.get('data') || {}), liveCanvas: true }); fabricImg.dirty = true;
+}
+
 export function healAt(fabricImg, scenePoint, { brushSize = 40, strength = 0.65 } = {}) {
   const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
   const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
