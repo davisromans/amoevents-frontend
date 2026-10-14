@@ -225,6 +225,23 @@ export function useStudioMenus(ctx) {
     if (o.shadow) clearDropShadow(c(), o); else setDropShadow(c(), o, {});
     commit(o);
   }
+  function applyInnerShadow() {
+    const target = one(); if (!target) return;
+    const size = Math.max(1, Math.min(40, Number(window.prompt('Inner edge size', '6')) || 6));
+    const color = window.prompt('Inner shadow colour', 'rgba(0,0,0,0.45)') || 'rgba(0,0,0,0.45)';
+    target.set({ stroke: color, strokeWidth: size * 2, paintFirst: 'fill' });
+    target.set('data', { ...(target.get('data') || {}), layerStylePreset: { type: 'innerShadow', size, color } });
+    target.setCoords(); commit(target);
+    ctx.toast('Inner shadow applied. Stroke width and colour remain editable in Properties.');
+  }
+  function applyBevelEmboss() {
+    const target = one(); if (!target) return;
+    const size = Math.max(1, Math.min(30, Number(window.prompt('Bevel size', '3')) || 3));
+    target.set({ stroke: 'rgba(255,255,255,0.72)', strokeWidth: size, paintFirst: 'stroke', shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.55)', blur: size * 1.5, offsetX: size, offsetY: size }) });
+    target.set('data', { ...(target.get('data') || {}), outerGlow: false, layerStylePreset: { type: 'bevelEmboss', size } });
+    target.setCoords(); commit(target);
+    ctx.toast('Bevel & Emboss applied. Highlight and depth remain editable in Properties.');
+  }
   function warpText() {
     const target = one();
     if (!target || target.type === 'textbox') { ctx.toast('Warp Text currently requires a point-text layer. Convert box text to point text first.'); return; }
@@ -290,7 +307,6 @@ export function useStudioMenus(ctx) {
       { key: 'balanceBlue', label: 'Yellow / Blue', kind: 'adj', min: -1, max: 1, default: 0 },
     ],
   };
-  const SOON = (label, shortcut) => ({ label, shortcut, soon: true });
   const SEP = { separator: true };
 
   const menus = [
@@ -437,9 +453,9 @@ export function useStudioMenus(ctx) {
           { label: 'Stroke…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Stroke controls opened in Properties.'); } },
           { label: 'Outer Glow…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Outer glow controls opened in Properties.'); } },
           { label: 'Color Overlay…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Color overlay opened in Properties.'); } },
-          SOON('Inner Shadow…'),
+          { label: 'Inner Shadow…', disabled: notOne, action: applyInnerShadow },
           { label: 'Gradient Overlay…', disabled: notOne, action: applyGradientOverlay },
-          SOON('Bevel & Emboss…'),
+          { label: 'Bevel & Emboss…', disabled: notOne, action: applyBevelEmboss },
         ] },
         SEP,
         { label: 'Create Clipping Mask', shortcut: '⌥⌘G', disabled: () => sel().length < 2, action: () => ctx.onClipMask(sel()) },
@@ -492,7 +508,8 @@ export function useStudioMenus(ctx) {
         { label: 'Restore Editable Text', disabled: notOne, action: () => ctx.onRestoreText(one()) },
         { label: 'Rasterize Type Layer', disabled: notText, action: () => ctx.onRasterizeLayer(one()) },
         SEP,
-        { label: 'Warp Text…', disabled: notText, action: warpText }, SOON('Convert to Shape'),
+        { label: 'Warp Text…', disabled: notText, action: warpText },
+        { label: 'Convert to Shape', disabled: notText, action: () => ctx.onConvertTextToShape(one()) },
         { label: 'Spell Check', disabled: notText, action: spellCheckText },
       ],
     },
