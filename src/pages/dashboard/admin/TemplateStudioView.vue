@@ -2644,6 +2644,37 @@ async function onSelectSubject(obj) {
     toast.success('Subject selected. Use Select & Mask to refine the edge.');
   } catch (err) { toast.error(`Subject selection failed: ${apiErrorMessage(err)}`); }
 }
+async function onConvertTextToShape(obj) {
+  if (!['textbox', 'text', 'i-text'].includes(obj?.type)) return;
+  try {
+    const records = await getFontsByFamilies([obj.fontFamily]);
+    const fontRecord = records.find((row) => row.family?.toLowerCase() === String(obj.fontFamily).toLowerCase()
+      || (row.aliases || []).some((alias) => alias.toLowerCase() === String(obj.fontFamily).toLowerCase()));
+    const variants = fontRecord?.variants || [];
+    const wantedWeight = Number(obj.fontWeight) || 400; const wantedStyle = obj.fontStyle || 'normal';
+    const variant = variants.find((v) => Number(v.weight) === wantedWeight && v.style === wantedStyle)
+      || variants.find((v) => Number(v.weight) === wantedWeight) || variants[0];
+    if (!variant?.fileUrl) throw new Error(`No outline font file is available for ${obj.fontFamily}.`);
+    const response = await fetch(variant.fileUrl); if (!response.ok) throw new Error(`Font download returned ${response.status}.`);
+    const opentype = await import('opentype.js'); const font = opentype.parse(await response.arrayBuffer());
+    const fontSize = Math.max(1, Number(obj.fontSize) || 24); const outline = font.getPath(obj.text || '', 0, fontSize, fontSize).toPathData(3);
+    if (!outline) throw new Error('This text contains no convertible glyph outlines.');
+    const path = new fabric.Path(outline, {
+      left: obj.left, top: obj.top, originX: obj.originX || 'left', originY: obj.originY || 'top', angle: obj.angle || 0,
+      fill: typeof obj.fill === 'string' ? obj.fill : '#111827', stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
+      opacity: obj.opacity ?? 1, globalCompositeOperation: obj.globalCompositeOperation,
+    });
+    path.set({ scaleX: (obj.getScaledWidth() || path.width) / Math.max(0.01, path.width), scaleY: (obj.getScaledHeight() || path.height) / Math.max(0.01, path.height) });
+    path.set('data', { ...(obj.get('data') || {}), name: `${obj.get('data')?.name || 'Text'} outlines`, convertedFromTextOutline: { text: obj.text, fontFamily: obj.fontFamily, fontSize } });
+    const parent = findParentGroup(obj, fabricCanvasRaw.getObjects());
+    if (parent) { const index = parent.getObjects().indexOf(obj); parent.remove(obj); parent.insertAt(index, path); parent.dirty = true; }
+    else { const index = fabricCanvasRaw.getObjects().indexOf(obj); fabricCanvasRaw.remove(obj); fabricCanvasRaw.insertAt(index, path); }
+    fabricCanvasRaw.setActiveObject(path); refreshLayersList(); fabricCanvasRaw.requestRenderAll(); fabricCanvasRaw.fire('object:modified', { target: path });
+    toast.success('Text converted to editable vector outlines.');
+  } catch (error) {
+    toast.error(`${apiErrorMessage(error)} The editable text was left unchanged.`);
+  }
+}
 function onContentAwareFill(obj) {
   if (obj?.type !== 'image') return;
   const result = contentAwareFillTransparent(obj);
@@ -2676,7 +2707,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
   openPerspectiveWarp,
-  onSelectSubject, onContentAwareFill, onMakeSmartObject, onEditSmartObject,
+  onSelectSubject, onConvertTextToShape, onContentAwareFill, onMakeSmartObject, onEditSmartObject,
 });
 function onDocSizeApply(payload) {
   if (docSizeMode.value === 'canvas') resizeCanvas(payload); else resizeImage(payload);
