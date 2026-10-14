@@ -400,6 +400,29 @@
         </template>
       </div>
     </AppModal>
+    <AppModal v-model="showPreflight" title="Document preflight" :maxWidth="720">
+      <div v-if="document" class="space-y-4">
+        <div class="grid grid-cols-4 gap-2">
+          <div class="rounded-xl bg-surface-cloud dark:bg-surface-ink p-3"><p class="text-[10px] uppercase tracking-wide text-surface-slate">Canvas</p><p class="text-sm font-bold">{{ document.width }} × {{ document.height }}</p></div>
+          <div class="rounded-xl bg-surface-cloud dark:bg-surface-ink p-3"><p class="text-[10px] uppercase tracking-wide text-surface-slate">Resolution</p><p class="text-sm font-bold">{{ document.dpi || 300 }} DPI</p></div>
+          <div class="rounded-xl bg-surface-cloud dark:bg-surface-ink p-3"><p class="text-[10px] uppercase tracking-wide text-surface-slate">Bleed</p><p class="text-sm font-bold">{{ document.bleed || 0 }} px</p></div>
+          <div class="rounded-xl bg-surface-cloud dark:bg-surface-ink p-3"><p class="text-[10px] uppercase tracking-wide text-surface-slate">Safe margin</p><p class="text-sm font-bold">{{ document.safeMargin || 0 }} px</p></div>
+        </div>
+        <div v-if="!preflightIssues.length" class="rounded-xl border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 p-4 text-sm text-emerald-800 dark:text-emerald-200">
+          <strong>Ready for production.</strong> No missing fonts, low-resolution images, empty layers, or boundary problems were detected.
+        </div>
+        <div v-else class="max-h-[420px] overflow-y-auto divide-y divide-surface-mist dark:divide-surface-fog border border-surface-mist dark:border-surface-fog rounded-xl">
+          <button v-for="issue in preflightIssues" :key="issue.id" class="w-full flex gap-3 p-3 text-left hover:bg-surface-cloud dark:hover:bg-surface-ink disabled:cursor-default" :disabled="!issue.object" @click="focusPreflightIssue(issue)">
+            <span class="mt-0.5 w-2.5 h-2.5 rounded-full shrink-0" :class="issue.level === 'error' ? 'bg-red-500' : issue.level === 'warning' ? 'bg-amber-500' : 'bg-blue-500'" />
+            <span class="min-w-0"><strong class="block text-xs">{{ issue.title }}</strong><small class="block mt-0.5 text-surface-slate dark:text-surface-ash">{{ issue.detail }}</small></span>
+          </button>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <p class="text-2xs text-surface-slate dark:text-surface-ash">Click a layer issue to locate it on canvas. Run preflight again after correcting the document.</p>
+          <div class="flex gap-2 shrink-0"><button class="btn-ghost !text-xs" @click="docSizeMode = 'canvas'; showPreflight = false">Production settings</button><AppButton @click="showPreflight = false">Done</AppButton></div>
+        </div>
+      </div>
+    </AppModal>
     <AppModal :model-value="!!perspectiveTarget" title="Perspective / four-corner warp" :maxWidth="560" @update:model-value="(open) => { if (!open) perspectiveTarget = null; }">
       <div class="grid grid-cols-2 gap-3">
         <label v-for="field in PERSPECTIVE_FIELDS" :key="field.key" class="text-xs font-bold">{{ field.label }} — {{ perspectiveConfig[field.key] }}%
@@ -419,6 +442,7 @@
     <AdjustDialog v-if="adjustState" :canvas="fabricCanvasRawRef()" :target="adjustState.target" :title="adjustState.title"
                   :controls="adjustState.controls" @commit="onAdjustCommit" @close="adjustState = null" />
     <DocumentSizeDialog v-if="docSizeMode && document" :mode="docSizeMode" :width="document.width" :height="document.height"
+                        :dpi="document.dpi || 300" :bleed="document.bleed || 0" :safe-margin="document.safeMargin || 0"
                         @apply="onDocSizeApply" @close="docSizeMode = null" />
   </div>
 </template>
@@ -568,6 +592,7 @@ const zoom = ref(1);
 const showGrid = ref(false);
 const smartGuides = ref(true);
 const showRulers = ref(false);
+const showPreflight = ref(false);
 const GRID_SIZES = [10, 20, 40, 80];
 const gridSize = ref(Number(localStorage.getItem('studio.gridSize')) || 20);
 const snapToGrid = ref(localStorage.getItem('studio.snapToGrid') === 'true');
@@ -2692,6 +2717,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   importFonts: () => fontInputRef.value?.click(),
   importBrushes: () => brushInputRef.value?.click(),
   openUtilityPanel: (mode) => { utilityPanelMode.value = mode; rightPanelTab.value = 'swatches'; },
+  openPreflight: () => { showPreflight.value = true; },
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
@@ -2704,7 +2730,64 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   onSelectSubject, onConvertTextToShape, onContentAwareFill, onMakeSmartObject, onEditSmartObject,
 });
 function onDocSizeApply(payload) {
+  document.value.dpi = payload.dpi;
+  document.value.bleed = payload.bleed;
+  document.value.safeMargin = payload.safeMargin;
   if (docSizeMode.value === 'canvas') resizeCanvas(payload); else resizeImage(payload);
+}
+
+function flattenStudioObjects(objects, output = []) {
+  for (const object of objects || []) {
+    output.push(object);
+    if (object.type === 'group') flattenStudioObjects(object.getObjects?.() || [], output);
+  }
+  return output;
+}
+
+const preflightIssues = computed(() => {
+  if (!document.value || !fabricCanvasRaw) return [];
+  const issues = [];
+  const objects = flattenStudioObjects(fabricCanvasRaw.getObjects());
+  const safe = Math.max(0, Number(document.value.safeMargin) || 0);
+  for (const family of missingFonts.value || []) {
+    issues.push({ id: `font-${family.family}`, level: 'error', title: `Missing font: ${family.family}`, detail: 'Upload the original font or choose a replacement before production.' });
+  }
+  for (const object of objects) {
+    const data = object.get('data') || {};
+    const label = data.name || object.type || 'Layer';
+    const bounds = object.getBoundingRect?.() || { left: object.left || 0, top: object.top || 0, width: 0, height: 0 };
+    if (object.visible === false) issues.push({ id: `${data.layerId || label}-hidden`, level: 'info', title: `Hidden layer: ${label}`, detail: 'Hidden layers are not included in exported artwork.', object });
+    if ((object.opacity ?? 1) <= 0) issues.push({ id: `${data.layerId || label}-transparent`, level: 'warning', title: `Invisible layer: ${label}`, detail: 'This layer has zero opacity and will not appear in export.', object });
+    if (bounds.left < 0 || bounds.top < 0 || bounds.left + bounds.width > document.value.width || bounds.top + bounds.height > document.value.height) {
+      issues.push({ id: `${data.layerId || label}-outside`, level: 'warning', title: `Outside canvas: ${label}`, detail: 'Part of this layer is outside the exported canvas.', object });
+    }
+    if (safe > 0 && (bounds.left < safe || bounds.top < safe || bounds.left + bounds.width > document.value.width - safe || bounds.top + bounds.height > document.value.height - safe)) {
+      issues.push({ id: `${data.layerId || label}-safe`, level: 'info', title: `Inside safe margin: ${label}`, detail: `This layer enters the ${safe}px safe-margin area. Keep important text and logos farther from the edge.`, object });
+    }
+    if (object.type === 'image' && !data.isQr) {
+      const sourceWidth = Number(data.sourceWidth || object._element?.naturalWidth || object._element?.width || 0);
+      const sourceHeight = Number(data.sourceHeight || object._element?.naturalHeight || object._element?.height || 0);
+      const placedWidth = Math.max(1, object.getScaledWidth?.() || 1);
+      const placedHeight = Math.max(1, object.getScaledHeight?.() || 1);
+      const effectiveScale = Math.min(sourceWidth / placedWidth, sourceHeight / placedHeight);
+      if (sourceWidth && sourceHeight && effectiveScale < 0.75) {
+        issues.push({ id: `${data.layerId || label}-resolution`, level: 'warning', title: `Low-resolution image: ${label}`, detail: `${sourceWidth}×${sourceHeight}px source is enlarged to about ${Math.round(placedWidth)}×${Math.round(placedHeight)}px. Replace it for a sharper export.`, object });
+      }
+    }
+    if (['textbox', 'text', 'i-text'].includes(object.type) && !String(object.text || '').trim()) {
+      issues.push({ id: `${data.layerId || label}-empty`, level: 'warning', title: `Empty text layer: ${label}`, detail: 'Delete it or add text before export.', object });
+    }
+  }
+  return issues;
+});
+
+function focusPreflightIssue(issue) {
+  if (!issue.object || !fabricCanvasRaw) return;
+  showPreflight.value = false;
+  fabricCanvasRaw.discardActiveObject();
+  fabricCanvasRaw.setActiveObject(issue.object);
+  fabricCanvasRaw.requestRenderAll();
+  rightPanelTab.value = 'properties';
 }
 
 async function onMissingFontUseDefault(family) {

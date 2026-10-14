@@ -14,6 +14,21 @@
       <label v-if="mode === 'image'" class="flex items-center gap-2 text-2xs">
         <input v-model="lockRatio" type="checkbox" class="accent-brand-gold" /> Constrain proportions
       </label>
+      <div class="rounded-xl border border-surface-mist dark:border-surface-fog p-3 space-y-2">
+        <p class="text-2xs font-bold">Print and layout</p>
+        <div class="grid grid-cols-3 gap-2">
+          <label class="text-2xs font-semibold space-y-1">DPI
+            <input v-model.number="dpi" type="number" min="36" max="1200" step="1" class="field-input !py-1 !text-xs" />
+          </label>
+          <label class="text-2xs font-semibold space-y-1">Bleed (px)
+            <input v-model.number="bleed" type="number" min="0" :max="Math.floor(Math.min(w, h) / 3)" step="1" class="field-input !py-1 !text-xs" />
+          </label>
+          <label class="text-2xs font-semibold space-y-1">Safe (px)
+            <input v-model.number="safeMargin" type="number" min="0" :max="Math.floor(Math.min(w, h) / 3)" step="1" class="field-input !py-1 !text-xs" />
+          </label>
+        </div>
+        <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">DPI is saved as production metadata. Bleed and safe margins are checked by Document Preflight before export.</p>
+      </div>
       <div v-if="mode === 'canvas'" class="space-y-1">
         <p class="text-2xs font-semibold">Anchor</p>
         <div class="grid grid-cols-3 gap-1 w-24">
@@ -37,6 +52,9 @@ const props = defineProps({
   mode: { type: String, required: true }, // 'canvas' | 'image'
   width: { type: Number, required: true },
   height: { type: Number, required: true },
+  dpi: { type: Number, default: 300 },
+  bleed: { type: Number, default: 0 },
+  safeMargin: { type: Number, default: 0 },
 });
 const emit = defineEmits(['close', 'apply']);
 
@@ -45,12 +63,20 @@ const w = ref(props.width);
 const h = ref(props.height);
 const anchor = ref('c');
 const lockRatio = ref(true);
+const dpi = ref(props.dpi);
+const bleed = ref(props.bleed);
+const safeMargin = ref(props.safeMargin);
 const ratio = props.width / props.height;
 
 function onW() { if (props.mode === 'image' && lockRatio.value && w.value > 0) h.value = Math.round(w.value / ratio); }
 function onH() { if (props.mode === 'image' && lockRatio.value && h.value > 0) w.value = Math.round(h.value * ratio); }
 function ok() {
-  emit('apply', { width: Math.round(w.value), height: Math.round(h.value), anchor: anchor.value });
+  emit('apply', {
+    width: Math.round(w.value), height: Math.round(h.value), anchor: anchor.value,
+    dpi: Math.max(36, Math.min(1200, Math.round(dpi.value || 300))),
+    bleed: Math.max(0, Math.round(bleed.value || 0)),
+    safeMargin: Math.max(0, Math.round(safeMargin.value || 0)),
+  });
   emit('close');
 }
 </script>
