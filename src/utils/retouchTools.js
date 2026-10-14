@@ -171,6 +171,17 @@ export function paintBrushAt(fabricImg, scenePoint, { brushSize = 20, hardness =
   fabricImg.dirty = true;
 }
 
+export function paintBrushTipAt(fabricImg, scenePoint, tipCanvas, { brushSize = 20, color = '#111827', angle = 0, roundness = 100 } = {}) {
+  if (!tipCanvas) return paintBrushAt(fabricImg, scenePoint, { brushSize, color, hardness: 1 });
+  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
+  const { x, y, sceneScale } = sceneToImagePixel(fabricImg, scenePoint);
+  const width = Math.max(1, brushSize / sceneScale); const height = Math.max(1, width * Math.max(0.01, Number(roundness || 100) / 100));
+  const tinted = window.document.createElement('canvas'); tinted.width = tipCanvas.width; tinted.height = tipCanvas.height;
+  const tint = tinted.getContext('2d'); tint.drawImage(tipCanvas, 0, 0); tint.globalCompositeOperation = 'source-in'; tint.fillStyle = color; tint.fillRect(0, 0, tinted.width, tinted.height);
+  ctx.save(); ctx.translate(x, y); ctx.rotate((Number(angle) || 0) * Math.PI / 180); ctx.drawImage(tinted, -width / 2, -height / 2, width, height); ctx.restore();
+  fabricImg.dirty = true;
+}
+
 export function sampleColorAt(fabricImg, scenePoint) {
   const canvas = ensureLiveCanvas(fabricImg);
   const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
