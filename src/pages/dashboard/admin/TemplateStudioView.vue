@@ -447,7 +447,7 @@ import {
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
-import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
+import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
@@ -589,7 +589,33 @@ const brushPresets = ref(JSON.parse(localStorage.getItem('studio.brushPresets') 
   { id: 'detail', name: 'Detail', size: 6, hardness: 0.9, spacing: 8 },
 ]);
 watch(brushPresets, (presets) => localStorage.setItem('studio.brushPresets', JSON.stringify(presets)), { deep: true });
-function applyBrushPreset(preset) { brushSize.value = preset.size; brushHardness.value = preset.hardness; setTool('brush'); }
+let activeBrushPreset = brushPresets.value[0] || null;
+let activeBrushTipCanvas = null;
+async function applyBrushPreset(preset) {
+  brushSize.value = preset.size; brushHardness.value = preset.hardness; activeBrushPreset = preset; activeBrushTipCanvas = null;
+  if (preset.tipAssetId) {
+    const url = await resolveAssetUrl(preset.tipAssetId);
+    if (url) {
+      const image = new Image(); image.decoding = 'async'; image.src = url;
+      await image.decode();
+      const tip = window.document.createElement('canvas'); tip.width = image.naturalWidth || image.width; tip.height = image.naturalHeight || image.height;
+      tip.getContext('2d').drawImage(image, 0, 0); activeBrushTipCanvas = tip;
+    }
+  }
+  setTool('brush');
+}
+async function cacheAbrTip(sample) {
+  if (!sample?.alpha?.length || !sample.bounds?.w || !sample.bounds?.h) return null;
+  const canvas = window.document.createElement('canvas'); canvas.width = sample.bounds.w; canvas.height = sample.bounds.h;
+  const ctx = canvas.getContext('2d'); const pixels = ctx.createImageData(canvas.width, canvas.height);
+  for (let source = 0, target = 0; source < sample.alpha.length; source += 1, target += 4) {
+    pixels.data[target] = 255; pixels.data[target + 1] = 255; pixels.data[target + 2] = 255; pixels.data[target + 3] = sample.alpha[source];
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return null;
+  const id = `local:brush-tip:${crypto.randomUUID()}`; await cacheLocalTemplateAsset(id, blob); return id;
+}
 async function onBrushFilesChosen(event) {
   const files = [...(event.target.files || [])]; event.target.value = '';
   if (!files.length) return;
@@ -600,13 +626,15 @@ async function onBrushFilesChosen(event) {
       const pack = readAbr(new Uint8Array(await file.arrayBuffer()), { logMissingFeatures: false });
       for (const entry of pack.brushes || []) {
         const shape = entry.shape || {};
+        const sample = shape.sampledData ? (pack.samples || []).find((candidate) => candidate.id === shape.sampledData) : null;
+        const tipAssetId = await cacheAbrTip(sample);
         brushPresets.value.push({
           id: `abr:${crypto.randomUUID()}`,
           name: entry.name || shape.name || file.name.replace(/\.abr$/i, ''),
           size: Math.max(1, Math.round(Number(shape.size) || 20)),
           hardness: Math.max(0, Math.min(1, Number(shape.hardness ?? 100) / (Number(shape.hardness) > 1 ? 100 : 1))),
           spacing: Math.max(1, Number(shape.spacing || entry.spacing || 15)),
-          angle: Number(shape.angle || 0), roundness: Number(shape.roundness || 100), source: file.name,
+          angle: Number(shape.angle || 0), roundness: Number(shape.roundness || 100), source: file.name, tipAssetId,
         });
         imported += 1;
       }
@@ -1058,7 +1086,8 @@ function pickStrokeTarget(opt) {
 // between the previous point and the current one, spaced closely enough
 // that the soft edges overlap into a continuous stroke.
 function stampAlongTo(p) {
-  const spacing = Math.max(1, brushSize.value * 0.15); // 15% of brush size — tight enough that stamps fully overlap
+  const spacingPercent = tool.value === 'brush' ? Number(activeBrushPreset?.spacing || 15) : 15;
+  const spacing = Math.max(1, brushSize.value * spacingPercent / 100);
   if (!lastStrokePoint) { doStamp(p); lastStrokePoint = p; return; }
   const dx = p.x - lastStrokePoint.x;
   const dy = p.y - lastStrokePoint.y;
@@ -1072,7 +1101,10 @@ function stampAlongTo(p) {
 }
 function doStamp(p) {
   if (!strokeTarget) return;
-  if (tool.value === 'brush') paintBrushAt(strokeTarget, p, { brushSize: brushSize.value, hardness: brushHardness.value, color: brushColor.value });
+  if (tool.value === 'brush') {
+    if (activeBrushTipCanvas) paintBrushTipAt(strokeTarget, p, activeBrushTipCanvas, { brushSize: brushSize.value, color: brushColor.value, angle: activeBrushPreset?.angle, roundness: activeBrushPreset?.roundness });
+    else paintBrushAt(strokeTarget, p, { brushSize: brushSize.value, hardness: brushHardness.value, color: brushColor.value });
+  }
   else if (tool.value === 'eraser') eraseAt(strokeTarget, p, { brushSize: brushSize.value, hardness: brushHardness.value });
   else if (tool.value === 'dodge') dodgeBurnAt(strokeTarget, p, { mode: dodgeMode.value, brushSize: brushSize.value });
   else if (tool.value === 'healing') healAt(strokeTarget, p, { brushSize: brushSize.value });
