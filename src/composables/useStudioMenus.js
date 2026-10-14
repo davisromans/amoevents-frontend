@@ -326,6 +326,7 @@ export function useStudioMenus(ctx) {
         SEP,
         { label: 'Save Locally', shortcut: '⌘S', action: () => ctx.saveLocalDraft({ notify: true }) },
         { label: 'Save to Cloud', shortcut: '⇧⌘S', disabled: () => !ctx.isOnline.value, action: ctx.save },
+        { label: 'Document Preflight…', action: ctx.openPreflight },
         SEP,
         { label: 'Export', items: [
           { label: 'Export as PNG', action: () => ctx.exportImage('png') },
