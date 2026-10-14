@@ -268,6 +268,15 @@ function clonePlain(value) {
   try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
 }
 
+function reviveFill(fill) {
+  if (fill?.kind === 'fabricGradient') { const { kind, ...options } = fill; return new fabric.Gradient(options); }
+  return fill;
+}
+function serializeFill(fill) {
+  if (fill && typeof fill.toObject === 'function' && fill.type && fill.colorStops) return { kind: 'fabricGradient', ...fill.toObject() };
+  return fill;
+}
+
 function sourceLayerMetadata(layer) {
   const source = clonePlain(layer) || {};
   delete source.children;
@@ -384,7 +393,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       fontSize: layer.fontSize || 24,
       fontWeight: layer.fontWeight || 400,
       fontStyle: layer.fontStyle || 'normal',
-      fill: layer.fill || '#000000',
+      fill: reviveFill(layer.fill) || '#000000',
       textAlign: layer.align || 'left',
       lineHeight: layer.lineHeight || 1.16,
       charSpacing: (layer.letterSpacing || 0) * 10, // Fabric's charSpacing is in 1/1000 em units
@@ -474,7 +483,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     const rect = new fabric.Rect({
       width: layer.width, height: layer.height,
       rx: layer.rx || 0, ry: layer.ry || 0,
-      fill: layer.fill || 'transparent',
+      fill: reviveFill(layer.fill) || 'transparent',
       stroke: layer.stroke || null,
       strokeWidth: layer.strokeWidth || 0,
       strokeDashArray: layer.strokeDashArray || null,
@@ -486,7 +495,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
   if (layer.type === 'ellipse') {
     const ellipse = new fabric.Ellipse({
       rx: layer.width / 2, ry: layer.height / 2,
-      fill: layer.fill || 'transparent',
+      fill: reviveFill(layer.fill) || 'transparent',
       stroke: layer.stroke || null,
       strokeWidth: layer.strokeWidth || 0,
     });
@@ -496,7 +505,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
 
   if (layer.type === 'path') {
     const path = new fabric.Path(layer.pathData || 'M 0 0', {
-      fill: layer.fill || 'transparent',
+      fill: reviveFill(layer.fill) || 'transparent',
       stroke: layer.stroke || null,
       strokeWidth: layer.strokeWidth || 0,
     });
@@ -604,7 +613,7 @@ function fabricToLayer(obj) {
       ...base, type: 'text', text: obj.text,
       textMode: obj.type === 'textbox' ? 'box' : 'point',
       fontFamily: obj.fontFamily, fontSize: obj.fontSize, fontWeight: obj.fontWeight,
-      fontStyle: obj.fontStyle, fill: obj.fill, align: obj.textAlign,
+      fontStyle: obj.fontStyle, fill: serializeFill(obj.fill), align: obj.textAlign,
       stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
@@ -641,13 +650,13 @@ function fabricToLayer(obj) {
     };
   }
   if (obj.type === 'rect') {
-    return { ...base, type: 'rect', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, strokeDashArray: obj.strokeDashArray, rx: obj.rx, ry: obj.ry };
+    return { ...base, type: 'rect', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth, strokeDashArray: obj.strokeDashArray, rx: obj.rx, ry: obj.ry };
   }
   if (obj.type === 'ellipse') {
-    return { ...base, type: 'ellipse', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth };
+    return { ...base, type: 'ellipse', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth };
   }
   if (obj.type === 'path') {
-    return { ...base, type: 'path', fill: obj.fill, stroke: obj.stroke, strokeWidth: obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
+    return { ...base, type: 'path', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
   }
   if (obj.type === 'group') {
     return {
