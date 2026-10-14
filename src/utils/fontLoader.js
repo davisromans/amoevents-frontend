@@ -1,9 +1,37 @@
+import { getOfflineMedia, putOfflineMedia } from '@/services/offline.store';
+
 // Batch 10 support — loads a font family into the browser (and the
 // Fabric canvas, which just reads document.fonts like everything else)
 // on demand, the moment it's actually selected rather than upfront. A
 // library of "hundreds of fonts" that all loaded eagerly would make the
 // Studio's first paint miserable; this keeps it to "only what's in use."
 const loaded = new Set();
+
+function fontCacheKey(variant) {
+  return `font-binary:${variant._id || variant.id || variant.fileUrl}`;
+}
+
+export async function getFontVariantBytes(variant) {
+  if (!variant?.fileUrl) throw new Error('The uploaded font has no downloadable file URL.');
+  const key = fontCacheKey(variant);
+  const cached = await getOfflineMedia(key);
+  if (cached) return cached.arrayBuffer();
+  let bytes; let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(variant.fileUrl, { cache: attempt ? 'reload' : 'default' });
+      if (!response.ok) throw new Error(`Font download returned ${response.status}`);
+      const blob = await response.blob(); bytes = await blob.arrayBuffer();
+      await putOfflineMedia(key, blob);
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+    }
+  }
+  if (!bytes) throw lastError || new Error('The uploaded font could not be downloaded.');
+  return bytes;
+}
 
 /** Google Fonts family — fetched via the key-free css2 endpoint, injected as a <link>. */
 export function loadGoogleFont(family) {
@@ -42,20 +70,7 @@ export async function loadUploadedFontVariant(family, variant) {
     // Fetch explicitly and pass bytes to FontFace. Besides producing clearer
     // HTTP errors than FontFace's vague "A network error occurred", this lets
     // us retry a short-lived connection drop without re-uploading the file.
-    let bytes;
-    let lastError;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const response = await fetch(variant.fileUrl, { cache: attempt ? 'reload' : 'default' });
-        if (!response.ok) throw new Error(`Font download returned ${response.status}`);
-        bytes = await response.arrayBuffer();
-        break;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
-      }
-    }
-    if (!bytes) throw lastError || new Error('The uploaded font could not be downloaded.');
+    const bytes = await getFontVariantBytes(variant);
     const face = new FontFace(family, bytes, { weight: String(variant.weight), style: variant.style });
     await face.load();
     document.fonts.add(face);
