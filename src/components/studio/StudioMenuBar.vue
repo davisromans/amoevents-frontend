@@ -19,7 +19,7 @@ import { defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue';
 
 // Photoshop-style menu bar. `menus` is plain config so the Studio owns every
 // action: [{ label, items: [{ label, shortcut, action, disabled, checked,
-// items (submenu), separator: true, soon: true }] }]. `disabled` and
+// items (submenu), separator: true }] }]. `disabled` and
 // `checked` may be booleans or functions, evaluated each time a menu opens.
 defineProps({ menus: { type: Array, required: true } });
 
@@ -34,7 +34,7 @@ function hoverMenu(i) { if (openIndex.value !== -1) openIndex.value = i; }
 function close() { openIndex.value = -1; }
 function run(item) {
   close();
-  if (resolve(item.disabled) || item.soon || !item.action) return;
+  if (resolve(item.disabled) || !item.action) return;
   item.action();
 }
 
@@ -57,7 +57,7 @@ const MenuPanel = defineComponent({
     }, props.items.filter((it) => !resolve(it.hidden)).map((item, i) => {
       if (item.separator) return h('div', { key: `sep${i}`, class: 'my-1 border-t border-surface-mist dark:border-surface-fog' });
       if (item.heading) return h('div', { key: `hd${i}`, class: 'px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide font-bold text-surface-slate dark:text-surface-ash' }, item.heading);
-      const disabled = !!resolve(item.disabled) || !!item.soon;
+      const disabled = !!resolve(item.disabled);
       const checked = resolve(item.checked);
       const subItems = resolve(item.items) || [];
       const hasSub = Array.isArray(subItems) && subItems.length;
@@ -70,7 +70,7 @@ const MenuPanel = defineComponent({
           type: 'button',
           role: 'menuitem',
           disabled: disabled && !hasSub,
-          title: item.soon ? 'Coming soon' : (item.hint || undefined),
+          title: item.hint || undefined,
           class: [
             'w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs',
             disabled && !hasSub ? 'text-surface-slate/60 dark:text-surface-ash/50 cursor-default' : 'text-surface-charcoal dark:text-surface-bone hover:bg-brand-primary-glow',
@@ -79,7 +79,6 @@ const MenuPanel = defineComponent({
         }, [
           h('span', { class: 'w-3 shrink-0 text-center' }, checked ? '✓' : ''),
           h('span', { class: 'flex-1 truncate' }, item.label),
-          item.soon ? h('span', { class: 'text-[9px] font-bold uppercase tracking-wide px-1 rounded bg-surface-mist dark:bg-surface-fog' }, 'Soon') : null,
           item.shortcut ? h('span', { class: 'text-[10px] text-surface-slate dark:text-surface-ash pl-4' }, item.shortcut) : null,
           hasSub ? h('span', { class: 'text-surface-slate pl-2' }, '›') : null,
         ]),
