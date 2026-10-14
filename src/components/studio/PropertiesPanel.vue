@@ -80,6 +80,12 @@
               <input type="number" min="6" max="400" class="field-input !py-1.5 !text-xs"
                      :value="currentFontSize" @input="setTextProp('fontSize', Number($event.target.value))" />
             </div>
+            <div>
+              <p class="field-label mb-1">Weight{{ currentSelectionLabel }}</p>
+              <select class="field-input !py-1.5 !text-xs" :value="currentFontWeight" @change="setTextProp('fontWeight', Number($event.target.value))">
+                <option v-for="weight in FONT_WEIGHTS" :key="weight" :value="weight">{{ weight }} · {{ fontWeightLabel(weight) }}</option>
+              </select>
+            </div>
           </div>
           <div>
             <p class="field-label mb-1">Fill{{ currentSelectionLabel }}</p>
@@ -96,10 +102,32 @@
             </button>
             <button class="btn-ghost !p-1.5 flex-1 font-bold underline" :class="{ 'bg-brand-primary-glow': currentUnderline }"
                     title="Underline (Ctrl/Cmd+U)" @click="setTextProp('underline', !currentUnderline)">U</button>
-            <button v-for="a in ['left','center','right']" :key="a" class="btn-ghost !p-1.5 flex-1"
+            <button class="btn-ghost !p-1.5 flex-1 font-bold line-through" :class="{ 'bg-brand-primary-glow': currentLinethrough }"
+                    title="Strikethrough" @click="setTextProp('linethrough', !currentLinethrough)">S</button>
+          </div>
+          <div class="flex gap-1">
+            <button v-for="a in ['left','center','right','justify']" :key="a" class="btn-ghost !p-1.5 flex-1"
                     :class="{ 'bg-brand-primary-glow': obj.textAlign === a }" @click="setProp('textAlign', a)">
-              <component :is="a === 'left' ? Bars3BottomLeftIcon : a === 'center' ? Bars3Icon : Bars3BottomRightIcon" class="w-4 h-4 mx-auto" />
+              <component :is="a === 'left' ? Bars3BottomLeftIcon : a === 'center' || a === 'justify' ? Bars3Icon : Bars3BottomRightIcon" class="w-4 h-4 mx-auto" />
+              <span class="sr-only">{{ a }}</span>
             </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <p class="field-label mb-1">Baseline{{ currentSelectionLabel }}</p>
+              <input type="number" min="-200" max="200" step="1" class="field-input !py-1.5 !text-xs"
+                     :value="currentBaselineShift" @input="setTextProp('deltaY', Number($event.target.value))" />
+            </div>
+            <div>
+              <p class="field-label mb-1">Case</p>
+              <select class="field-input !py-1.5 !text-xs" value="" @change="transformTextCase($event.target.value); $event.target.value = ''">
+                <option value="" disabled>Change case…</option>
+                <option value="upper">UPPERCASE</option>
+                <option value="lower">lowercase</option>
+                <option value="title">Title Case</option>
+                <option value="sentence">Sentence case</option>
+              </select>
+            </div>
           </div>
           <div>
             <p class="field-label mb-1">Line height — {{ obj.lineHeight?.toFixed(2) }}</p>
@@ -110,6 +138,18 @@
             <p class="field-label mb-1">Letter spacing — {{ ((obj.charSpacing || 0) / 10).toFixed(0) }}</p>
             <input type="range" min="-50" max="400" step="5" class="w-full accent-brand-gold"
                    :value="obj.charSpacing" @input="setProp('charSpacing', Number($event.target.value))" />
+          </div>
+          <div class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-2">
+            <p class="field-label">Reusable text styles</p>
+            <div class="flex gap-1">
+              <select class="field-input !py-1.5 !text-xs min-w-0 flex-1" :value="selectedTextStyleId" @change="applyTextStyle($event.target.value)">
+                <option value="">Choose a saved style…</option>
+                <option v-for="style in textStyles" :key="style.id" :value="style.id">{{ style.name }}</option>
+              </select>
+              <button class="btn-ghost !text-2xs !py-1.5 shrink-0" title="Save current typography as a reusable style" @click="saveTextStyle">Save</button>
+              <button v-if="selectedTextStyleId" class="btn-ghost !text-2xs !py-1.5 shrink-0 text-red-500" title="Delete selected style" @click="deleteTextStyle">Delete</button>
+            </div>
+            <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Styles are stored on this device and can be applied to a whole layer or highlighted characters.</p>
           </div>
         </div>
 
@@ -497,6 +537,27 @@ function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type
 const originalPsdFont = computed(() => obj.value?.get('data')?.sourceLayer?.convertedFromText?.fontFamily
   || obj.value?.get('data')?.sourceLayer?.fontFamily
   || '');
+const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+const TEXT_STYLE_STORAGE_KEY = 'studio.textStyles.v1';
+const selectedTextStyleId = ref('');
+const textStyles = ref(loadTextStyles());
+
+function loadTextStyles() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TEXT_STYLE_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistTextStyles() {
+  localStorage.setItem(TEXT_STYLE_STORAGE_KEY, JSON.stringify(textStyles.value));
+}
+
+function fontWeightLabel(weight) {
+  return ({ 100: 'Thin', 200: 'Extra light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi bold', 700: 'Bold', 800: 'Extra bold', 900: 'Black' })[weight] || 'Custom';
+}
 
 function dashKind(arr) {
   if (!arr) return null;
@@ -681,6 +742,8 @@ const currentFill = computed(() => readStyleAt('fill', obj.value?.fill));
 const currentFontWeight = computed(() => Number(readStyleAt('fontWeight', obj.value?.fontWeight)) || 400);
 const currentFontStyle = computed(() => readStyleAt('fontStyle', obj.value?.fontStyle || 'normal'));
 const currentUnderline = computed(() => !!readStyleAt('underline', obj.value?.underline));
+const currentLinethrough = computed(() => !!readStyleAt('linethrough', obj.value?.linethrough));
+const currentBaselineShift = computed(() => Number(readStyleAt('deltaY', 0)) || 0);
 
 // Applies to just the highlighted range when one exists (live or cached),
 // or to the whole layer otherwise.
@@ -704,6 +767,80 @@ function setFont(family) {
   });
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target });
+}
+
+function transformCase(value, mode) {
+  if (mode === 'upper') return value.toLocaleUpperCase();
+  if (mode === 'lower') return value.toLocaleLowerCase();
+  if (mode === 'title') return value.toLocaleLowerCase().replace(/(^|[\s\-–—/([{])([\p{L}\p{N}])/gu, (_, prefix, char) => prefix + char.toLocaleUpperCase());
+  if (mode === 'sentence') return value.toLocaleLowerCase().replace(/(^\s*|[.!?]\s+)([\p{L}\p{N}])/gu, (_, prefix, char) => prefix + char.toLocaleUpperCase());
+  return value;
+}
+
+function transformTextCase(mode) {
+  if (!mode) return;
+  const target = obj.value;
+  const sel = getEffectiveSelection();
+  mutateTextPreservingLayout(target, () => {
+    if (sel) {
+      const original = target.text.slice(sel.start, sel.end);
+      target.insertChars(transformCase(original, mode), undefined, sel.start, sel.end);
+    } else {
+      target.set('text', transformCase(target.text || '', mode));
+    }
+  });
+  target.dirty = true;
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
+}
+
+function currentTextStyleSnapshot() {
+  return {
+    fontFamily: currentFontFamily.value,
+    fontSize: Number(currentFontSize.value) || 40,
+    fontWeight: currentFontWeight.value,
+    fontStyle: currentFontStyle.value,
+    fill: currentFill.value,
+    underline: currentUnderline.value,
+    linethrough: currentLinethrough.value,
+    deltaY: currentBaselineShift.value,
+    textAlign: obj.value?.textAlign || 'left',
+    lineHeight: Number(obj.value?.lineHeight) || 1.16,
+    charSpacing: Number(obj.value?.charSpacing) || 0,
+  };
+}
+
+function saveTextStyle() {
+  const defaultName = `${currentFontFamily.value || 'Text'} ${currentFontWeight.value}`;
+  const name = window.prompt('Name this text style', defaultName)?.trim();
+  if (!name) return;
+  const style = { id: `text-style-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name, ...currentTextStyleSnapshot() };
+  textStyles.value = [...textStyles.value, style];
+  selectedTextStyleId.value = style.id;
+  persistTextStyles();
+}
+
+function applyTextStyle(id) {
+  selectedTextStyleId.value = id;
+  const style = textStyles.value.find((entry) => entry.id === id);
+  if (!style) return;
+  const { id: _id, name: _name, textAlign, lineHeight, charSpacing, ...characterStyle } = style;
+  const sel = getEffectiveSelection();
+  const target = sel?.obj || obj.value;
+  mutateTextPreservingLayout(target, () => {
+    if (sel) target.setSelectionStyles(characterStyle, sel.start, sel.end);
+    else target.set({ ...characterStyle, textAlign, lineHeight, charSpacing });
+  });
+  target.dirty = true;
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
+}
+
+function deleteTextStyle() {
+  if (!selectedTextStyleId.value) return;
+  textStyles.value = textStyles.value.filter((entry) => entry.id !== selectedTextStyleId.value);
+  selectedTextStyleId.value = '';
+  persistTextStyles();
 }
 
 // ── Variable — one control for both whole-layer binding and inline tokens ──

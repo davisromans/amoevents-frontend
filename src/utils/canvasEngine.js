@@ -83,7 +83,7 @@ export function createEngineCanvas(canvasEl, { width, height, background }) {
 // unconditionally), so a highlighted-text font change would "work," then
 // vanish the moment the document was saved and reloaded — including in the
 // server-rendered thumbnail, which reads from the very same saved document.
-const CHAR_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fill', 'stroke', 'strokeWidth', 'underline', 'linethrough'];
+const CHAR_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fill', 'stroke', 'strokeWidth', 'underline', 'linethrough', 'deltaY'];
 
 function charStylesEqual(a, b) {
   return CHAR_STYLE_KEYS.every((k) => a[k] === b[k]);
