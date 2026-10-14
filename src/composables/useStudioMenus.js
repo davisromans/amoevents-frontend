@@ -162,6 +162,12 @@ export function useStudioMenus(ctx) {
     if (name != null && name.trim()) ctx.onRenameLayer(o, name.trim());
   }
   function deleteSelected() { [...sel()].forEach((o) => ctx.onDeleteLayer(o, parentOf(o))); }
+  function fillSelected() {
+    const color = window.prompt('Fill colour (hex, rgb, or CSS colour)', one()?.fill || '#D9B45E');
+    if (!color) return;
+    for (const target of sel()) target.set('fill', color);
+    commit();
+  }
   function cutSelected() {
     const targets = [...sel()];
     ctx.copySelectedLayers().then(() => targets.forEach((o) => ctx.onDeleteLayer(o, parentOf(o))));
@@ -170,6 +176,22 @@ export function useStudioMenus(ctx) {
     const o = one();
     if (o.shadow) clearDropShadow(c(), o); else setDropShadow(c(), o, {});
     commit(o);
+  }
+  function walkObjects(objects, out = []) {
+    for (const object of objects || []) { out.push(object); if (object.type === 'group') walkObjects(object.getObjects(), out); }
+    return out;
+  }
+  function saveSelection() {
+    if (!sel().length) return;
+    const name = window.prompt('Selection name', `Selection ${(doc().savedSelections || []).length + 1}`)?.trim();
+    if (!name) return;
+    const ids = sel().map((o) => o.get('data')?.layerId).filter(Boolean);
+    doc().savedSelections = [...(doc().savedSelections || []).filter((entry) => entry.name !== name), { name, layerIds: ids }];
+    ctx.toast(`Saved selection “${name}”.`); commit();
+  }
+  function loadSavedSelection(entry) {
+    const wanted = new Set(entry.layerIds || []);
+    selectObjects(walkObjects(c().getObjects()).filter((o) => wanted.has(o.get('data')?.layerId)));
   }
 
   const ADJ = {
@@ -187,6 +209,12 @@ export function useStudioMenus(ctx) {
     noise: [{ key: 'noise', label: 'Amount', kind: 'gallery', min: 0, max: 400, step: 1, default: 60 }],
     pixelate: [{ key: 'pixelate', label: 'Cell size', kind: 'gallery', min: 1, max: 40, step: 1, default: 8, neutral: 1 }],
     twirl: [{ key: 'twirl', label: 'Angle', kind: 'gallery', min: -6, max: 6, default: 2 }],
+    posterize: [{ key: 'posterize', label: 'Levels', kind: 'gallery', min: 2, max: 32, step: 1, default: 6 }],
+    threshold: [{ key: 'threshold', label: 'Threshold', kind: 'gallery', min: 0, max: 255, step: 1, default: 128 }],
+    ripple: [{ key: 'ripple', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.25 }],
+    pinch: [{ key: 'pinch', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.35 }],
+    spherize: [{ key: 'spherize', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.35 }],
+    reduceNoise: [{ key: 'blur', label: 'Smoothing', kind: 'gallery', min: 0, max: 0.18, default: 0.035 }],
     levels: [
       { key: 'levelsBlack', label: 'Black point', kind: 'adj', min: 0, max: 254, step: 1, default: 0, neutral: 0 },
       { key: 'levelsGamma', label: 'Midtone gamma', kind: 'adj', min: 0.1, max: 3, step: 0.01, default: 1, neutral: 1 },
@@ -248,9 +276,9 @@ export function useStudioMenus(ctx) {
         { label: 'Duplicate', shortcut: '⌘J', disabled: notOne, action: () => ctx.onDuplicateLayer(one(), parentOf(one())) },
         { label: 'Delete', shortcut: '⌫', disabled: none, action: deleteSelected },
         SEP,
-        SOON('Fill…', '⇧F5'),
+        { label: 'Fill…', shortcut: '⇧F5', disabled: none, action: fillSelected },
         { label: 'Stroke / Outline', hint: 'Edit stroke in the Properties panel', disabled: notOne, action: () => ctx.toast('Use Stroke in the Properties panel on the right.') },
-        SOON('Content-Aware Fill…'),
+        { label: 'Content-Aware Fill…', disabled: notImage, action: () => ctx.onContentAwareFill(one()) },
         SEP,
         { label: 'Free Transform', shortcut: '⌘T', disabled: none, action: () => { ctx.setTool('select'); ctx.toast('Drag the handles to scale/rotate. Shift keeps proportions.'); } },
         { label: 'Transform', items: [
@@ -285,7 +313,9 @@ export function useStudioMenus(ctx) {
           { label: 'Desaturate', shortcut: '⇧⌘U', disabled: notImage, checked: hasFilter('grayscale'), action: () => toggleFilter('grayscale') },
           { label: 'Invert', shortcut: '⌘I', disabled: notImage, checked: hasFilter('invert'), action: () => toggleFilter('invert') },
           { label: 'Sepia', disabled: notImage, checked: hasFilter('sepia'), action: () => toggleFilter('sepia') },
-          SOON('Posterize…'), SOON('Threshold…'), SOON('Gradient Map…'), SOON('Replace Color…'),
+          { label: 'Posterize…', disabled: notImage, action: () => adjust('Posterize', ADJ.posterize) },
+          { label: 'Threshold…', disabled: notImage, action: () => adjust('Threshold', ADJ.threshold) },
+          SOON('Gradient Map…'), SOON('Replace Color…'),
           SEP,
           { label: 'Clear All Adjustments', disabled: notImage, action: clearAllFilters },
         ] },
@@ -413,8 +443,10 @@ export function useStudioMenus(ctx) {
         SOON('Color Range…'),
         { label: 'Subject', disabled: notImage, action: () => ctx.onSelectSubject(one()) },
         { label: 'Select and Mask…', disabled: notImage, action: () => ctx.onPaintMask(one()) },
-        SOON('Modify'),
-        SOON('Transform Selection'), SOON('Save Selection…'),
+        { label: 'Modify', hint: 'Use Select and Mask to paint, soften, or remove the active image mask.', disabled: notImage, action: () => ctx.onPaintMask(one()) },
+        { label: 'Transform Selection', disabled: none, action: () => { ctx.setTool('select'); ctx.toast('Transform handles are active for this selection.'); } },
+        { label: 'Save Selection…', disabled: none, action: saveSelection },
+        { label: 'Load Selection', items: () => (doc().savedSelections || []).map((entry) => ({ label: entry.name, action: () => loadSavedSelection(entry) })) },
       ],
     },
     {
@@ -427,11 +459,13 @@ export function useStudioMenus(ctx) {
         ] },
         { label: 'Sharpen', items: [
           { label: 'Sharpen', disabled: notImage, checked: hasFilter('sharpen'), action: () => toggleFilter('sharpen') },
-          SOON('Unsharp Mask…'), SOON('Smart Sharpen…'),
+          { label: 'Unsharp Mask', disabled: notImage, checked: hasFilter('unsharpMask'), action: () => toggleFilter('unsharpMask') },
+          { label: 'Smart Sharpen', disabled: notImage, checked: hasFilter('smartSharpen'), action: () => toggleFilter('smartSharpen') },
         ] },
         { label: 'Noise', items: [
           { label: 'Add Noise…', disabled: notImage, action: () => adjust('Add Noise', ADJ.noise) },
-          SOON('Reduce Noise…'), SOON('Dust & Scratches…'),
+          { label: 'Reduce Noise…', disabled: notImage, action: () => adjust('Reduce Noise', ADJ.reduceNoise) },
+          { label: 'Dust & Scratches…', disabled: notImage, action: () => adjust('Dust & Scratches', [{ key: 'blur', label: 'Radius', kind: 'gallery', min: 0, max: 0.35, default: 0.08 }]) },
         ] },
         { label: 'Pixelate', items: [
           { label: 'Mosaic…', disabled: notImage, action: () => adjust('Mosaic', ADJ.pixelate) },
@@ -443,7 +477,9 @@ export function useStudioMenus(ctx) {
         ] },
         { label: 'Distort', items: [
           { label: 'Twirl…', disabled: notImage, action: () => adjust('Twirl', ADJ.twirl) },
-          SOON('Ripple…'), SOON('Pinch…'), SOON('Spherize…'),
+          { label: 'Ripple…', disabled: notImage, action: () => adjust('Ripple', ADJ.ripple) },
+          { label: 'Pinch…', disabled: notImage, action: () => adjust('Pinch', ADJ.pinch) },
+          { label: 'Spherize…', disabled: notImage, action: () => adjust('Spherize', ADJ.spherize) },
           { label: 'Liquify…', disabled: notImage, action: () => ctx.setTool('liquify') },
         ] },
         { label: 'Photo Looks', items: [

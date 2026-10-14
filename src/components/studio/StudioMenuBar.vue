@@ -59,7 +59,8 @@ const MenuPanel = defineComponent({
       if (item.heading) return h('div', { key: `hd${i}`, class: 'px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide font-bold text-surface-slate dark:text-surface-ash' }, item.heading);
       const disabled = !!resolve(item.disabled) || !!item.soon;
       const checked = resolve(item.checked);
-      const hasSub = Array.isArray(item.items) && item.items.length;
+      const subItems = resolve(item.items) || [];
+      const hasSub = Array.isArray(subItems) && subItems.length;
       return h('div', {
         key: item.label,
         class: 'relative',
@@ -83,7 +84,7 @@ const MenuPanel = defineComponent({
           hasSub ? h('span', { class: 'text-surface-slate pl-2' }, '›') : null,
         ]),
         hasSub && openSub.value === i
-          ? h(MenuPanel, { items: item.items, class: 'left-full top-0 -mt-1 ml-0.5', onRun: (it) => emit('run', it) })
+          ? h(MenuPanel, { items: subItems, class: 'left-full top-0 -mt-1 ml-0.5', onRun: (it) => emit('run', it) })
           : null,
       ]);
     }));
