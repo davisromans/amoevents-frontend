@@ -209,7 +209,7 @@
           </div>
 
           <p class="section-eyebrow pt-2">Filters</p>
-          <div v-for="f in FILTER_GALLERY" :key="f.id">
+          <div v-for="f in FILTER_GALLERY.filter((entry) => entry.panel !== false)" :key="f.id">
             <label class="flex items-center gap-2 text-2xs font-bold">
               <input type="checkbox" class="accent-brand-gold" :checked="!!galleryFilters[f.id]" @change="toggleFilter(f, $event.target.checked)" />
               {{ f.label }}
