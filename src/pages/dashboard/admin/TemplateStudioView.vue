@@ -447,7 +447,7 @@ import {
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
-import { CloneStampController, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
+import { CloneStampController, contentAwareFillTransparent, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
@@ -2644,6 +2644,13 @@ async function onSelectSubject(obj) {
     toast.success('Subject selected. Use Select & Mask to refine the edge.');
   } catch (err) { toast.error(`Subject selection failed: ${apiErrorMessage(err)}`); }
 }
+function onContentAwareFill(obj) {
+  if (obj?.type !== 'image') return;
+  const result = contentAwareFillTransparent(obj);
+  refreshAfterRetouch(fabricCanvasRaw, obj);
+  if (!result.filled) toast.error('No transparent pixels were found on this image layer. Erase or mask an area first.');
+  else toast.success(`Content-aware fill reconstructed ${result.filled.toLocaleString()} pixels locally.`);
+}
 const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   canvas: () => fabricCanvasRaw,
   selected: selectedObjects,
@@ -2669,7 +2676,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
   openPerspectiveWarp,
-  onSelectSubject, onMakeSmartObject, onEditSmartObject,
+  onSelectSubject, onContentAwareFill, onMakeSmartObject, onEditSmartObject,
 });
 function onDocSizeApply(payload) {
   if (docSizeMode.value === 'canvas') resizeCanvas(payload); else resizeImage(payload);

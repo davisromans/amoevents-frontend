@@ -182,6 +182,39 @@ export function paintBrushTipAt(fabricImg, scenePoint, tipCanvas, { brushSize = 
   fabricImg.dirty = true;
 }
 
+// Local, deterministic inpainting for erased/transparent regions. It grows
+// colour inward from the intact boundary over several passes, averaging the
+// nearest opaque neighbours. This is intentionally offline and never uploads
+// the customer's artwork to a third-party AI service.
+export function contentAwareFillTransparent(fabricImg, { maxPasses = 96 } = {}) {
+  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const { data } = image;
+  const pending = new Uint8Array(canvas.width * canvas.height);
+  let remaining = 0;
+  for (let p = 0; p < pending.length; p += 1) if (data[p * 4 + 3] < 8) { pending[p] = 1; remaining += 1; }
+  const originalRemaining = remaining;
+  for (let pass = 0; pass < maxPasses && remaining; pass += 1) {
+    const updates = [];
+    for (let p = 0; p < pending.length; p += 1) {
+      if (!pending[p]) continue;
+      const x = p % canvas.width, y = Math.floor(p / canvas.width); let r = 0, g = 0, b = 0, a = 0, count = 0;
+      for (let oy = -1; oy <= 1; oy += 1) for (let ox = -1; ox <= 1; ox += 1) {
+        if ((!ox && !oy) || x + ox < 0 || y + oy < 0 || x + ox >= canvas.width || y + oy >= canvas.height) continue;
+        const q = ((y + oy) * canvas.width + x + ox) * 4;
+        if (data[q + 3] < 128) continue;
+        r += data[q]; g += data[q + 1]; b += data[q + 2]; a += data[q + 3]; count += 1;
+      }
+      if (count) updates.push([p, r / count, g / count, b / count, a / count]);
+    }
+    if (!updates.length) break;
+    for (const [p, r, g, b, a] of updates) {
+      const i = p * 4; data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = a; pending[p] = 0; remaining -= 1;
+    }
+  }
+  ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
+  return { filled: originalRemaining - remaining, remaining };
+}
+
 export function sampleColorAt(fabricImg, scenePoint) {
   const canvas = ensureLiveCanvas(fabricImg);
   const { x, y } = sceneToImagePixel(fabricImg, scenePoint);

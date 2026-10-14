@@ -16,6 +16,8 @@ import * as fabric from 'fabric';
 
 const KERNELS = {
   sharpen: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+  unsharpMask: [-1, -1, -1, -1, 9, -1, -1, -1, -1],
+  smartSharpen: [0, -1, 0, -1, 6, -1, 0, -1, 0],
   emboss: [-2, -1, 0, -1, 1, 1, 0, 1, 2],
   findEdges: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
 };
@@ -74,17 +76,50 @@ class TwirlFilter extends fabric.filters.BaseFilter {
 }
 fabric.classRegistry.setClass(TwirlFilter, 'Twirl');
 
+class PosterizeFilter extends fabric.filters.BaseFilter {
+  static type = 'Posterize'; static defaults = { levels: 6 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform float uLevels; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); c.rgb=floor(c.rgb*(uLevels-1.0)+0.5)/(uLevels-1.0); gl_FragColor=c; }`; }
+  getUniformLocations(gl, program) { return { uLevels: gl.getUniformLocation(program, 'uLevels') }; }
+  sendUniformData(gl, u) { gl.uniform1f(u.uLevels, Math.max(2, Number(this.levels) || 6)); }
+  applyTo2d({ imageData }) { const levels = Math.max(2, Number(this.levels) || 6), step = 255 / (levels - 1); for (let i = 0; i < imageData.data.length; i += 4) for (let c = 0; c < 3; c += 1) imageData.data[i + c] = Math.round(imageData.data[i + c] / step) * step; }
+}
+class ThresholdFilter extends fabric.filters.BaseFilter {
+  static type = 'Threshold'; static defaults = { threshold: 128 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform float uThreshold; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); float y=dot(c.rgb,vec3(.299,.587,.114)); float v=step(uThreshold,y); gl_FragColor=vec4(vec3(v),c.a); }`; }
+  getUniformLocations(gl, program) { return { uThreshold: gl.getUniformLocation(program, 'uThreshold') }; }
+  sendUniformData(gl, u) { gl.uniform1f(u.uThreshold, Math.max(0, Math.min(255, Number(this.threshold) || 128)) / 255); }
+  applyTo2d({ imageData }) { const t = Number(this.threshold) || 128, d = imageData.data; for (let i = 0; i < d.length; i += 4) { const v = d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114 >= t ? 255 : 0; d[i] = d[i + 1] = d[i + 2] = v; } }
+}
+class RadialDistortFilter extends fabric.filters.BaseFilter {
+  static type = 'RadialDistort'; static defaults = { mode: 'pinch', amount: 0.35 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform float uAmount; uniform float uMode; varying vec2 vTexCoord; void main(){ vec2 p=vTexCoord-.5; float r=length(p); vec2 uv=vTexCoord; if(r<.5){ if(uMode<.5){ float wave=sin(r*70.0)*uAmount*(.5-r); uv=.5+p*(1.0+wave); } else { float k=uMode<1.5 ? (1.0+uAmount*(1.0-r*2.0)) : (1.0-uAmount*(1.0-r*2.0)); uv=.5+p*k; } } gl_FragColor=texture2D(uTexture,clamp(uv,0.0,1.0)); }`; }
+  getUniformLocations(gl, program) { return { uAmount: gl.getUniformLocation(program, 'uAmount'), uMode: gl.getUniformLocation(program, 'uMode') }; }
+  sendUniformData(gl, u) { gl.uniform1f(u.uAmount, Number(this.amount) || 0); gl.uniform1f(u.uMode, this.mode === 'ripple' ? 0 : this.mode === 'pinch' ? 1 : 2); }
+  applyTo2d({ imageData }) {
+    const { width, height, data } = imageData, source = new Uint8ClampedArray(data), cx = (width - 1) / 2, cy = (height - 1) / 2, radius = Math.max(1, Math.min(width, height) / 2), amount = Number(this.amount) || 0;
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) { const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy); if (r >= radius) continue; const n = r / radius; let k; if (this.mode === 'ripple') k = 1 + Math.sin(n * 35) * amount * (1 - n); else if (this.mode === 'pinch') k = 1 + amount * (1 - n); else k = 1 - amount * (1 - n); const sx = Math.max(0, Math.min(width - 1, Math.round(cx + dx * k))), sy = Math.max(0, Math.min(height - 1, Math.round(cy + dy * k))), a = (y * width + x) * 4, b = (sy * width + sx) * 4; data[a] = source[b]; data[a + 1] = source[b + 1]; data[a + 2] = source[b + 2]; data[a + 3] = source[b + 3]; }
+  }
+}
+fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort');
+
 // The gallery — id, label, and a factory returning a Fabric filter
 // instance for the given params. `params` are exposed to the UI as
 // simple 0-1 sliders wherever a filter takes one continuous parameter.
 export const FILTER_GALLERY = [
   { id: 'blur', label: 'Blur', param: { key: 'blur', min: 0, max: 1, default: 0.1 }, make: (v) => new fabric.filters.Blur({ blur: v }) },
   { id: 'sharpen', label: 'Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.sharpen }) },
+  { id: 'unsharpMask', label: 'Unsharp Mask', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.unsharpMask }) },
+  { id: 'smartSharpen', label: 'Smart Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.smartSharpen }) },
   { id: 'noise', label: 'Noise', param: { key: 'noise', min: 0, max: 400, default: 60 }, make: (v) => new fabric.filters.Noise({ noise: v }) },
   { id: 'pixelate', label: 'Pixelate', param: { key: 'blocksize', min: 1, max: 40, default: 8 }, make: (v) => new fabric.filters.Pixelate({ blocksize: v }) },
   { id: 'emboss', label: 'Emboss', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.emboss }) },
   { id: 'findEdges', label: 'Find edges', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.findEdges }) },
   { id: 'twirl', label: 'Twirl (distort)', param: { key: 'angle', min: -6, max: 6, default: 2 }, make: (v) => new TwirlFilter({ angle: v }) },
+  { id: 'posterize', label: 'Posterize', param: { key: 'levels', min: 2, max: 32, default: 6 }, make: (v) => new PosterizeFilter({ levels: v }) },
+  { id: 'threshold', label: 'Threshold', param: { key: 'threshold', min: 0, max: 255, default: 128 }, make: (v) => new ThresholdFilter({ threshold: v }) },
+  { id: 'ripple', label: 'Ripple', param: { key: 'amount', min: -1, max: 1, default: 0.25 }, make: (v) => new RadialDistortFilter({ mode: 'ripple', amount: v }) },
+  { id: 'pinch', label: 'Pinch', param: { key: 'amount', min: -1, max: 1, default: 0.35 }, make: (v) => new RadialDistortFilter({ mode: 'pinch', amount: v }) },
+  { id: 'spherize', label: 'Spherize', param: { key: 'amount', min: -1, max: 1, default: 0.35 }, make: (v) => new RadialDistortFilter({ mode: 'spherize', amount: v }) },
   // One-click adjustments (Image > Adjustments) and photo looks. Keep this
   // list in sync with cardRenderer.service.js's GALLERY_FILTERS so the final
   // printed card matches the editor.
