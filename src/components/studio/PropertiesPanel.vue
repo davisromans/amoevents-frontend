@@ -155,6 +155,7 @@
 
         <!-- Shape controls -->
         <div v-else-if="['rect','ellipse','path'].includes(obj.type)" class="space-y-3">
+          <button v-if="obj.type === 'path'" class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('edit-path', obj)">Edit anchor points</button>
           <div>
             <p class="field-label mb-1">Fill</p>
             <FillPicker :model-value="obj.fill" @update:model-value="(v) => setProp('fill', v)" />
@@ -444,7 +445,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr']);
+const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr', 'edit-path']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which
