@@ -436,7 +436,7 @@ import {
 import * as templateApi from '@/services/cardTemplates.service';
 import * as variantApi from '@/services/cardVariants.service';
 import { getFontsByFamilies, uploadFontFiles } from '@/services/fonts.service';
-import { loadFont } from '@/utils/fontLoader';
+import { getFontVariantBytes, loadFont } from '@/utils/fontLoader';
 import { resolveAssetUrl, listSharedAssets, setAssetShared, replaceAsset, uploadAsset, cacheLocalTemplateAsset, getCachedTemplateAssetBlob } from '@/services/templateAssets.service';
 import { getTemplateProject, putTemplateProject } from '@/services/offline.store';
 import {
@@ -2655,8 +2655,7 @@ async function onConvertTextToShape(obj) {
     const variant = variants.find((v) => Number(v.weight) === wantedWeight && v.style === wantedStyle)
       || variants.find((v) => Number(v.weight) === wantedWeight) || variants[0];
     if (!variant?.fileUrl) throw new Error(`No outline font file is available for ${obj.fontFamily}.`);
-    const response = await fetch(variant.fileUrl); if (!response.ok) throw new Error(`Font download returned ${response.status}.`);
-    const opentype = await import('opentype.js'); const font = opentype.parse(await response.arrayBuffer());
+    const opentype = await import('opentype.js'); const font = opentype.parse(await getFontVariantBytes(variant));
     const fontSize = Math.max(1, Number(obj.fontSize) || 24); const outline = font.getPath(obj.text || '', 0, fontSize, fontSize).toPathData(3);
     if (!outline) throw new Error('This text contains no convertible glyph outlines.');
     const path = new fabric.Path(outline, {
