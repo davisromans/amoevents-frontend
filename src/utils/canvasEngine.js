@@ -302,6 +302,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     clipMaskSourceLayerId: layer.clipMaskSourceLayerId || null,
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
+    textWarp: clonePlain(layer.textWarp || null),
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
   });
   applyLayerEffects(fabricObj, layer);
@@ -375,6 +376,14 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       underline: !!layer.underline,
       linethrough: !!layer.linethrough,
     });
+    if (layer.textWarp?.bend && layer.textMode === 'point') {
+      const width = Math.max(40, Number(layer.textWarp.width || layer.width || textbox.width || 200));
+      const bend = Math.max(-100, Math.min(100, Number(layer.textWarp.bend))) / 100;
+      textbox.set({
+        path: new fabric.Path(`M 0 ${Math.abs(bend) * width * 0.25} Q ${width / 2} ${bend < 0 ? width * 0.5 : 0} ${width} ${Math.abs(bend) * width * 0.25}`, { visible: false }),
+        pathAlign: 'center', pathSide: bend < 0 ? 'right' : 'left',
+      });
+    }
     applyCommon(textbox, layer);
     applyCharStyles(textbox, layer.charStyles);
     // Keep the saved/PSD layer rectangle stable even when the browser's text
@@ -582,6 +591,7 @@ function fabricToLayer(obj) {
       stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
+      textWarp: clonePlain(data.textWarp || preserved.textWarp || null),
       textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
   }
