@@ -153,6 +153,28 @@ export function useStudioMenus(ctx) {
     c().setActiveObject(rect);
     commit(rect);
   }
+  function applyGradientOverlay() {
+    const target = one(); if (!target || target.type === 'image' || target.type === 'group') { ctx.toast('Select a text or shape layer for a gradient overlay.'); return; }
+    const first = window.prompt('Gradient start colour', '#8B5CF6') || '#8B5CF6';
+    const second = window.prompt('Gradient end colour', '#D9B45E') || '#D9B45E';
+    target.set('fill', new fabric.Gradient({ type: 'linear', gradientUnits: 'pixels', coords: { x1: 0, y1: 0, x2: Math.max(1, target.width || target.getScaledWidth()), y2: 0 }, colorStops: [{ offset: 0, color: first }, { offset: 1, color: second }] }));
+    target.setCoords(); commit(target);
+  }
+  function newPatternLayer() {
+    const tile = window.document.createElement('canvas'); tile.width = 64; tile.height = 64; const g = tile.getContext('2d');
+    const a = window.prompt('Pattern first colour', '#F3F4F6') || '#F3F4F6', b = window.prompt('Pattern second colour', '#D1D5DB') || '#D1D5DB';
+    g.fillStyle = a; g.fillRect(0, 0, 64, 64); g.fillStyle = b; g.fillRect(0, 0, 32, 32); g.fillRect(32, 32, 32, 32);
+    const full = window.document.createElement('canvas'); full.width = doc().width; full.height = doc().height; const fg = full.getContext('2d'); fg.fillStyle = fg.createPattern(tile, 'repeat'); fg.fillRect(0, 0, full.width, full.height);
+    const image = new fabric.FabricImage(full, { left: 0, top: 0, originX: 'left', originY: 'top' });
+    image.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'Pattern Fill', sourceWidth: full.width, sourceHeight: full.height });
+    c().add(image); c().setActiveObject(image); commit(image);
+  }
+  function spellCheckText() {
+    const target = one(); if (!target) return;
+    c().setActiveObject(target); target.enterEditing?.();
+    if (target.hiddenTextarea) { target.hiddenTextarea.spellcheck = true; target.hiddenTextarea.focus(); }
+    ctx.toast('Browser spell-check is active. Misspelled words are underlined while you edit.');
+  }
 
   // ── Select ─────────────────────────────────────────────────────────
   function selectObjects(objs) {
@@ -377,7 +399,7 @@ export function useStudioMenus(ctx) {
         { label: 'New Fill Layer', items: [
           { label: 'Solid Color…', action: () => newFillLayer('solid') },
           { label: 'Gradient…', action: () => newFillLayer('gradient') },
-          SOON('Pattern…'),
+          { label: 'Pattern…', action: newPatternLayer },
         ] },
         { label: 'New Adjustment Layer', items: [
           { label: 'Brightness / Contrast', action: () => ctx.insertAdjustmentLayer('brightnessContrast') },
@@ -404,7 +426,9 @@ export function useStudioMenus(ctx) {
           { label: 'Stroke…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Stroke controls opened in Properties.'); } },
           { label: 'Outer Glow…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Outer glow controls opened in Properties.'); } },
           { label: 'Color Overlay…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Color overlay opened in Properties.'); } },
-          SOON('Inner Shadow…'), SOON('Gradient Overlay…'), SOON('Bevel & Emboss…'),
+          SOON('Inner Shadow…'),
+          { label: 'Gradient Overlay…', disabled: notOne, action: applyGradientOverlay },
+          SOON('Bevel & Emboss…'),
         ] },
         SEP,
         { label: 'Create Clipping Mask', shortcut: '⌥⌘G', disabled: () => sel().length < 2, action: () => ctx.onClipMask(sel()) },
@@ -457,7 +481,8 @@ export function useStudioMenus(ctx) {
         { label: 'Restore Editable Text', disabled: notOne, action: () => ctx.onRestoreText(one()) },
         { label: 'Rasterize Type Layer', disabled: notText, action: () => ctx.onRasterizeLayer(one()) },
         SEP,
-        { label: 'Warp Text…', disabled: notText, action: warpText }, SOON('Convert to Shape'), SOON('Spell Check'),
+        { label: 'Warp Text…', disabled: notText, action: warpText }, SOON('Convert to Shape'),
+        { label: 'Spell Check', disabled: notText, action: spellCheckText },
       ],
     },
     {
@@ -483,7 +508,9 @@ export function useStudioMenus(ctx) {
         { heading: 'Image layer must be selected' },
         { label: 'Blur', items: [
           { label: 'Gaussian Blur…', disabled: notImage, action: () => adjust('Gaussian Blur', ADJ.blur) },
-          SOON('Motion Blur…'), SOON('Radial Blur…'), SOON('Lens Blur…'),
+          { label: 'Motion Blur', disabled: notImage, checked: hasFilter('motionBlur'), action: () => toggleFilter('motionBlur') },
+          SOON('Radial Blur…'),
+          { label: 'Lens Blur…', disabled: notImage, action: () => adjust('Lens Blur', [{ key: 'lensBlur', label: 'Radius', kind: 'gallery', min: 0, max: 1, default: 0.18 }]) },
         ] },
         { label: 'Sharpen', items: [
           { label: 'Sharpen', disabled: notImage, checked: hasFilter('sharpen'), action: () => toggleFilter('sharpen') },
@@ -548,7 +575,7 @@ export function useStudioMenus(ctx) {
           { label: 'Magic Wand', shortcut: 'W', action: () => ctx.setTool('magic-wand') },
           { label: 'Lasso', shortcut: 'L', action: () => ctx.setTool('lasso') },
           { label: 'Marquee', shortcut: 'M', action: () => { ctx.setTool('select'); ctx.toast('Drag on empty canvas to select every enclosed layer.'); } },
-          SOON('Gradient Tool'),
+          { label: 'Gradient Tool', disabled: notOne, action: applyGradientOverlay },
           { label: 'Eyedropper', shortcut: 'I', action: () => ctx.setTool('eyedropper') },
           { label: 'Healing Brush', shortcut: 'J', action: () => ctx.setTool('healing') },
           { label: 'Paint Bucket', shortcut: 'G', action: () => ctx.setTool('bucket') },

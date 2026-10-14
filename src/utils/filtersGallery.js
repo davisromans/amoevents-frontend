@@ -18,6 +18,7 @@ const KERNELS = {
   sharpen: [0, -1, 0, -1, 5, -1, 0, -1, 0],
   unsharpMask: [-1, -1, -1, -1, 9, -1, -1, -1, -1],
   smartSharpen: [0, -1, 0, -1, 6, -1, 0, -1, 0],
+  motionBlur: [0, 0, 0, 0, 0, 0.2, 0.2, 0.2, 0.2, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   emboss: [-2, -1, 0, -1, 1, 1, 0, 1, 2],
   findEdges: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
 };
@@ -110,6 +111,8 @@ export const FILTER_GALLERY = [
   { id: 'sharpen', label: 'Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.sharpen }) },
   { id: 'unsharpMask', label: 'Unsharp Mask', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.unsharpMask }) },
   { id: 'smartSharpen', label: 'Smart Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.smartSharpen }) },
+  { id: 'motionBlur', label: 'Motion Blur', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.motionBlur }) },
+  { id: 'lensBlur', label: 'Lens Blur', param: { key: 'blur', min: 0, max: 1, default: 0.18 }, make: (v) => new fabric.filters.Blur({ blur: v }) },
   { id: 'noise', label: 'Noise', param: { key: 'noise', min: 0, max: 400, default: 60 }, make: (v) => new fabric.filters.Noise({ noise: v }) },
   { id: 'pixelate', label: 'Pixelate', param: { key: 'blocksize', min: 1, max: 40, default: 8 }, make: (v) => new fabric.filters.Pixelate({ blocksize: v }) },
   { id: 'emboss', label: 'Emboss', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.emboss }) },
