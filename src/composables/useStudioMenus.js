@@ -104,6 +104,17 @@ export function useStudioMenus(ctx) {
     }
     commit();
   }
+  function fitCanvasToObjects({ includeCanvas = false } = {}) {
+    const objects = c().getObjects().filter((o) => o.visible !== false);
+    if (!objects.length) return;
+    const rects = objects.map((o) => o.getBoundingRect());
+    const left = Math.floor(Math.min(includeCanvas ? 0 : Infinity, ...rects.map((r) => r.left)));
+    const top = Math.floor(Math.min(includeCanvas ? 0 : Infinity, ...rects.map((r) => r.top)));
+    const right = Math.ceil(Math.max(includeCanvas ? doc().width : -Infinity, ...rects.map((r) => r.left + r.width)));
+    const bottom = Math.ceil(Math.max(includeCanvas ? doc().height : -Infinity, ...rects.map((r) => r.top + r.height)));
+    for (const o of objects) { o.set({ left: (o.left || 0) - left, top: (o.top || 0) - top }); o.setCoords(); }
+    doc().width = Math.max(1, right - left); doc().height = Math.max(1, bottom - top); ctx.applyZoom(); commit();
+  }
 
   // ── Layer > Align / Distribute / Arrange ──────────────────────────
   function align(mode) {
@@ -155,6 +166,12 @@ export function useStudioMenus(ctx) {
   function deselect() { selectObjects([]); }
   function selectInverse() { const cur = new Set(sel()); selectObjects(selectable().filter((o) => !cur.has(o))); }
   function selectSimilar() { const t = one()?.type; selectObjects(selectable().filter((o) => o.type === t)); }
+  function selectColorRange() {
+    const source = one(); if (!source) return;
+    const color = source.fill || source.stroke;
+    if (!color || typeof color !== 'string') { ctx.toast('Select a solid-colour text or shape layer first.'); return; }
+    selectObjects(selectable().filter((o) => o.fill === color || o.stroke === color));
+  }
 
   function renameSelected() {
     const o = one();
@@ -176,6 +193,16 @@ export function useStudioMenus(ctx) {
     const o = one();
     if (o.shadow) clearDropShadow(c(), o); else setDropShadow(c(), o, {});
     commit(o);
+  }
+  function warpText() {
+    const target = one();
+    if (!target || target.type === 'textbox') { ctx.toast('Warp Text currently requires a point-text layer. Convert box text to point text first.'); return; }
+    const bend = Number(window.prompt('Arc bend from -100 to 100 (0 removes warp)', target.get('data')?.textWarp?.bend || 30));
+    if (!Number.isFinite(bend)) return;
+    const clamped = Math.max(-100, Math.min(100, bend)), width = Math.max(40, target.getScaledWidth?.() || target.width || 200);
+    target.set('data', { ...(target.get('data') || {}), textWarp: clamped ? { style: 'arc', bend: clamped, width } : null });
+    target.set({ path: clamped ? new fabric.Path(`M 0 ${Math.abs(clamped / 100) * width * 0.25} Q ${width / 2} ${clamped < 0 ? width * 0.5 : 0} ${width} ${Math.abs(clamped / 100) * width * 0.25}`, { visible: false }) : undefined, pathAlign: 'center', pathSide: clamped < 0 ? 'right' : 'left' });
+    target.initDimensions?.(); target.setCoords(); commit(target);
   }
   function walkObjects(objects, out = []) {
     for (const object of objects || []) { out.push(object); if (object.type === 'group') walkObjects(object.getObjects(), out); }
@@ -332,7 +359,8 @@ export function useStudioMenus(ctx) {
         ] },
         SEP,
         { label: 'Crop Layer', disabled: notImage, action: () => ctx.onStartCrop(one()) },
-        SOON('Trim…'), SOON('Reveal All'),
+        { label: 'Trim to Visible Layers', action: () => fitCanvasToObjects() },
+        { label: 'Reveal All', action: () => fitCanvasToObjects({ includeCanvas: true }) },
         SEP,
         { label: 'Remove Background', hint: 'Select an image layer, then use Remove background in Properties', disabled: notImage, action: () => ctx.toast('Use “Remove background” in the Properties panel for the selected image.') },
         { label: 'Replace Image…', disabled: notImage, action: () => ctx.onReplaceSource(one()) },
@@ -429,7 +457,7 @@ export function useStudioMenus(ctx) {
         { label: 'Restore Editable Text', disabled: notOne, action: () => ctx.onRestoreText(one()) },
         { label: 'Rasterize Type Layer', disabled: notText, action: () => ctx.onRasterizeLayer(one()) },
         SEP,
-        SOON('Warp Text…'), SOON('Convert to Shape'), SOON('Spell Check'),
+        { label: 'Warp Text…', disabled: notText, action: warpText }, SOON('Convert to Shape'), SOON('Spell Check'),
       ],
     },
     {
@@ -440,7 +468,7 @@ export function useStudioMenus(ctx) {
         { label: 'Inverse', shortcut: '⇧⌘I', action: selectInverse },
         { label: 'Similar Layers', disabled: notOne, action: selectSimilar },
         SEP,
-        SOON('Color Range…'),
+        { label: 'Color Range…', disabled: notOne, action: selectColorRange },
         { label: 'Subject', disabled: notImage, action: () => ctx.onSelectSubject(one()) },
         { label: 'Select and Mask…', disabled: notImage, action: () => ctx.onPaintMask(one()) },
         { label: 'Modify', hint: 'Use Select and Mask to paint, soften, or remove the active image mask.', disabled: notImage, action: () => ctx.onPaintMask(one()) },
