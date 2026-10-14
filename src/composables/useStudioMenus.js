@@ -1,6 +1,6 @@
 import * as fabric from 'fabric';
 import { alignObjects, distributeObjects, bringToFront, sendToBack, setDropShadow, clearDropShadow } from '@/utils/canvasEngine';
-import { toggleGalleryFilter } from '@/utils/filtersGallery';
+import { rebuildFilterStack, toggleGalleryFilter } from '@/utils/filtersGallery';
 
 // Photoshop-style menu bar for the Template Studio. The Studio passes in its
 // state and existing actions (ctx); everything is plain config consumed by
@@ -48,6 +48,15 @@ export function useStudioMenus(ctx) {
     o.set('data', { ...(o.get('data') || {}), adjustments: {}, galleryFilters: {} });
     o.filters = []; o.applyFilters();
     commit(o);
+  }
+  function replaceColor() {
+    const target = one(); if (!target) return;
+    const from = window.prompt('Colour to replace', '#FFFFFF'); if (!from) return;
+    const to = window.prompt('Replacement colour', '#D9B45E'); if (!to) return;
+    const tolerance = Math.max(0, Math.min(255, Number(window.prompt('Tolerance (0–255)', '40')) || 40));
+    const data = target.get('data') || {};
+    target.set('data', { ...data, galleryFilters: { ...(data.galleryFilters || {}), replaceColor: { from, to, tolerance } } });
+    rebuildFilterStack(target); commit(target);
   }
 
   // ── Image > Canvas Size / Image Size / Rotate Canvas ──────────────
@@ -264,6 +273,7 @@ export function useStudioMenus(ctx) {
     pinch: [{ key: 'pinch', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.35 }],
     spherize: [{ key: 'spherize', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.35 }],
     reduceNoise: [{ key: 'blur', label: 'Smoothing', kind: 'gallery', min: 0, max: 0.18, default: 0.035 }],
+    radialBlur: [{ key: 'radialBlur', label: 'Amount', kind: 'gallery', min: 0, max: 0.8, default: 0.18 }],
     levels: [
       { key: 'levelsBlack', label: 'Black point', kind: 'adj', min: 0, max: 254, step: 1, default: 0, neutral: 0 },
       { key: 'levelsGamma', label: 'Midtone gamma', kind: 'adj', min: 0.1, max: 3, step: 0.01, default: 1, neutral: 1 },
@@ -364,7 +374,8 @@ export function useStudioMenus(ctx) {
           { label: 'Sepia', disabled: notImage, checked: hasFilter('sepia'), action: () => toggleFilter('sepia') },
           { label: 'Posterize…', disabled: notImage, action: () => adjust('Posterize', ADJ.posterize) },
           { label: 'Threshold…', disabled: notImage, action: () => adjust('Threshold', ADJ.threshold) },
-          SOON('Gradient Map…'), SOON('Replace Color…'),
+          { label: 'Gradient Map', disabled: notImage, checked: hasFilter('gradientMap'), action: () => toggleFilter('gradientMap') },
+          { label: 'Replace Color…', disabled: notImage, action: replaceColor },
           SEP,
           { label: 'Clear All Adjustments', disabled: notImage, action: clearAllFilters },
         ] },
@@ -509,7 +520,7 @@ export function useStudioMenus(ctx) {
         { label: 'Blur', items: [
           { label: 'Gaussian Blur…', disabled: notImage, action: () => adjust('Gaussian Blur', ADJ.blur) },
           { label: 'Motion Blur', disabled: notImage, checked: hasFilter('motionBlur'), action: () => toggleFilter('motionBlur') },
-          SOON('Radial Blur…'),
+          { label: 'Radial Blur…', disabled: notImage, action: () => adjust('Radial Blur', ADJ.radialBlur) },
           { label: 'Lens Blur…', disabled: notImage, action: () => adjust('Lens Blur', [{ key: 'lensBlur', label: 'Radius', kind: 'gallery', min: 0, max: 1, default: 0.18 }]) },
         ] },
         { label: 'Sharpen', items: [
@@ -528,7 +539,7 @@ export function useStudioMenus(ctx) {
         { label: 'Stylize', items: [
           { label: 'Emboss', disabled: notImage, checked: hasFilter('emboss'), action: () => toggleFilter('emboss') },
           { label: 'Find Edges', disabled: notImage, checked: hasFilter('findEdges'), action: () => toggleFilter('findEdges') },
-          SOON('Oil Paint…'),
+          { label: 'Oil Paint', disabled: notImage, checked: hasFilter('oilPaint'), action: () => toggleFilter('oilPaint') },
         ] },
         { label: 'Distort', items: [
           { label: 'Twirl…', disabled: notImage, action: () => adjust('Twirl', ADJ.twirl) },

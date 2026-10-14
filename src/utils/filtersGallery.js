@@ -101,7 +101,30 @@ class RadialDistortFilter extends fabric.filters.BaseFilter {
     for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) { const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy); if (r >= radius) continue; const n = r / radius; let k; if (this.mode === 'ripple') k = 1 + Math.sin(n * 35) * amount * (1 - n); else if (this.mode === 'pinch') k = 1 + amount * (1 - n); else k = 1 - amount * (1 - n); const sx = Math.max(0, Math.min(width - 1, Math.round(cx + dx * k))), sy = Math.max(0, Math.min(height - 1, Math.round(cy + dy * k))), a = (y * width + x) * 4, b = (sy * width + sx) * 4; data[a] = source[b]; data[a + 1] = source[b + 1]; data[a + 2] = source[b + 2]; data[a + 3] = source[b + 3]; }
   }
 }
-fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort');
+class RadialBlurFilter extends fabric.filters.BaseFilter {
+  static type = 'RadialBlur'; static defaults = { amount: 0.18 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform float uAmount; varying vec2 vTexCoord; void main(){ vec2 d=(vec2(.5)-vTexCoord)*uAmount; vec4 c=vec4(0.0); for(int i=0;i<9;i++){ c+=texture2D(uTexture,clamp(vTexCoord+d*(float(i)/8.0),0.0,1.0)); } gl_FragColor=c/9.0; }`; }
+  getUniformLocations(gl, program) { return { uAmount: gl.getUniformLocation(program, 'uAmount') }; } sendUniformData(gl, u) { gl.uniform1f(u.uAmount, Number(this.amount) || 0); }
+  applyTo2d({ imageData }) { const { width, height, data } = imageData, src = new Uint8ClampedArray(data), amount = Number(this.amount) || 0, cx = width / 2, cy = height / 2; for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) { const out = (y * width + x) * 4, sum = [0, 0, 0, 0]; for (let s = 0; s < 9; s += 1) { const t = amount * s / 8, sx = Math.max(0, Math.min(width - 1, Math.round(x + (cx - x) * t))), sy = Math.max(0, Math.min(height - 1, Math.round(y + (cy - y) * t))), i = (sy * width + sx) * 4; for (let c = 0; c < 4; c += 1) sum[c] += src[i + c]; } for (let c = 0; c < 4; c += 1) data[out + c] = sum[c] / 9; } }
+}
+class OilPaintFilter extends fabric.filters.BaseFilter {
+  static type = 'OilPaint'; static defaults = { levels: 12 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord)*.4; c+=texture2D(uTexture,vTexCoord+vec2(.002,0.0))*.15; c+=texture2D(uTexture,vTexCoord-vec2(.002,0.0))*.15; c+=texture2D(uTexture,vTexCoord+vec2(0.0,.002))*.15; c+=texture2D(uTexture,vTexCoord-vec2(0.0,.002))*.15; c.rgb=floor(c.rgb*11.0+.5)/11.0; gl_FragColor=c; }`; }
+  applyTo2d({ imageData }) { const { width, height, data } = imageData, src = new Uint8ClampedArray(data), step = 255 / 11; for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) { const out = (y * width + x) * 4; for (let c = 0; c < 3; c += 1) { let sum = 0, count = 0; for (let oy = -1; oy <= 1; oy += 1) for (let ox = -1; ox <= 1; ox += 1) { const sx = Math.max(0, Math.min(width - 1, x + ox)), sy = Math.max(0, Math.min(height - 1, y + oy)); sum += src[(sy * width + sx) * 4 + c]; count += 1; } data[out + c] = Math.round((sum / count) / step) * step; } } }
+}
+class GradientMapFilter extends fabric.filters.BaseFilter {
+  static type = 'GradientMap';
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); float y=dot(c.rgb,vec3(.299,.587,.114)); gl_FragColor=vec4(mix(vec3(.067,.094,.153),vec3(.851,.706,.369),y),c.a); }`; }
+  applyTo2d({ imageData }) { const d = imageData.data, lo = [17, 24, 39], hi = [217, 180, 94]; for (let i = 0; i < d.length; i += 4) { const y = (d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) / 255; for (let c = 0; c < 3; c += 1) d[i + c] = lo[c] + (hi[c] - lo[c]) * y; } }
+}
+class ReplaceColorFilter extends fabric.filters.BaseFilter {
+  static type = 'ReplaceColor'; static defaults = { from: '#ffffff', to: '#D9B45E', tolerance: 40 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec3 uFrom; uniform vec3 uTo; uniform float uTolerance; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); if(distance(c.rgb,uFrom)<=uTolerance)c.rgb=uTo; gl_FragColor=c; }`; }
+  getUniformLocations(gl, program) { return { uFrom: gl.getUniformLocation(program, 'uFrom'), uTo: gl.getUniformLocation(program, 'uTo'), uTolerance: gl.getUniformLocation(program, 'uTolerance') }; }
+  sendUniformData(gl, u) { const parse = (hex) => { const h = String(hex).replace('#', ''); return new Float32Array([0, 2, 4].map((p) => parseInt(h.slice(p, p + 2), 16) / 255)); }; gl.uniform3fv(u.uFrom, parse(this.from)); gl.uniform3fv(u.uTo, parse(this.to)); gl.uniform1f(u.uTolerance, (Number(this.tolerance) || 40) / 255); }
+  applyTo2d({ imageData }) { const parse = (hex) => { const h = String(hex).replace('#', ''); return [0, 2, 4].map((p) => parseInt(h.slice(p, p + 2), 16)); }, from = parse(this.from), to = parse(this.to), d = imageData.data, tolerance = Number(this.tolerance) || 40; for (let i = 0; i < d.length; i += 4) if (Math.hypot(d[i] - from[0], d[i + 1] - from[1], d[i + 2] - from[2]) <= tolerance) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; } }
+}
+fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
 
 // The gallery — id, label, and a factory returning a Fabric filter
 // instance for the given params. `params` are exposed to the UI as
@@ -113,6 +136,10 @@ export const FILTER_GALLERY = [
   { id: 'smartSharpen', label: 'Smart Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.smartSharpen }) },
   { id: 'motionBlur', label: 'Motion Blur', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.motionBlur }) },
   { id: 'lensBlur', label: 'Lens Blur', param: { key: 'blur', min: 0, max: 1, default: 0.18 }, make: (v) => new fabric.filters.Blur({ blur: v }) },
+  { id: 'radialBlur', label: 'Radial Blur', param: { key: 'amount', min: 0, max: 0.8, default: 0.18 }, make: (v) => new RadialBlurFilter({ amount: v }) },
+  { id: 'oilPaint', label: 'Oil Paint', param: null, make: () => new OilPaintFilter() },
+  { id: 'gradientMap', label: 'Gradient Map', param: null, make: () => new GradientMapFilter() },
+  { id: 'replaceColor', label: 'Replace Color', param: { key: 'settings' }, panel: false, make: (v) => new ReplaceColorFilter(v || {}) },
   { id: 'noise', label: 'Noise', param: { key: 'noise', min: 0, max: 400, default: 60 }, make: (v) => new fabric.filters.Noise({ noise: v }) },
   { id: 'pixelate', label: 'Pixelate', param: { key: 'blocksize', min: 1, max: 40, default: 8 }, make: (v) => new fabric.filters.Pixelate({ blocksize: v }) },
   { id: 'emboss', label: 'Emboss', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.emboss }) },
