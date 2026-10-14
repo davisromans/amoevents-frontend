@@ -329,6 +329,7 @@
             @toggle-shared="onToggleShared"
             @replace-source="onReplaceSource"
             @update-qr="onUpdateQr"
+            @edit-path="onEditPath"
           />
         </div>
         <div v-else-if="rightPanelTab === 'history'" class="flex-1 overflow-y-auto p-2 space-y-1">
@@ -471,6 +472,7 @@ import {
 import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
+import { PathEditor } from '@/utils/pathEditor';
 import { CloneStampController, contentAwareFillTransparent, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
@@ -931,6 +933,7 @@ const brushHardness = ref(0.7); // 0 = soft falloff from center, 1 = hard edge â
 // already painted it.
 const BRUSH_CURSOR_TOOLS = ['brush', 'eraser', 'clone', 'dodge', 'healing', 'liquify'];
 const cursorPreview = ref({ visible: false, x: 0, y: 0 });
+let pathEditor = null;
 function updateBrushCursor(opt) {
   if (!BRUSH_CURSOR_TOOLS.includes(tool.value) || !viewportRef.value) { cursorPreview.value = { ...cursorPreview.value, visible: false }; return; }
   const rect = viewportRef.value.getBoundingClientRect();
@@ -988,6 +991,7 @@ function restoreObjectDragging() {
 }
 
 function teardownActiveTool() {
+  if (pathEditor) { pathEditor.stop(); pathEditor = null; }
   if (tool.value === 'pen' && penTool?.active) penTool.cancel();
   if (['brush', 'clone', 'dodge', 'eraser', 'healing', 'liquify'].includes(tool.value)) {
     fabricCanvasRaw.off('mouse:down', retouchMouseDown);
@@ -1000,6 +1004,17 @@ function teardownActiveTool() {
   }
   if (['eyedropper', 'bucket', 'magic-wand'].includes(tool.value)) fabricCanvasRaw.off('mouse:down', utilityToolMouseDown);
   if (tool.value === 'lasso') teardownLasso();
+}
+
+function onEditPath(path) {
+  if (!path || path.type !== 'path') return;
+  teardownActiveTool();
+  tool.value = 'path-edit';
+  pathEditor = new PathEditor(fabricCanvasRaw, path, {
+    onCommit: (target) => fabricCanvasRaw.fire('object:modified', { target }),
+  });
+  pathEditor.start();
+  toast.success('Anchor editing active. Drag white anchors or purple curve handles; press Escape when finished.');
 }
 
 function setTool(next) {
