@@ -271,6 +271,8 @@
             Shared across templates
           </label>
           <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('replace-source', obj)">Replace source file…</button>
+          <button v-if="hasOriginalPixels" class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('restore-original-pixels', obj)">Reset pixels to original</button>
+          <p v-if="obj.get('data')?.liveCanvas" class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Brush, eraser, healing, clone, liquify and background-removal edits are stored on an editable fork. Each completed stroke can be undone from History.</p>
         </div>
 
         <p v-else class="text-2xs text-surface-slate dark:text-surface-ash">
@@ -416,7 +418,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr', 'edit-path']);
+const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'restore-original-pixels', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr', 'edit-path']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which
@@ -446,6 +448,15 @@ watch(() => props.canvas, (canvas) => {
 onBeforeUnmount(() => detachTick?.());
 
 const obj = computed(() => { void tick.value; return props.selected[0]; });
+const hasOriginalPixels = computed(() => {
+  void tick.value;
+  const data = obj.value?.get('data') || {};
+  const hasOriginal = !!(data.originalAssetId || data.originalLocalAssetId);
+  const currentlyOriginal = !data.liveCanvas
+    && (!data.originalAssetId || data.assetId === data.originalAssetId)
+    && (!data.originalLocalAssetId || data.localAssetId === data.originalLocalAssetId);
+  return hasOriginal && !currentlyOriginal;
+});
 const ADJUSTMENT_LAYER_CONTROLS = {
   brightnessContrast: [
     { key: 'brightness', label: 'Brightness', min: -1, max: 1, default: 0 },

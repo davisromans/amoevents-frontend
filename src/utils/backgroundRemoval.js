@@ -1,5 +1,5 @@
 import * as fabric from 'fabric';
-import { removeBackground } from '@imgly/background-removal';
+import { markOriginalPixels } from './retouchTools';
 
 // Batch 19 — background removal. Runs entirely client-side via a WASM
 // model (@imgly/background-removal) — no server round-trip, no per-image
@@ -14,12 +14,17 @@ import { removeBackground } from '@imgly/background-removal';
 // brush implementation, just pointing the existing one at this layer.
 
 export async function removeImageBackground(fabricImg, { onProgress } = {}) {
+  const sourceData = markOriginalPixels(fabricImg);
   const el = fabricImg.getElement();
   const sourceCanvas = window.document.createElement('canvas');
   sourceCanvas.width = el.naturalWidth || el.width;
   sourceCanvas.height = el.naturalHeight || el.height;
   sourceCanvas.getContext('2d').drawImage(el, 0, 0);
 
+  // Keep the sizeable AI runtime out of the initial Studio bundle. The first
+  // explicit background-removal action downloads it; Vite then caches the
+  // split chunk and the model for subsequent/offline use.
+  const { removeBackground } = await import('@imgly/background-removal');
   const blob = await removeBackground(sourceCanvas, {
     progress: (key, current, total) => onProgress?.({ key, current, total }),
   });
@@ -30,7 +35,7 @@ export async function removeImageBackground(fabricImg, { onProgress } = {}) {
   // rotation, blend mode, effects, data.layerId/binding) exactly as they
   // were, only the underlying pixels change.
   fabricImg.setElement(cutoutImg.getElement());
-  fabricImg.set('data', { ...(fabricImg.get('data') || {}), backgroundRemoved: true, liveCanvas: true });
+  fabricImg.set('data', { ...sourceData, backgroundRemoved: true, liveCanvas: true });
   fabricImg.dirty = true;
   URL.revokeObjectURL(url);
 }
