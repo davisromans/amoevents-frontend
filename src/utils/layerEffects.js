@@ -14,6 +14,21 @@ function withAlpha(color, opacity = 1) {
   return `rgba(${parseInt(value.slice(0, 2), 16)},${parseInt(value.slice(2, 4), 16)},${parseInt(value.slice(4, 6), 16)},${Math.max(0, Math.min(1, opacity))})`;
 }
 
+function snapshotFill(fill) {
+  if (fill && typeof fill.toObject === 'function' && fill.type && fill.colorStops) {
+    return { kind: 'fabricGradient', ...fill.toObject() };
+  }
+  return fill;
+}
+
+function restoreFill(fill) {
+  if (fill?.kind === 'fabricGradient') {
+    const { kind, ...options } = fill;
+    return new fabric.Gradient(options);
+  }
+  return fill;
+}
+
 export function normalizeLayerEffects(effects = []) {
   return effects.filter((effect) => EFFECT_DEFAULTS[effect?.type]).map((effect, index) => ({
     id: effect.id || `effect-${effect.type}-${index}-${Math.random().toString(36).slice(2, 6)}`,
@@ -26,7 +41,7 @@ export function applyLayerEffectStack(object, effects = []) {
   const data = object.get('data') || {};
   const hasVisualStyle = stack.some((effect) => ['stroke', 'colorOverlay'].includes(effect.type) && effect.enabled);
   const layerEffectBase = data.layerEffectBase || (hasVisualStyle ? {
-    fill: object.fill,
+    fill: snapshotFill(object.fill),
     stroke: object.stroke,
     strokeWidth: object.strokeWidth,
     paintFirst: object.paintFirst,
@@ -40,7 +55,7 @@ export function applyLayerEffectStack(object, effects = []) {
   else if (layerEffectBase) object.set({ stroke: layerEffectBase.stroke, strokeWidth: layerEffectBase.strokeWidth, paintFirst: layerEffectBase.paintFirst });
   if (['rect', 'ellipse', 'path', 'textbox', 'text', 'i-text'].includes(object.type)) {
     if (overlay) object.set('fill', withAlpha(overlay.color, overlay.opacity));
-    else if (layerEffectBase) object.set('fill', layerEffectBase.fill);
+    else if (layerEffectBase) object.set('fill', restoreFill(layerEffectBase.fill));
   }
 
   object.__amoEffectStack = shadows;

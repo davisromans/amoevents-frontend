@@ -274,6 +274,7 @@ function reviveFill(fill) {
   return fill;
 }
 function serializeFill(fill) {
+  if (fill?.kind === 'fabricGradient') return clonePlain(fill);
   if (fill && typeof fill.toObject === 'function' && fill.type && fill.colorStops) return { kind: 'fabricGradient', ...fill.toObject() };
   return fill;
 }
