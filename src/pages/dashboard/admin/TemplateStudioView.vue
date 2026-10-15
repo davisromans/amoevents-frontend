@@ -134,6 +134,14 @@
       </div>
       <span v-if="tool === 'clone' && !cloneReady" class="text-2xs text-brand-primary font-bold">Alt+click to set the clone source, then paint</span>
     </div>
+    <div v-else-if="tool === 'magic-wand'" class="h-11 shrink-0 flex items-center gap-3 px-4 border-b border-surface-mist dark:border-surface-fog surface-card !rounded-none">
+      <strong class="text-xs">Magic Wand</strong>
+      <label class="flex items-center gap-2 text-2xs">Tolerance
+        <input v-model.number="wandTolerance" type="range" min="0" max="255" step="1" class="w-32 accent-brand-gold" />
+        <span class="w-7 tabular-nums">{{ wandTolerance }}</span>
+      </label>
+      <span class="text-2xs text-surface-slate dark:text-surface-ash">Click a colour region to create a reversible mask.</span>
+    </div>
 
     <div class="flex-1 flex overflow-hidden">
       <!-- Tool rail — vertical, far left, Photoshop/Photopea-style. -->
@@ -473,7 +481,7 @@ import { HistoryStack } from '@/utils/historyStack';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { PathEditor } from '@/utils/pathEditor';
-import { CloneStampController, contentAwareFillTransparent, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, magicWandAt, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
+import { CloneStampController, contentAwareFillTransparent, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, createMagicWandSelection, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
@@ -925,6 +933,9 @@ const brushColor = ref('#111827');
 const brushSize = ref(20);
 const dodgeMode = ref('dodge');
 const brushHardness = ref(0.7); // 0 = soft falloff from center, 1 = hard edge — used by both the brush's shadow blur and the eraser
+const wandTolerance = ref(28);
+let pixelSelectionOverlay = null;
+let pixelSelectionAnimation = null;
 
 // ── Brush cursor preview ─────────────────────────────────────────────────
 // A circle that follows the pointer showing the ACTUAL brush size (and,
@@ -1006,6 +1017,45 @@ function teardownActiveTool() {
   if (tool.value === 'lasso') teardownLasso();
 }
 
+function clearPixelSelectionOverlay() {
+  if (pixelSelectionAnimation) window.clearInterval(pixelSelectionAnimation);
+  pixelSelectionAnimation = null;
+  if (pixelSelectionOverlay && fabricCanvasRaw) fabricCanvasRaw.remove(pixelSelectionOverlay);
+  pixelSelectionOverlay = null;
+}
+
+function showPixelSelectionOverlay(target) {
+  clearPixelSelectionOverlay();
+  const bounds = target.getBoundingRect();
+  pixelSelectionOverlay = new fabric.Rect({
+    left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height,
+    fill: 'transparent', stroke: '#111111', strokeWidth: 1 / zoom.value,
+    strokeDashArray: [5 / zoom.value, 5 / zoom.value], selectable: false, evented: false,
+    excludeFromExport: true, data: { selectionOverlay: true },
+  });
+  fabricCanvasRaw.add(pixelSelectionOverlay);
+  pixelSelectionAnimation = window.setInterval(() => {
+    if (!pixelSelectionOverlay || !fabricCanvasRaw) return;
+    pixelSelectionOverlay.strokeDashOffset = (pixelSelectionOverlay.strokeDashOffset || 0) - 1;
+    fabricCanvasRaw.requestRenderAll();
+  }, 80);
+}
+
+function applySelectionMask(target, result) {
+  const maskImage = new fabric.FabricImage(result.mask, {
+    left: 0, top: 0, originX: 'left', originY: 'top',
+    scaleX: (target.width || 1) / result.width,
+    scaleY: (target.height || 1) / result.height,
+    absolutePositioned: false,
+  });
+  target.set('clipPath', maskImage);
+  target.set('data', { ...(target.get('data') || {}), maskType: 'raster', maskSource: 'magicWand', wandTolerance: wandTolerance.value });
+  target.dirty = true;
+  showPixelSelectionOverlay(target);
+  fabricCanvasRaw.requestRenderAll();
+  fabricCanvasRaw.fire('object:modified', { target });
+}
+
 function onEditPath(path) {
   if (!path || path.type !== 'path') return;
   teardownActiveTool();
@@ -1060,9 +1110,10 @@ function utilityToolMouseDown(opt) {
     paintBucketAt(target, point, { color: brushColor.value });
     refreshAfterRetouch(fabricCanvasRaw, target);
   } else {
-    magicWandAt(target, point, { tolerance: 28 });
-    refreshAfterRetouch(fabricCanvasRaw, target);
-    toast.success('Contiguous color region retained. Use Select & Mask to refine it.');
+    const result = createMagicWandSelection(target, point, { tolerance: wandTolerance.value });
+    if (!result.count) { toast.error('No matching pixels were found.'); return; }
+    applySelectionMask(target, result);
+    toast.success('Selection added as a reversible layer mask. Use Select & Mask to refine it.');
     setTool('select');
   }
 }
@@ -2345,6 +2396,7 @@ async function onClipMask(selected) {
   refreshLayersList();
 }
 function onRemoveMask(obj) {
+  clearPixelSelectionOverlay();
   removeMask(fabricCanvasRaw, obj);
 }
 
@@ -2733,6 +2785,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   importBrushes: () => brushInputRef.value?.click(),
   openUtilityPanel: (mode) => { utilityPanelMode.value = mode; rightPanelTab.value = 'swatches'; },
   openPreflight: () => { showPreflight.value = true; },
+  clearPixelSelection: clearPixelSelectionOverlay,
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
