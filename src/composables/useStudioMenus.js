@@ -1,6 +1,7 @@
 import * as fabric from 'fabric';
 import { alignObjects, distributeObjects, bringToFront, sendToBack, setDropShadow, clearDropShadow } from '@/utils/canvasEngine';
 import { rebuildFilterStack, toggleGalleryFilter } from '@/utils/filtersGallery';
+import { applyLayerEffectStack, EFFECT_DEFAULTS, normalizeLayerEffects } from '@/utils/layerEffects';
 
 // Photoshop-style menu bar for the Template Studio. The Studio passes in its
 // state and existing actions (ctx); everything is plain config consumed by
@@ -216,6 +217,66 @@ export function useStudioMenus(ctx) {
     for (const target of sel()) target.set('fill', color);
     commit();
   }
+  function editStroke() {
+    const target = one(); if (!target) return;
+    const effects = normalizeLayerEffects(target.get('data')?.layerEffects || target.get('data')?.sourceLayer?.effects || []);
+    let currentIndex = -1;
+    for (let index = effects.length - 1; index >= 0; index--) {
+      if (effects[index].type === 'stroke') { currentIndex = index; break; }
+    }
+    const current = currentIndex >= 0 ? effects[currentIndex] : null;
+    const color = window.prompt('Stroke colour', current?.color || target.stroke || EFFECT_DEFAULTS.stroke.color);
+    if (color == null) return;
+    const sizeInput = window.prompt('Stroke size in pixels (0 removes it)', String(current?.size ?? target.strokeWidth ?? EFFECT_DEFAULTS.stroke.size));
+    if (sizeInput == null) return;
+    const size = Math.max(0, Math.min(250, Number(sizeInput)));
+    if (!Number.isFinite(size)) { ctx.toast('Enter a valid stroke size.'); return; }
+    const opacityInput = size > 0 ? window.prompt('Stroke opacity from 0 to 100', String(Math.round((current?.opacity ?? 1) * 100))) : '100';
+    if (opacityInput == null) return;
+    const opacity = Math.max(0, Math.min(1, Number(opacityInput) / 100));
+    if (!Number.isFinite(opacity)) { ctx.toast('Enter a valid opacity.'); return; }
+
+    const edited = {
+      ...EFFECT_DEFAULTS.stroke,
+      ...(current || {}),
+      id: current?.id || `effect-stroke-${Date.now()}`,
+      color: color.trim() || EFFECT_DEFAULTS.stroke.color,
+      size,
+      opacity,
+      enabled: true,
+    };
+    const next = currentIndex >= 0
+      ? (size === 0 ? effects.filter((_, index) => index !== currentIndex) : effects.map((effect, index) => index === currentIndex ? edited : effect))
+      : (size === 0 ? effects : [...effects, edited]);
+    applyLayerEffectStack(target, next);
+    if (target.type === 'image') rebuildFilterStack(target);
+    target.setCoords();
+    commit(target);
+    ctx.rightPanelTab.value = 'properties';
+    ctx.toast(size === 0 ? 'Stroke removed.' : 'Stroke applied and opened in Properties.');
+  }
+  function freeTransform() {
+    const objects = sel(); if (!objects.length) return;
+    ctx.setTool('select');
+    selectObjects(objects);
+    for (const target of objects) target.setCoords();
+    c().requestRenderAll();
+    ctx.toast('Transform handles are active. Drag to resize or rotate; use Properties for exact values.');
+  }
+  function skewDistort() {
+    const objects = sel(); if (!objects.length) return;
+    const skewXInput = window.prompt('Horizontal skew in degrees (-89 to 89)', String(one()?.skewX || 0));
+    if (skewXInput == null) return;
+    const skewYInput = window.prompt('Vertical skew in degrees (-89 to 89)', String(one()?.skewY || 0));
+    if (skewYInput == null) return;
+    const skewX = Math.max(-89, Math.min(89, Number(skewXInput)));
+    const skewY = Math.max(-89, Math.min(89, Number(skewYInput)));
+    if (!Number.isFinite(skewX) || !Number.isFinite(skewY)) { ctx.toast('Enter valid skew angles.'); return; }
+    for (const target of objects) { target.set({ skewX, skewY }); target.setCoords(); }
+    commit();
+    ctx.rightPanelTab.value = 'properties';
+    ctx.toast('Skew applied and opened in Properties.');
+  }
   function cutSelected() {
     const targets = [...sel()];
     ctx.copySelectedLayers().then(() => targets.forEach((o) => ctx.onDeleteLayer(o, parentOf(o))));
@@ -353,10 +414,10 @@ export function useStudioMenus(ctx) {
         { label: 'Delete', shortcut: '⌫', disabled: none, action: deleteSelected },
         SEP,
         { label: 'Fill…', shortcut: '⇧F5', disabled: none, action: fillSelected },
-        { label: 'Stroke / Outline', hint: 'Edit stroke in the Properties panel', disabled: notOne, action: () => ctx.toast('Use Stroke in the Properties panel on the right.') },
+        { label: 'Stroke / Outline…', hint: 'Apply a non-destructive stroke, then refine it in Properties', disabled: notOne, action: editStroke },
         { label: 'Content-Aware Fill…', disabled: notImage, action: () => ctx.onContentAwareFill(one()) },
         SEP,
-        { label: 'Free Transform', shortcut: '⌘T', disabled: none, action: () => { ctx.setTool('select'); ctx.toast('Drag the handles to scale/rotate. Shift keeps proportions.'); } },
+        { label: 'Free Transform', shortcut: '⌘T', disabled: none, action: freeTransform },
         { label: 'Transform', items: [
           { label: 'Rotate 180°', disabled: none, action: () => rotateLayers(180) },
           { label: 'Rotate 90° Clockwise', disabled: none, action: () => rotateLayers(90) },
@@ -365,7 +426,7 @@ export function useStudioMenus(ctx) {
           { label: 'Flip Horizontal', disabled: none, action: () => flip('h') },
           { label: 'Flip Vertical', disabled: none, action: () => flip('v') },
           SEP,
-          { label: 'Skew / Distort…', disabled: none, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Use the horizontal and vertical distortion controls in Properties.'); } },
+          { label: 'Skew / Distort…', disabled: none, action: skewDistort },
           { label: 'Perspective / Warp…', disabled: notImage, action: () => ctx.openPerspectiveWarp(one()) },
         ] },
         SEP,
