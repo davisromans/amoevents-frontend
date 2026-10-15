@@ -27,11 +27,6 @@ const rootRef = ref(null);
 const openIndex = ref(-1);
 
 const resolve = (v) => (typeof v === 'function' ? v() : v);
-const hasRunnableCommand = (item) => {
-  if (item.separator || item.heading) return true;
-  const children = resolve(item.items);
-  return typeof item.action === 'function' || (Array.isArray(children) && children.length > 0);
-};
 
 function toggle(i) { openIndex.value = openIndex.value === i ? -1 : i; }
 // Like Photoshop/macOS: once one menu is open, hovering another switches to it.
@@ -59,7 +54,7 @@ const MenuPanel = defineComponent({
     return () => h('div', {
       class: 'absolute z-50 min-w-[15rem] py-1 rounded-lg shadow-card surface-card border border-surface-mist dark:border-surface-fog',
       role: 'menu',
-    }, props.items.filter((it) => !resolve(it.hidden) && hasRunnableCommand(it)).map((item, i) => {
+    }, props.items.filter((it) => !resolve(it.hidden)).map((item, i) => {
       if (item.separator) return h('div', { key: `sep${i}`, class: 'my-1 border-t border-surface-mist dark:border-surface-fog' });
       if (item.heading) return h('div', { key: `hd${i}`, class: 'px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide font-bold text-surface-slate dark:text-surface-ash' }, item.heading);
       const disabled = !!resolve(item.disabled);

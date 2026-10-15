@@ -15,6 +15,7 @@ export function useStudioMenus(ctx) {
   const notOne = () => sel().length !== 1;
   const notImage = () => one()?.type !== 'image' || sel().length !== 1;
   const notText = () => !['textbox', 'text', 'i-text'].includes(one()?.type);
+  const noPixelSelection = () => !ctx.hasPixelSelection?.();
   const doc = () => ctx.document.value;
   const parentOf = (o) => ctx.findParentGroup(o, c().getObjects());
 
@@ -195,14 +196,31 @@ export function useStudioMenus(ctx) {
   }
   const selectable = () => c().getObjects().filter((o) => !o.get('data')?.locked && o.visible !== false);
   function selectAll() { selectObjects(selectable()); }
+  function selectAllPixels() {
+    const target = one();
+    if (target?.type !== 'image') { ctx.toast('Select one image layer first.'); return; }
+    ctx.selectAllPixels(target);
+    ctx.toast('All pixels on the active image are selected.');
+  }
   function deselect() { selectObjects([]); ctx.clearPixelSelection?.(); }
-  function selectInverse() { const cur = new Set(sel()); selectObjects(selectable().filter((o) => !cur.has(o))); }
+  function selectInverse() {
+    if (ctx.invertActivePixelSelection?.()) { ctx.toast('Pixel selection inverted.'); return; }
+    const cur = new Set(sel()); selectObjects(selectable().filter((o) => !cur.has(o)));
+  }
   function selectSimilar() { const t = one()?.type; selectObjects(selectable().filter((o) => o.type === t)); }
   function selectColorRange() {
-    const source = one(); if (!source) return;
-    const color = source.fill || source.stroke;
-    if (!color || typeof color !== 'string') { ctx.toast('Select a solid-colour text or shape layer first.'); return; }
-    selectObjects(selectable().filter((o) => o.fill === color || o.stroke === color));
+    const target = one(); if (target?.type !== 'image') { ctx.toast('Select one image layer first.'); return; }
+    const color = window.prompt('Colour to select (hex, rgb, or CSS colour)', '#FFFFFF');
+    if (!color) return;
+    const toleranceInput = window.prompt('Colour tolerance from 0 to 255', '32');
+    if (toleranceInput == null) return;
+    const tolerance = Math.max(0, Math.min(255, Number(toleranceInput)));
+    if (!Number.isFinite(tolerance)) { ctx.toast('Enter a valid colour tolerance.'); return; }
+    let result;
+    try { result = ctx.selectColorRangePixels(target, { color, tolerance, includeTransparent: false }); }
+    catch { ctx.toast('Enter a valid CSS colour such as #FFFFFF or rgb(255,255,255).'); return; }
+    if (!result?.count) { ctx.toast('No pixels matched that colour range.'); return; }
+    ctx.toast(`Selected ${result.count.toLocaleString()} pixels in that colour range.`);
   }
 
   function renameSelected() {
@@ -317,17 +335,51 @@ export function useStudioMenus(ctx) {
     for (const object of objects || []) { out.push(object); if (object.type === 'group') walkObjects(object.getObjects(), out); }
     return out;
   }
+  function modifyPixelSelection(mode, label) {
+    if (noPixelSelection()) { ctx.toast('Create a pixel selection first.'); return; }
+    const amountInput = window.prompt(`${label} amount in pixels`, mode === 'feather' ? '8' : '4');
+    if (amountInput == null) return;
+    const amount = Math.max(1, Math.min(100, Number(amountInput)));
+    if (!Number.isFinite(amount)) { ctx.toast('Enter a valid pixel amount.'); return; }
+    ctx.modifyActivePixelSelection(mode, amount);
+    ctx.toast(`${label} applied to the active selection.`);
+  }
+  function transformPixelSelection() {
+    if (noPixelSelection()) { ctx.toast('Create a pixel selection first.'); return; }
+    const askNumber = (label, value) => { const entered = window.prompt(label, value); return entered == null ? null : Number(entered); };
+    const scaleXPercent = askNumber('Horizontal scale (%)', '100'); if (!Number.isFinite(scaleXPercent)) return;
+    const scaleYPercent = askNumber('Vertical scale (%)', '100'); if (!Number.isFinite(scaleYPercent)) return;
+    const angle = askNumber('Rotation (degrees)', '0'); if (!Number.isFinite(angle)) return;
+    const offsetX = askNumber('Horizontal offset (pixels)', '0'); if (!Number.isFinite(offsetX)) return;
+    const offsetY = askNumber('Vertical offset (pixels)', '0'); if (!Number.isFinite(offsetY)) return;
+    const scaleX = scaleXPercent / 100, scaleY = scaleYPercent / 100;
+    ctx.transformActivePixelSelection({ scaleX, scaleY, angle, offsetX, offsetY });
+    ctx.toast('Selection boundary transformed without changing image pixels.');
+  }
   function saveSelection() {
-    if (!sel().length) return;
+    if (!sel().length && noPixelSelection()) return;
     const name = window.prompt('Selection name', `Selection ${(doc().savedSelections || []).length + 1}`)?.trim();
     if (!name) return;
-    const ids = sel().map((o) => o.get('data')?.layerId).filter(Boolean);
-    doc().savedSelections = [...(doc().savedSelections || []).filter((entry) => entry.name !== name), { name, layerIds: ids }];
+    const pixelRecord = ctx.pixelSelectionRecord?.();
+    const record = pixelRecord || { kind: 'layers', layerIds: sel().map((o) => o.get('data')?.layerId).filter(Boolean) };
+    doc().savedSelections = [...(doc().savedSelections || []).filter((entry) => entry.name !== name), { name, ...record }];
     ctx.toast(`Saved selection “${name}”.`); commit();
   }
-  function loadSavedSelection(entry) {
+  async function loadSavedSelection(entry) {
+    if (entry.kind === 'pixels') {
+      if (await ctx.loadPixelSelectionRecord?.(entry)) ctx.toast(`Loaded pixel selection “${entry.name}”.`);
+      return;
+    }
     const wanted = new Set(entry.layerIds || []);
     selectObjects(walkObjects(c().getObjects()).filter((o) => wanted.has(o.get('data')?.layerId)));
+  }
+  function deleteSavedSelection(entry) {
+    doc().savedSelections = (doc().savedSelections || []).filter((candidate) => candidate !== entry && candidate.name !== entry.name);
+    ctx.toast(`Deleted saved selection “${entry.name}”.`); commit();
+  }
+  function savedSelectionItems(action, emptyLabel) {
+    const entries = doc().savedSelections || [];
+    return entries.length ? entries.map((entry) => ({ label: entry.name, action: () => action(entry) })) : [{ heading: emptyLabel }];
   }
 
   const ADJ = {
@@ -579,17 +631,25 @@ export function useStudioMenus(ctx) {
       label: 'Select',
       items: [
         { label: 'All Layers', shortcut: '⌘A', action: selectAll },
-        { label: 'Deselect', shortcut: '⌘D', disabled: none, action: deselect },
+        { label: 'All Pixels on Active Image', disabled: notImage, action: selectAllPixels },
+        { label: 'Deselect', shortcut: '⌘D', disabled: () => none() && noPixelSelection(), action: deselect },
         { label: 'Inverse', shortcut: '⇧⌘I', action: selectInverse },
         { label: 'Similar Layers', disabled: notOne, action: selectSimilar },
         SEP,
-        { label: 'Color Range…', disabled: notOne, action: selectColorRange },
+        { label: 'Color Range…', disabled: notImage, action: selectColorRange },
         { label: 'Subject', disabled: notImage, action: () => ctx.onSelectSubject(one()) },
-        { label: 'Select and Mask…', disabled: notImage, action: () => ctx.onPaintMask(one()) },
-        { label: 'Modify', hint: 'Use Select and Mask to paint, soften, or remove the active image mask.', disabled: notImage, action: () => ctx.onPaintMask(one()) },
-        { label: 'Transform Selection', disabled: none, action: () => { ctx.setTool('select'); ctx.toast('Transform handles are active for this selection.'); } },
-        { label: 'Save Selection…', disabled: none, action: saveSelection },
-        { label: 'Load Selection', items: () => (doc().savedSelections || []).map((entry) => ({ label: entry.name, action: () => loadSavedSelection(entry) })) },
+        { label: 'Select and Mask…', disabled: notImage, action: () => ctx.onSelectAndMask(one()) },
+        { label: 'Modify', items: [
+          { label: 'Border…', disabled: noPixelSelection, action: () => modifyPixelSelection('border', 'Border') },
+          { label: 'Smooth…', disabled: noPixelSelection, action: () => modifyPixelSelection('smooth', 'Smooth') },
+          { label: 'Expand…', disabled: noPixelSelection, action: () => modifyPixelSelection('expand', 'Expand') },
+          { label: 'Contract…', disabled: noPixelSelection, action: () => modifyPixelSelection('contract', 'Contract') },
+          { label: 'Feather…', disabled: noPixelSelection, action: () => modifyPixelSelection('feather', 'Feather') },
+        ] },
+        { label: 'Transform Selection…', disabled: noPixelSelection, action: transformPixelSelection },
+        { label: 'Save Selection…', disabled: () => none() && noPixelSelection(), action: saveSelection },
+        { label: 'Load Selection', items: () => savedSelectionItems(loadSavedSelection, 'No saved selections') },
+        { label: 'Delete Saved Selection', items: () => savedSelectionItems(deleteSavedSelection, 'No saved selections') },
       ],
     },
     {
