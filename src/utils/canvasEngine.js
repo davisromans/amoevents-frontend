@@ -696,7 +696,9 @@ export function serializeDocument(canvas, { previousDocument }) {
   // compounding corruption is why previously-edited templates opened to a
   // blank canvas — their layers were still positioned for the true design
   // resolution but the canvas had shrunk to a fraction of it.
-  const layers = canvas.getObjects().map(fabricToLayer).filter(Boolean);
+  const layers = canvas.getObjects()
+    .filter((object) => !object.excludeFromExport && !object.get('data')?.selectionOverlay && !object.get('data')?.pathEditorControl)
+    .map(fabricToLayer).filter(Boolean);
   return {
     ...(clonePlain(previousDocument) || {}),
     version: Math.max(2, previousDocument?.version || 1),
