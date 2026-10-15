@@ -336,6 +336,7 @@
             @perspective-warp="openPerspectiveWarp"
             @toggle-shared="onToggleShared"
             @replace-source="onReplaceSource"
+            @restore-original-pixels="onRestoreOriginalPixels"
             @update-qr="onUpdateQr"
             @edit-path="onEditPath"
           />
@@ -457,7 +458,7 @@
 </template>
 
 <script setup>
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { askConfirm } from '@/composables/useConfirm';
 import {
@@ -483,7 +484,6 @@ import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { PathEditor } from '@/utils/pathEditor';
 import { CloneStampController, contentAwareFillTransparent, dodgeBurnAt, eraseAt, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, createMagicWandSelection, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
-import { renderQrImage } from '@/utils/qrLayerRenderer';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
 import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { importPsdLocally } from '@/utils/localPsdImport';
@@ -495,13 +495,19 @@ import { useToast } from '@/composables/useToast';
 import AppButton from '@/components/common/AppButton.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import LayersPanel from '@/components/studio/LayersPanel.vue';
-import PropertiesPanel from '@/components/studio/PropertiesPanel.vue';
-import MissingFontsModal from '@/components/studio/MissingFontsModal.vue';
-import StudioMenuBar from '@/components/studio/StudioMenuBar.vue';
-import AdjustDialog from '@/components/studio/AdjustDialog.vue';
-import DocumentSizeDialog from '@/components/studio/DocumentSizeDialog.vue';
 import { useStudioMenus } from '@/composables/useStudioMenus';
+
+// Keep the canvas and its direct manipulation loop in the first Studio
+// payload, while loading secondary panels/dialogs as independent chunks.
+// They start fetching as soon as Vue reaches them, so the UI remains
+// seamless but the editor can become interactive without parsing every
+// properties/history/font dialog up front.
+const LayersPanel = defineAsyncComponent(() => import('@/components/studio/LayersPanel.vue'));
+const PropertiesPanel = defineAsyncComponent(() => import('@/components/studio/PropertiesPanel.vue'));
+const MissingFontsModal = defineAsyncComponent(() => import('@/components/studio/MissingFontsModal.vue'));
+const StudioMenuBar = defineAsyncComponent(() => import('@/components/studio/StudioMenuBar.vue'));
+const AdjustDialog = defineAsyncComponent(() => import('@/components/studio/AdjustDialog.vue'));
+const DocumentSizeDialog = defineAsyncComponent(() => import('@/components/studio/DocumentSizeDialog.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -1151,7 +1157,21 @@ function teardownLasso() {
   fabricCanvasRaw?.off('mouse:down', lassoDown); fabricCanvasRaw?.off('mouse:move', lassoMove); fabricCanvasRaw?.off('mouse:up', lassoUp);
   if (lassoPreview) fabricCanvasRaw?.remove(lassoPreview); lassoPreview = null; lassoPoints = []; if (fabricCanvasRaw) fabricCanvasRaw.selection = true;
 }
-function retouchMouseUp() { retouchPainting = false; strokeTarget = null; lastStrokePoint = null; }
+function retouchMouseUp() {
+  const completedTarget = strokeTarget;
+  const completedStroke = retouchPainting && completedTarget;
+  retouchPainting = false;
+  strokeTarget = null;
+  lastStrokePoint = null;
+  if (!completedStroke) return;
+  // Fabric serializes a canvas-backed image as a PNG data URL, so this one
+  // explicit history checkpoint captures the actual pixels. Committing on
+  // mouse-up makes every physical stroke exactly one Undo step.
+  completedTarget.dirty = true;
+  fabricCanvasRaw.fire('object:modified', { target: completedTarget });
+  history?.pushNow();
+  scheduleAutosave();
+}
 
 // A stroke targets the CURRENTLY SELECTED image layer (like Photoshop —
 // active layer wins, regardless of what the cursor is over), falling back
@@ -1622,6 +1642,7 @@ async function insertSharedAsset(asset) {
 
 // ── Insert tools + binding preview (Batch 22) ───────────────────────────
 async function insertQrLayer() {
+  const { renderQrImage } = await import('@/utils/qrLayerRenderer');
   const size = Math.min(document.value.width, document.value.height) * 0.25;
   const qr = await renderQrImage({});
   qr.set({
@@ -1637,6 +1658,7 @@ async function insertQrLayer() {
 
 async function onUpdateQr(obj, patch) {
   if (!obj) return;
+  const { renderQrImage } = await import('@/utils/qrLayerRenderer');
   const data = { ...(obj.get('data') || {}), ...patch, isQr: true };
   const width = obj.getScaledWidth();
   const fresh = await renderQrImage(data);
@@ -1991,6 +2013,47 @@ async function onToggleShared(obj, shared) {
 function onReplaceSource(obj) {
   replaceTargetObj = obj;
   replaceInputRef.value?.click();
+}
+async function onRestoreOriginalPixels(obj) {
+  if (obj?.type !== 'image') return;
+  const data = obj.get('data') || {};
+  const sourceId = data.originalLocalAssetId || data.originalAssetId;
+  if (!sourceId) return;
+  try {
+    const url = await resolveAssetUrl(sourceId);
+    if (!url) throw new Error('The original image is not available on this device.');
+    const original = await fabric.FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+    const displayWidth = obj.getScaledWidth();
+    const displayHeight = obj.getScaledHeight();
+    obj.setElement(original.getElement());
+    obj.set({
+      width: original.width,
+      height: original.height,
+      cropX: 0,
+      cropY: 0,
+      scaleX: displayWidth / Math.max(1, original.width),
+      scaleY: displayHeight / Math.max(1, original.height),
+    });
+    obj.set('data', {
+      ...data,
+      assetId: data.originalAssetId || data.assetId || null,
+      localAssetId: data.originalLocalAssetId || null,
+      sourceWidth: original.width,
+      sourceHeight: original.height,
+      liveCanvas: false,
+      liveCanvasCloudAssetId: null,
+      backgroundRemoved: false,
+    });
+    obj.dirty = true;
+    obj.setCoords();
+    fabricCanvasRaw.requestRenderAll();
+    fabricCanvasRaw.fire('object:modified', { target: obj });
+    history?.pushNow();
+    scheduleAutosave();
+    toast.success('Original pixels restored. Your edited fork remains separate in storage.');
+  } catch (err) {
+    toast.error(`Could not restore the original image: ${apiErrorMessage(err)}`);
+  }
 }
 async function onReplaceFileChosen(e) {
   const file = e.target.files?.[0];

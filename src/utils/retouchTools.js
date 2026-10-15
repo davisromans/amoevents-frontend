@@ -1,5 +1,33 @@
 import * as fabric from 'fabric';
 
+// Preserve the untouched source before the first destructive-looking pixel
+// operation. Edits still happen on a fast local canvas, but the canonical
+// document keeps pointing at both the edited fork and this original source so
+// Reset pixels remains available after saving, closing, and reopening.
+export function markOriginalPixels(fabricImg) {
+  const data = fabricImg.get('data') || {};
+  if (data.originalAssetId || data.originalLocalAssetId) {
+    // A layer can be reset and edited again. Never let that second editing
+    // pass write into the local key that is deliberately preserving the
+    // original bitmap.
+    const next = data.originalLocalAssetId && data.localAssetId === data.originalLocalAssetId
+      ? { ...data, localAssetId: null }
+      : data;
+    if (next !== data) fabricImg.set('data', next);
+    return next;
+  }
+  const next = {
+    ...data,
+    originalAssetId: data.assetId || null,
+    originalLocalAssetId: data.localAssetId || null,
+    // The edited bitmap must receive its own local-cache key. Reusing the
+    // source key would silently overwrite the only recoverable original.
+    localAssetId: null,
+  };
+  fabricImg.set('data', next);
+  return next;
+}
+
 // Batch 18 — retouching. Clone stamp and dodge/burn both need direct
 // pixel access, which means the target image layer has to be backed by a
 // live, mutable <canvas> element rather than a static <img> — Fabric
@@ -17,6 +45,7 @@ import * as fabric from 'fabric';
 
 export function ensureLiveCanvas(fabricImg) {
   if (fabricImg.get('data')?.liveCanvas) return fabricImg.getElement();
+  const sourceData = markOriginalPixels(fabricImg);
   const src = fabricImg.getElement();
   const canvas = window.document.createElement('canvas');
   canvas.width = src.naturalWidth || src.width;
@@ -25,7 +54,7 @@ export function ensureLiveCanvas(fabricImg) {
   ctx.drawImage(src, 0, 0);
   fabricImg.setElement(canvas);
   fabricImg.set('objectCaching', false);
-  fabricImg.set('data', { ...(fabricImg.get('data') || {}), liveCanvas: true });
+  fabricImg.set('data', { ...sourceData, liveCanvas: true });
   return canvas;
 }
 
