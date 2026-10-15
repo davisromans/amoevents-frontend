@@ -292,50 +292,33 @@
 
         <!-- Layer styles -->
         <div class="border-t border-surface-mist dark:border-surface-fog pt-3 space-y-2">
-          <p class="section-eyebrow">Layer styles</p>
-          <label class="flex items-center gap-2 text-2xs font-bold">
-            <input type="checkbox" class="accent-brand-gold" :checked="styleStrokeEnabled" @change="toggleStyleStroke($event.target.checked)" />
-            Stroke
-          </label>
-          <div v-if="styleStrokeEnabled" class="grid grid-cols-2 gap-2">
-            <label class="text-2xs">Color<input type="color" class="mt-1 w-full h-8 rounded" :value="styleStrokeColor" @input="setStyleStrokeColor($event.target.value)" /></label>
-            <label class="text-2xs">Width<input type="number" min="1" max="100" class="field-input !py-1.5 !text-xs mt-1" :value="obj.strokeWidth || 1" @change="setProp('strokeWidth', Math.max(1, Number($event.target.value)))" /></label>
+          <div class="flex items-center justify-between gap-2">
+            <p class="section-eyebrow">Layer styles</p>
+            <select class="field-input !py-1 !px-2 !text-[10px] w-28" value="" @change="addLayerEffect($event.target.value); $event.target.value = ''">
+              <option value="">+ Add effect</option>
+              <option v-for="definition in availableEffectTypes" :key="definition.type" :value="definition.type">{{ definition.name }}</option>
+            </select>
           </div>
-          <label class="flex items-center gap-2 text-2xs font-bold">
-            <input type="checkbox" class="accent-brand-gold" :checked="!!obj.shadow && !isOuterGlow" @change="toggleShadow($event.target.checked)" />
-            Drop shadow
-          </label>
-          <template v-if="obj.shadow">
+          <p v-if="!layerEffects.length" class="text-[10px] text-surface-slate dark:text-surface-ash">No effects. Add several effects and reorder them independently.</p>
+          <div v-for="(effect, index) in layerEffects" :key="effect.id" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-2">
+            <div class="flex items-center gap-1">
+              <input type="checkbox" class="accent-brand-gold" :checked="effect.enabled" @change="updateLayerEffect(effect.id, { enabled: $event.target.checked })" />
+              <strong class="text-2xs flex-1">{{ effect.name }}</strong>
+              <button class="btn-ghost !p-1 !text-[10px]" :disabled="index === 0" title="Move effect up" @click="moveLayerEffect(index, -1)">↑</button>
+              <button class="btn-ghost !p-1 !text-[10px]" :disabled="index === layerEffects.length - 1" title="Move effect down" @click="moveLayerEffect(index, 1)">↓</button>
+              <button class="btn-ghost !p-1 !text-[10px] text-red-500" title="Remove effect" @click="removeLayerEffect(effect.id)">×</button>
+            </div>
             <div class="grid grid-cols-2 gap-2">
-              <div>
-                <p class="field-label mb-1">Offset X</p>
-                <input type="range" min="-40" max="40" class="w-full accent-brand-gold" :value="obj.shadow.offsetX" @input="setShadowProp('offsetX', Number($event.target.value))" />
-              </div>
-              <div>
-                <p class="field-label mb-1">Offset Y</p>
-                <input type="range" min="-40" max="40" class="w-full accent-brand-gold" :value="obj.shadow.offsetY" @input="setShadowProp('offsetY', Number($event.target.value))" />
-              </div>
+              <label class="text-[10px]">Colour<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.color" @input="updateLayerEffect(effect.id, { color: $event.target.value })" /></label>
+              <label class="text-[10px]">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
+              <label v-if="effect.type === 'stroke'" class="text-[10px] col-span-2">Size — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
+              <template v-if="['dropShadow','outerGlow'].includes(effect.type)">
+                <label class="text-[10px] col-span-2">Blur — {{ effect.blur }}<input type="range" min="0" max="160" class="w-full accent-brand-gold" :value="effect.blur" @input="updateLayerEffect(effect.id, { blur: Number($event.target.value) })" /></label>
+                <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset X<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetX" @input="updateLayerEffect(effect.id, { offsetX: Number($event.target.value) })" /></label>
+                <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset Y<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetY" @input="updateLayerEffect(effect.id, { offsetY: Number($event.target.value) })" /></label>
+              </template>
             </div>
-            <div>
-              <p class="field-label mb-1">Blur — {{ obj.shadow.blur }}</p>
-              <input type="range" min="0" max="80" class="w-full accent-brand-gold" :value="obj.shadow.blur" @input="setShadowProp('blur', Number($event.target.value))" />
-            </div>
-            <div>
-              <p class="field-label mb-1">Color</p>
-              <input type="color" class="w-full h-8 rounded-md cursor-pointer" :value="shadowHex" @input="setShadowColor($event.target.value)" />
-            </div>
-          </template>
-          <label class="flex items-center gap-2 text-2xs font-bold">
-            <input type="checkbox" class="accent-brand-gold" :checked="isOuterGlow" @change="toggleOuterGlow($event.target.checked)" />
-            Outer glow
-          </label>
-          <div v-if="isOuterGlow" class="grid grid-cols-2 gap-2">
-            <label class="text-2xs">Color<input type="color" class="mt-1 w-full h-8 rounded" :value="shadowHex" @input="setShadowColor($event.target.value)" /></label>
-            <label class="text-2xs">Size<input type="number" min="1" max="160" class="field-input !py-1.5 !text-xs mt-1" :value="obj.shadow?.blur || 20" @change="setShadowProp('blur', Number($event.target.value))" /></label>
           </div>
-          <label v-if="['rect','ellipse','path','textbox','text','i-text'].includes(obj.type)" class="text-2xs font-bold block">Color overlay
-            <input type="color" class="mt-1 w-full h-8 rounded" :value="toHex(obj.fill)" @input="setProp('fill', $event.target.value)" />
-          </label>
         </div>
 
         <!-- Masking (Batch 12) -->
@@ -433,6 +416,7 @@ import { FILTER_GALLERY, toggleGalleryFilter, rebuildFilterStack } from '@/utils
 import { STYLE_PRESETS } from '@/utils/cropTool';
 import { BINDING_FIELDS } from '@/utils/bindingRegistry';
 import { removeImageBackground } from '@/utils/backgroundRemoval';
+import { applyLayerEffectStack, EFFECT_DEFAULTS, normalizeLayerEffects } from '@/utils/layerEffects';
 
 const ADJUSTMENTS = [
   { key: 'brightness', label: 'Brightness', min: -1, max: 1 },
@@ -538,6 +522,29 @@ function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type
 const originalPsdFont = computed(() => obj.value?.get('data')?.sourceLayer?.convertedFromText?.fontFamily
   || obj.value?.get('data')?.sourceLayer?.fontFamily
   || '');
+const availableEffectTypes = Object.values(EFFECT_DEFAULTS);
+const layerEffects = computed(() => normalizeLayerEffects(obj.value?.get('data')?.layerEffects || obj.value?.get('data')?.sourceLayer?.effects || []));
+
+function commitLayerEffects(next) {
+  applyLayerEffectStack(obj.value, next);
+  obj.value.setCoords();
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target: obj.value });
+  tick.value++;
+}
+function addLayerEffect(type) {
+  if (!EFFECT_DEFAULTS[type]) return;
+  const effect = { ...EFFECT_DEFAULTS[type], id: `effect-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` };
+  commitLayerEffects([...layerEffects.value, effect]);
+}
+function updateLayerEffect(id, patch) { commitLayerEffects(layerEffects.value.map((effect) => effect.id === id ? { ...effect, ...patch } : effect)); }
+function removeLayerEffect(id) { commitLayerEffects(layerEffects.value.filter((effect) => effect.id !== id)); }
+function moveLayerEffect(index, direction) {
+  const next = [...layerEffects.value]; const destination = index + direction;
+  if (destination < 0 || destination >= next.length) return;
+  [next[index], next[destination]] = [next[destination], next[index]];
+  commitLayerEffects(next);
+}
 const FONT_WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 const TEXT_STYLE_STORAGE_KEY = 'studio.textStyles.v1';
 const selectedTextStyleId = ref('');
