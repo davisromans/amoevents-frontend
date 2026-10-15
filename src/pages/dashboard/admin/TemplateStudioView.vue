@@ -1277,8 +1277,26 @@ function onKeyDown(e) {
     if (e.shiftKey) save(); else saveLocalDraft({ notify: true });
     return;
   }
+  if (mod && key === 'o' && !e.altKey) { e.preventDefault(); psdInputRef.value?.click(); return; }
+  if (mod && e.shiftKey && key === 'n') { e.preventDefault(); insertEmptyLayer(); return; }
+  if (e.shiftKey && !mod && e.key === 'F5' && selectedObjects.value.length) {
+    e.preventDefault();
+    const color = window.prompt('Fill colour (hex, rgb, or CSS colour)', selectedObjects.value[0]?.fill || '#D9B45E');
+    if (color) {
+      selectedObjects.value.forEach((target) => target.set('fill', color));
+      fabricCanvasRaw.requestRenderAll();
+      fabricCanvasRaw.fire('object:modified', { target: selectedObjects.value[0] });
+    }
+    return;
+  }
   if (mod && e.altKey && key === 'i') { e.preventDefault(); openDocSize('image'); return; }
   if (mod && e.altKey && key === 'c') { e.preventDefault(); openDocSize('canvas'); return; }
+  if (mod && e.shiftKey && activeImage && key === 'u') {
+    e.preventDefault();
+    toggleGalleryFilter(activeImage, 'grayscale', activeImage.get('data')?.galleryFilters?.grayscale === undefined ? true : null);
+    fabricCanvasRaw.fire('object:modified', { target: activeImage }); fabricCanvasRaw.requestRenderAll();
+    return;
+  }
   if (mod && activeImage && ['l', 'm', 'u'].includes(key)) {
     e.preventDefault();
     const config = key === 'l'
@@ -1389,10 +1407,19 @@ function onKeyDown(e) {
     pasteSelectedLayers();
     return;
   }
+  if (mod && e.altKey && key === 'g' && selectedObjects.value.length >= 2) {
+    e.preventDefault(); onClipMask(selectedObjects.value); return;
+  }
   if (mod && key === 'g') {
     e.preventDefault();
     if (e.shiftKey) onUngroupLayer(selectedObjects.value[0]);
     else onGroupLayers(selectedObjects.value);
+    return;
+  }
+  if (mod && key === 'e') {
+    e.preventDefault();
+    if (e.shiftKey) mergeVisibleLayers();
+    else if (selectedObjects.value.length >= 2) onMergeLayers(selectedObjects.value);
     return;
   }
   if (mod && key === 'a') {
@@ -1408,10 +1435,31 @@ function onKeyDown(e) {
     fabricCanvasRaw.requestRenderAll();
     return;
   }
-  if (mod && (e.key === ']' || e.key === '[') && selectedObjects.value[0]) {
+  if (mod && e.shiftKey && key === 'i') {
     e.preventDefault();
-    if (e.key === ']') onBringForward(selectedObjects.value[0]); else onSendBackward(selectedObjects.value[0]);
-    fabricCanvasRaw.fire('object:modified', { target: selectedObjects.value[0] });
+    const selected = new Set(selectedObjects.value);
+    const inverse = fabricCanvasRaw.getObjects().filter((o) => !o.get('data')?.locked && o.visible !== false && !selected.has(o));
+    fabricCanvasRaw.discardActiveObject();
+    if (inverse.length === 1) fabricCanvasRaw.setActiveObject(inverse[0]);
+    else if (inverse.length > 1) fabricCanvasRaw.setActiveObject(new fabric.ActiveSelection(inverse, { canvas: fabricCanvasRaw }));
+    fabricCanvasRaw.requestRenderAll();
+    return;
+  }
+  if (mod && ['BracketRight', 'BracketLeft'].includes(e.code) && selectedObjects.value[0]) {
+    e.preventDefault();
+    const target = selectedObjects.value[0];
+    const movingForward = e.code === 'BracketRight';
+    if (e.shiftKey) {
+      const parent = findParentGroup(target, fabricCanvasRaw.getObjects());
+      if (parent) {
+        if (movingForward) parent.bringObjectToFront(target); else parent.sendObjectToBack(target);
+        parent.dirty = true;
+      } else if (movingForward) fabricCanvasRaw.bringObjectToFront(target);
+      else fabricCanvasRaw.sendObjectToBack(target);
+      refreshLayersList();
+    } else if (movingForward) onBringForward(target);
+    else onSendBackward(target);
+    fabricCanvasRaw.fire('object:modified', { target });
     return;
   }
   if (mod && (e.key === '0' || e.key === '1')) {
@@ -1424,10 +1472,11 @@ function onKeyDown(e) {
     zoomBy(e.key === '+' ? 5 : -5);
     return;
   }
-  if (e.key === '[' || e.key === ']') {
+  if (!mod && ['BracketLeft', 'BracketRight'].includes(e.code)) {
     e.preventDefault();
-    if (e.shiftKey) brushHardness.value = Math.min(1, Math.max(0, brushHardness.value + (e.key === ']' ? 0.05 : -0.05)));
-    else brushSize.value = Math.min(1500, Math.max(1, brushSize.value + (e.key === ']' ? Math.max(1, Math.round(brushSize.value * 0.1)) : -Math.max(1, Math.round(brushSize.value * 0.1)))));
+    const increasing = e.code === 'BracketRight';
+    if (e.shiftKey) brushHardness.value = Math.min(1, Math.max(0, brushHardness.value + (increasing ? 0.05 : -0.05)));
+    else brushSize.value = Math.min(1500, Math.max(1, brushSize.value + (increasing ? Math.max(1, Math.round(brushSize.value * 0.1)) : -Math.max(1, Math.round(brushSize.value * 0.1)))));
     return;
   }
   if (e.key === '?' ) { showShortcuts.value = true; return; }
@@ -1437,22 +1486,24 @@ function onKeyDown(e) {
     else { teardownActiveTool(); tool.value = 'select'; fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll(); }
     return;
   }
-  if (e.key === 'v' || e.key === 'V') setTool('select');
-  if (e.key === 'p' || e.key === 'P') setTool('pen');
-  if (e.key === 'b' || e.key === 'B') setTool('brush');
-  if (e.key === 's' || e.key === 'S') setTool('clone');
-  if (e.key === 'o' || e.key === 'O') setTool('dodge');
-  if (e.key === 'e' || e.key === 'E') setTool('eraser');
-  if (e.key === 'i' || e.key === 'I') setTool('eyedropper');
-  if (e.key === 'j' || e.key === 'J') setTool('healing');
-  if (e.key === 'g' || e.key === 'G') setTool('bucket');
-  if (e.key === 'w' || e.key === 'W') setTool('magic-wand');
-  if (e.key === 'l' || e.key === 'L') setTool('lasso');
+  if (!mod) {
+    if (key === 'v') setTool('select');
+    if (key === 'p') setTool('pen');
+    if (key === 'b') setTool('brush');
+    if (key === 's') setTool('clone');
+    if (key === 'o') setTool('dodge');
+    if (key === 'e') setTool('eraser');
+    if (key === 'i') setTool('eyedropper');
+    if (key === 'j') setTool('healing');
+    if (key === 'g') setTool('bucket');
+    if (key === 'w') setTool('magic-wand');
+    if (key === 'l') setTool('lasso');
+    if (key === 'm') setTool('select');
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     // Was fabricCanvasRaw.remove(o) directly — a no-op for any object
     // nested inside a Fabric Group (true for virtually every PSD-imported
     // layer), since removing from the canvas does nothing when the object
-    // was never the canvas's own direct child. onDeleteLayer already knows
     // to remove from the object's actual parent group when it has one —
     // route every selected object through it instead of duplicating (and
     // getting wrong) that logic here.
