@@ -487,7 +487,11 @@ import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
 import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { importPsdLocally } from '@/utils/localPsdImport';
-import { removeImageBackground } from '@/utils/backgroundRemoval';
+import { selectImageSubject } from '@/utils/backgroundRemoval';
+import {
+  countSelectedPixels, createColorRangeSelection, createFullSelection, invertSelection,
+  modifySelection, selectionEdgeCanvas, selectionFromDataUrl, selectionToDataUrl, transformSelection,
+} from '@/utils/pixelSelection';
 import { BINDING_FIELDS, sampleValueFor } from '@/utils/bindingRegistry';
 import * as fabric from 'fabric';
 import { apiErrorMessage } from '@/services/http';
@@ -942,6 +946,7 @@ const brushHardness = ref(0.7); // 0 = soft falloff from center, 1 = hard edge �
 const wandTolerance = ref(28);
 let pixelSelectionOverlay = null;
 let pixelSelectionAnimation = null;
+let activePixelSelection = null;
 
 // ── Brush cursor preview ─────────────────────────────────────────────────
 // A circle that follows the pointer showing the ACTUAL brush size (and,
@@ -1023,43 +1028,134 @@ function teardownActiveTool() {
   if (tool.value === 'lasso') teardownLasso();
 }
 
-function clearPixelSelectionOverlay() {
+function clearPixelSelectionOverlay({ keepSelection = false } = {}) {
   if (pixelSelectionAnimation) window.clearInterval(pixelSelectionAnimation);
   pixelSelectionAnimation = null;
   if (pixelSelectionOverlay && fabricCanvasRaw) fabricCanvasRaw.remove(pixelSelectionOverlay);
   pixelSelectionOverlay = null;
+  if (!keepSelection) activePixelSelection = null;
 }
 
-function showPixelSelectionOverlay(target) {
-  clearPixelSelectionOverlay();
-  const bounds = target.getBoundingRect();
-  pixelSelectionOverlay = new fabric.Rect({
-    left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height,
-    fill: 'transparent', stroke: '#111111', strokeWidth: 1 / zoom.value,
-    strokeDashArray: [5 / zoom.value, 5 / zoom.value], selectable: false, evented: false,
+function showPixelSelectionOverlay(target, mask) {
+  clearPixelSelectionOverlay({ keepSelection: true });
+  const edge = selectionEdgeCanvas(mask);
+  pixelSelectionOverlay = new fabric.FabricImage(edge, {
+    left: target.left, top: target.top, originX: target.originX, originY: target.originY,
+    scaleX: (target.scaleX || 1) * ((target.width || edge.width) / edge.width),
+    scaleY: (target.scaleY || 1) * ((target.height || edge.height) / edge.height),
+    angle: target.angle || 0, skewX: target.skewX || 0, skewY: target.skewY || 0,
+    flipX: !!target.flipX, flipY: !!target.flipY, opacity: 1,
+    selectable: false, evented: false, objectCaching: false,
     excludeFromExport: true, data: { selectionOverlay: true },
   });
   fabricCanvasRaw.add(pixelSelectionOverlay);
+  fabricCanvasRaw.bringObjectToFront(pixelSelectionOverlay);
+  let bright = false;
   pixelSelectionAnimation = window.setInterval(() => {
     if (!pixelSelectionOverlay || !fabricCanvasRaw) return;
-    pixelSelectionOverlay.strokeDashOffset = (pixelSelectionOverlay.strokeDashOffset || 0) - 1;
+    bright = !bright;
+    pixelSelectionOverlay.set('opacity', bright ? 1 : 0.65);
     fabricCanvasRaw.requestRenderAll();
-  }, 80);
+  }, 220);
+  fabricCanvasRaw.requestRenderAll();
 }
 
-function applySelectionMask(target, result) {
-  const maskImage = new fabric.FabricImage(result.mask, {
-    left: 0, top: 0, originX: 'left', originY: 'top',
-    scaleX: (target.width || 1) / result.width,
-    scaleY: (target.height || 1) / result.height,
-    absolutePositioned: false,
+function syncPixelSelectionOverlay(event) {
+  const target = event?.target;
+  if (!pixelSelectionOverlay || !activePixelSelection || target !== activePixelSelection.target) return;
+  const edgeWidth = pixelSelectionOverlay.width || activePixelSelection.width || 1;
+  const edgeHeight = pixelSelectionOverlay.height || activePixelSelection.height || 1;
+  pixelSelectionOverlay.set({
+    left: target.left,
+    top: target.top,
+    originX: target.originX,
+    originY: target.originY,
+    scaleX: (target.scaleX || 1) * ((target.width || edgeWidth) / edgeWidth),
+    scaleY: (target.scaleY || 1) * ((target.height || edgeHeight) / edgeHeight),
+    angle: target.angle || 0,
+    skewX: target.skewX || 0,
+    skewY: target.skewY || 0,
+    flipX: !!target.flipX,
+    flipY: !!target.flipY,
   });
-  target.set('clipPath', maskImage);
-  target.set('data', { ...(target.get('data') || {}), maskType: 'raster', maskSource: 'magicWand', wandTolerance: wandTolerance.value });
-  target.dirty = true;
-  showPixelSelectionOverlay(target);
+  pixelSelectionOverlay.setCoords();
+  fabricCanvasRaw.bringObjectToFront(pixelSelectionOverlay);
   fabricCanvasRaw.requestRenderAll();
-  fabricCanvasRaw.fire('object:modified', { target });
+}
+
+function setActivePixelSelection(target, result, source = 'selection') {
+  if (!target || !result?.mask) return;
+  activePixelSelection = {
+    target,
+    targetLayerId: target.get('data')?.layerId || null,
+    mask: result.mask,
+    width: result.width || result.mask.width,
+    height: result.height || result.mask.height,
+    count: result.count ?? countSelectedPixels(result.mask),
+    source,
+  };
+  fabricCanvasRaw.setActiveObject(target);
+  showPixelSelectionOverlay(target, result.mask);
+}
+
+function activeSelectionFor(target = null) {
+  if (!activePixelSelection) return null;
+  if (target && activePixelSelection.target !== target) return null;
+  return activePixelSelection;
+}
+
+function selectAllPixels(target) {
+  if (target?.type !== 'image') return false;
+  setActivePixelSelection(target, createFullSelection(target), 'all');
+  return true;
+}
+
+function selectColorRangePixels(target, options) {
+  if (target?.type !== 'image') return null;
+  const result = createColorRangeSelection(target, options.color, options);
+  if (result.count) setActivePixelSelection(target, result, 'colorRange');
+  return result;
+}
+
+function replaceActivePixelMask(mask, source = activePixelSelection?.source) {
+  if (!activePixelSelection?.target || !mask) return false;
+  setActivePixelSelection(activePixelSelection.target, {
+    mask, width: mask.width, height: mask.height, count: countSelectedPixels(mask),
+  }, source);
+  return true;
+}
+
+function invertActivePixelSelection() {
+  if (!activePixelSelection) return false;
+  return replaceActivePixelMask(invertSelection(activePixelSelection.mask), 'inverse');
+}
+
+function modifyActivePixelSelection(mode, amount) {
+  if (!activePixelSelection) return false;
+  return replaceActivePixelMask(modifySelection(activePixelSelection.mask, mode, amount), mode);
+}
+
+function transformActivePixelSelection(options) {
+  if (!activePixelSelection) return false;
+  return replaceActivePixelMask(transformSelection(activePixelSelection.mask, options), 'transform');
+}
+
+function pixelSelectionRecord() {
+  if (!activePixelSelection) return null;
+  return {
+    kind: 'pixels', targetLayerId: activePixelSelection.targetLayerId,
+    width: activePixelSelection.width, height: activePixelSelection.height,
+    maskDataUrl: selectionToDataUrl(activePixelSelection.mask), source: activePixelSelection.source,
+  };
+}
+
+async function loadPixelSelectionRecord(record) {
+  if (record?.kind !== 'pixels' || !record.maskDataUrl) return false;
+  const target = walkFabricObjects(fabricCanvasRaw.getObjects()).find((object) => object.get('data')?.layerId === record.targetLayerId);
+  if (!target || target.type !== 'image') { toast.error('The image layer used by this saved selection no longer exists.'); return false; }
+  const mask = await selectionFromDataUrl(record.maskDataUrl);
+  setActivePixelSelection(target, { mask, width: mask.width, height: mask.height, count: countSelectedPixels(mask) }, record.source || 'saved');
+  return true;
 }
 
 function onEditPath(path) {
@@ -1118,8 +1214,8 @@ function utilityToolMouseDown(opt) {
   } else {
     const result = createMagicWandSelection(target, point, { tolerance: wandTolerance.value });
     if (!result.count) { toast.error('No matching pixels were found.'); return; }
-    applySelectionMask(target, result);
-    toast.success('Selection added as a reversible layer mask. Use Select & Mask to refine it.');
+    setActivePixelSelection(target, result, 'magicWand');
+    toast.success(`Selected ${result.count.toLocaleString()} matching pixels. Use Select & Mask to refine or apply it.`);
     setTool('select');
   }
 }
@@ -2345,6 +2441,7 @@ function onMoveLayerTo(fromRow, toRow) {
   fabricCanvasRaw.fire('object:modified', { target: fromRow.obj });
 }
 function onDeleteLayer(obj, parent) {
+  if (activeSelectionFor(obj)) clearPixelSelectionOverlay();
   if (parent) parent.remove(obj);
   else fabricCanvasRaw.remove(obj);
   fabricCanvasRaw.discardActiveObject();
@@ -2356,6 +2453,7 @@ function onDeleteLayer(obj, parent) {
 
 async function onRasterizeLayer(obj) {
   if (!fabricCanvasRaw) return;
+  if (activeSelectionFor(obj)) clearPixelSelectionOverlay();
   const parent = findParentGroup(obj, fabricCanvasRaw.getObjects());
   const rasterized = await rasterizeObject(fabricCanvasRaw, obj);
   if (rasterized) {
@@ -2368,6 +2466,7 @@ async function onRasterizeLayer(obj) {
 
 async function onMakeSmartObject(obj) {
   if (!obj || !fabricCanvasRaw) return;
+  if (activeSelectionFor(obj)) clearPixelSelectionOverlay();
   const source = obj.toObject(['data']);
   const originalName = obj.get('data')?.name || obj.type;
   const rasterized = await rasterizeObject(fabricCanvasRaw, obj);
@@ -2514,6 +2613,11 @@ function onRemoveMask(obj) {
   removeMask(fabricCanvasRaw, obj);
 }
 
+function onSelectAndMask(obj) {
+  if (obj?.type !== 'image') return;
+  onPaintMask(obj, activeSelectionFor(obj)?.mask || null);
+}
+
 const maskPainter = ref(null);
 const maskBrushMode = ref('hide');
 const maskBrushSize = ref(40);
@@ -2524,8 +2628,9 @@ let disposeMaskMouseDown = null;
 let disposeMaskMouseMove = null;
 let disposeMaskMouseUp = null;
 
-function onPaintMask(obj) {
+function onPaintMask(obj, initialSelectionMask = null) {
   if (maskPainter.value) cleanupMaskPaint();
+  clearPixelSelectionOverlay({ keepSelection: true });
   tool.value = 'mask-paint';
   fabricCanvasRaw.discardActiveObject();
   fabricCanvasRaw.selection = false;
@@ -2538,7 +2643,7 @@ function onPaintMask(obj) {
   maskPainter.value = new MaskPainter(obj, {
     brushSize: maskBrushSize.value,
     hardness: maskBrushHardness.value,
-    initialCanvas: previousMask?.getElement?.(),
+    initialCanvas: initialSelectionMask || previousMask?.getElement?.(),
   });
 
   // Live preview: wrap the painter's own canvas element as a Fabric image
@@ -2570,6 +2675,7 @@ async function finishMaskPaint() {
   const obj = fabricCanvasRaw._maskPaintTarget;
   await maskPainter.value?.apply(fabricCanvasRaw);
   cleanupMaskPaint();
+  clearPixelSelectionOverlay();
   fabricCanvasRaw.setActiveObject(obj);
   refreshLayersList();
 }
@@ -2577,6 +2683,7 @@ function cancelMaskPaint() {
   const obj = fabricCanvasRaw._maskPaintTarget;
   if (obj) obj.set('clipPath', previousMask || undefined);
   cleanupMaskPaint();
+  if (activeSelectionFor(obj)) showPixelSelectionOverlay(obj, activePixelSelection.mask);
 }
 function cleanupMaskPaint() {
   const obj = fabricCanvasRaw._maskPaintTarget;
@@ -2840,9 +2947,10 @@ async function onSelectSubject(obj) {
   if (obj?.type !== 'image') return;
   toast.success('Selecting subject locally…');
   try {
-    await removeImageBackground(obj);
-    refreshAfterRetouch(fabricCanvasRaw, obj);
-    toast.success('Subject selected. Use Select & Mask to refine the edge.');
+    const result = await selectImageSubject(obj);
+    if (!result.count) throw new Error('No subject pixels were detected.');
+    setActivePixelSelection(obj, result, 'subject');
+    toast.success(`Subject selected (${result.count.toLocaleString()} pixels). Use Select & Mask to refine or apply it.`);
   } catch (err) { toast.error(`Subject selection failed: ${apiErrorMessage(err)}`); }
 }
 async function onConvertTextToShape(obj) {
@@ -2900,13 +3008,17 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   openUtilityPanel: (mode) => { utilityPanelMode.value = mode; rightPanelTab.value = 'swatches'; },
   openPreflight: () => { showPreflight.value = true; },
   clearPixelSelection: clearPixelSelectionOverlay,
+  hasPixelSelection: () => !!activePixelSelection,
+  activePixelSelection: () => activePixelSelection,
+  selectAllPixels, selectColorRangePixels, invertActivePixelSelection, modifyActivePixelSelection, transformActivePixelSelection,
+  pixelSelectionRecord, loadPixelSelectionRecord,
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
   openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
   insertEmptyLayer, insertAdjustmentLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   mergeVisibleLayers, flattenImage,
-  onClipMask, onRemoveMask, onPaintMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
+  onClipMask, onRemoveMask, onPaintMask, onSelectAndMask, onToggleLock, onToggleVisible, onBringForward, onSendBackward,
   onDuplicateLayer, onDeleteLayer, onRenameLayer, onStartCrop, onReplaceSource, togglePreview,
   openPerspectiveWarp,
   onSelectSubject, onConvertTextToShape, onContentAwareFill, onMakeSmartObject, onEditSmartObject,
@@ -3076,6 +3188,11 @@ async function boot() {
     fabricCanvasRaw.on('mouse:move', updateBrushCursor);
     fabricCanvasRaw.on('mouse:out', hideBrushCursor);
     fabricCanvasRaw.on('object:moving', onObjectMovingShowGuides);
+    fabricCanvasRaw.on('object:moving', syncPixelSelectionOverlay);
+    fabricCanvasRaw.on('object:scaling', syncPixelSelectionOverlay);
+    fabricCanvasRaw.on('object:rotating', syncPixelSelectionOverlay);
+    fabricCanvasRaw.on('object:skewing', syncPixelSelectionOverlay);
+    fabricCanvasRaw.on('object:modified', syncPixelSelectionOverlay);
     fabricCanvasRaw.on('mouse:up', clearGuides);
 
     resetHistory();
@@ -3181,6 +3298,7 @@ function captureActivePage() {
 }
 async function switchPage(index) {
   if (index === activePage.value) return;
+  clearPixelSelectionOverlay();
   await persistLiveCanvasLayers({ cloud: false });
   captureActivePage();
   activePage.value = index;
@@ -3223,6 +3341,7 @@ async function removePage(index) {
     // that slot instead of re-serializing a page that no longer exists.
     activePage.value = nextActive;
     document.value = pages.value[nextActive].document;
+    clearPixelSelectionOverlay();
     readyForAutosave = false;
     try {
       await preloadDocumentFonts(document.value);
@@ -3430,6 +3549,7 @@ async function onProjectFileChosen(e) {
   if (document.value?.layers?.length && !(await askConfirm('Replace the current canvas with this AmoEditor project?'))) return;
   loading.value = true; readyForAutosave = false;
   try {
+    clearPixelSelectionOverlay();
     const { default: JSZip } = await import('jszip');
     const zip = await JSZip.loadAsync(file);
     const manifestEntry = zip.file('project.json');
@@ -3469,6 +3589,7 @@ async function onPsdFileChosen(e) {
   history?.detach();
   try {
     teardownActiveTool();
+    clearPixelSelectionOverlay();
     if (maskPainter.value) cancelMaskPaint();
     if (cropSession.value) cancelCrop();
     const imported = await importPsdLocally(file, localProjectId.value);
@@ -3618,6 +3739,7 @@ onBeforeUnmount(() => {
   clearTimeout(autosaveTimer);
   history?.detach();
   penTool?.stop();
+  clearPixelSelectionOverlay();
   fabricCanvasRaw?.dispose();
   window.removeEventListener('mousemove', onPanMove);
   window.removeEventListener('mouseup', onPanEnd);

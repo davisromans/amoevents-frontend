@@ -280,8 +280,18 @@ export function paintBucketAt(fabricImg, scenePoint, { color = '#111827', tolera
 }
 
 export function createMagicWandSelection(fabricImg, scenePoint, { tolerance = 28 } = {}) {
-  const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
-  const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
+  const element = fabricImg.getElement();
+  const sourceWidth = element.naturalWidth || element.width;
+  const sourceHeight = element.naturalHeight || element.height;
+  const cropX = Math.max(0, Math.min(sourceWidth - 1, Math.round(fabricImg.cropX || 0)));
+  const cropY = Math.max(0, Math.min(sourceHeight - 1, Math.round(fabricImg.cropY || 0)));
+  const width = Math.max(1, Math.min(sourceWidth - cropX, Math.round(fabricImg.width || sourceWidth)));
+  const height = Math.max(1, Math.min(sourceHeight - cropY, Math.round(fabricImg.height || sourceHeight)));
+  const canvas = window.document.createElement('canvas'); canvas.width = width; canvas.height = height;
+  canvas.getContext('2d').drawImage(element, cropX, cropY, width, height, 0, 0, width, height);
+  const ctx = canvas.getContext('2d');
+  const sourcePoint = sceneToImagePixel(fabricImg, scenePoint);
+  const x = sourcePoint.x - cropX, y = sourcePoint.y - cropY;
   const sx = Math.max(0, Math.min(canvas.width - 1, Math.round(x)));
   const sy = Math.max(0, Math.min(canvas.height - 1, Math.round(y)));
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const data = image.data;
@@ -313,7 +323,13 @@ export function magicWandAt(fabricImg, scenePoint, options = {}) {
   const result = createMagicWandSelection(fabricImg, scenePoint, options);
   const source = ensureLiveCanvas(fabricImg); const ctx = source.getContext('2d');
   const image = ctx.getImageData(0, 0, source.width, source.height);
-  for (let p = 0; p < result.selected.length; p += 1) if (!result.selected[p]) image.data[p * 4 + 3] = 0;
+  const cropX = Math.max(0, Math.round(fabricImg.cropX || 0));
+  const cropY = Math.max(0, Math.round(fabricImg.cropY || 0));
+  for (let y = 0; y < result.height; y += 1) for (let x = 0; x < result.width; x += 1) {
+    if (result.selected[y * result.width + x]) continue;
+    const sourcePixel = ((y + cropY) * source.width + x + cropX) * 4;
+    image.data[sourcePixel + 3] = 0;
+  }
   ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
   return result;
 }
