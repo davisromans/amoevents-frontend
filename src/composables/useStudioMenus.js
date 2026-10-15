@@ -4,8 +4,8 @@ import { rebuildFilterStack, toggleGalleryFilter } from '@/utils/filtersGallery'
 
 // Photoshop-style menu bar for the Template Studio. The Studio passes in its
 // state and existing actions (ctx); everything is plain config consumed by
-// StudioMenuBar.vue. Items marked `soon` are on the roadmap and render
-// disabled so the menu already shows the full Photoshop surface.
+// StudioMenuBar.vue. Every visible command is wired to an editor action;
+// disabled commands only reflect an incompatible current selection.
 export function useStudioMenus(ctx) {
   const c = () => ctx.canvas();
   const sel = () => ctx.selected.value || [];
