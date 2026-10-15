@@ -567,6 +567,7 @@ export async function loadDocument(canvas, document, { resolveAssetUrl }) {
 function fabricToLayer(obj) {
   const data = obj.get('data') || {};
   const preserved = clonePlain(data.sourceLayer || {});
+  const baseStyle = data.layerEffectBase || {};
   delete preserved.children;
   const explicitEffects = normalizeLayerEffects(data.layerEffects || []);
   const preservedEffects = explicitEffects.length ? explicitEffects : (preserved.effects || []).filter((effect) => !['dropShadow', 'outerGlow'].includes(effect?.type));
@@ -612,8 +613,8 @@ function fabricToLayer(obj) {
       ...base, type: 'text', text: obj.text,
       textMode: obj.type === 'textbox' ? 'box' : 'point',
       fontFamily: obj.fontFamily, fontSize: obj.fontSize, fontWeight: obj.fontWeight,
-      fontStyle: obj.fontStyle, fill: serializeFill(obj.fill), align: obj.textAlign,
-      stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
+      fontStyle: obj.fontStyle, fill: serializeFill(baseStyle.fill ?? obj.fill), align: obj.textAlign,
+      stroke: baseStyle.stroke ?? obj.stroke ?? null, strokeWidth: baseStyle.strokeWidth ?? obj.strokeWidth ?? 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
       textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
@@ -652,13 +653,13 @@ function fabricToLayer(obj) {
     };
   }
   if (obj.type === 'rect') {
-    return { ...base, type: 'rect', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth, strokeDashArray: obj.strokeDashArray, rx: obj.rx, ry: obj.ry };
+    return { ...base, type: 'rect', fill: serializeFill(baseStyle.fill ?? obj.fill), stroke: baseStyle.stroke ?? obj.stroke, strokeWidth: baseStyle.strokeWidth ?? obj.strokeWidth, strokeDashArray: obj.strokeDashArray, rx: obj.rx, ry: obj.ry };
   }
   if (obj.type === 'ellipse') {
-    return { ...base, type: 'ellipse', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth };
+    return { ...base, type: 'ellipse', fill: serializeFill(baseStyle.fill ?? obj.fill), stroke: baseStyle.stroke ?? obj.stroke, strokeWidth: baseStyle.strokeWidth ?? obj.strokeWidth };
   }
   if (obj.type === 'path') {
-    return { ...base, type: 'path', fill: serializeFill(obj.fill), stroke: obj.stroke, strokeWidth: obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
+    return { ...base, type: 'path', fill: serializeFill(baseStyle.fill ?? obj.fill), stroke: baseStyle.stroke ?? obj.stroke, strokeWidth: baseStyle.strokeWidth ?? obj.strokeWidth, pathData: obj.path?.map((p) => p.join(' ')).join(' ') };
   }
   if (obj.type === 'group') {
     return {
