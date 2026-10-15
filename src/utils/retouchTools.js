@@ -250,7 +250,7 @@ export function paintBucketAt(fabricImg, scenePoint, { color = '#111827', tolera
   ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
 }
 
-export function magicWandAt(fabricImg, scenePoint, { tolerance = 28 } = {}) {
+export function createMagicWandSelection(fabricImg, scenePoint, { tolerance = 28 } = {}) {
   const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
   const { x, y } = sceneToImagePixel(fabricImg, scenePoint);
   const sx = Math.max(0, Math.min(canvas.width - 1, Math.round(x)));
@@ -267,10 +267,26 @@ export function magicWandAt(fabricImg, scenePoint, { tolerance = 28 } = {}) {
     if (px > 0) stack.push(p - 1); if (px < canvas.width - 1) stack.push(p + 1);
     if (py > 0) stack.push(p - canvas.width); if (py < canvas.height - 1) stack.push(p + canvas.width);
   }
-  // The selected contiguous region becomes the retained image area. This is
-  // equivalent to selecting then adding a reveal-selection mask.
-  for (let p = 0; p < selected.length; p += 1) if (!selected[p]) data[p * 4 + 3] = 0;
+  const mask = window.document.createElement('canvas'); mask.width = canvas.width; mask.height = canvas.height;
+  const maskCtx = mask.getContext('2d'); const maskImage = maskCtx.createImageData(mask.width, mask.height);
+  let count = 0;
+  for (let p = 0; p < selected.length; p += 1) {
+    const alpha = selected[p] ? 255 : 0;
+    if (alpha) count += 1;
+    const i = p * 4;
+    maskImage.data[i] = 255; maskImage.data[i + 1] = 255; maskImage.data[i + 2] = 255; maskImage.data[i + 3] = alpha;
+  }
+  maskCtx.putImageData(maskImage, 0, 0);
+  return { mask, selected, width: canvas.width, height: canvas.height, count };
+}
+
+export function magicWandAt(fabricImg, scenePoint, options = {}) {
+  const result = createMagicWandSelection(fabricImg, scenePoint, options);
+  const source = ensureLiveCanvas(fabricImg); const ctx = source.getContext('2d');
+  const image = ctx.getImageData(0, 0, source.width, source.height);
+  for (let p = 0; p < result.selected.length; p += 1) if (!result.selected[p]) image.data[p * 4 + 3] = 0;
   ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
+  return result;
 }
 
 export function liquifyPushAt(fabricImg, fromScene, toScene, { brushSize = 80, strength = 0.65 } = {}) {

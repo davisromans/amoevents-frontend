@@ -194,7 +194,7 @@ export function useStudioMenus(ctx) {
   }
   const selectable = () => c().getObjects().filter((o) => !o.get('data')?.locked && o.visible !== false);
   function selectAll() { selectObjects(selectable()); }
-  function deselect() { selectObjects([]); }
+  function deselect() { selectObjects([]); ctx.clearPixelSelection?.(); }
   function selectInverse() { const cur = new Set(sel()); selectObjects(selectable().filter((o) => !cur.has(o))); }
   function selectSimilar() { const t = one()?.type; selectObjects(selectable().filter((o) => o.type === t)); }
   function selectColorRange() {
