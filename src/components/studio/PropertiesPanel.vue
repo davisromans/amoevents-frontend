@@ -502,6 +502,7 @@ const layerEffects = computed(() => normalizeLayerEffects(obj.value?.get('data')
 
 function commitLayerEffects(next) {
   applyLayerEffectStack(obj.value, next);
+  if (obj.value.type === 'image') rebuildFilterStack(obj.value);
   obj.value.setCoords();
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target: obj.value });

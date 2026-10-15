@@ -9,10 +9,8 @@ import * as fabric from 'fabric';
 // Fabric has no geometric-distortion filter built in, so it's written as
 // a real WebGL fragment shader subclassing Fabric's BaseFilter.
 //
-// Honest scope note: Ripple and Pinch would follow the exact same
-// technique as Twirl (a fragment shader remapping UV coordinates before
-// sampling) but aren't written yet — flagging rather than pretending the
-// "distort" category is fully covered.
+// Ripple, Pinch and Spherize use the same CPU/WebGL-safe radial remapping
+// contract below so preview and saved server output stay aligned.
 
 const KERNELS = {
   sharpen: [0, -1, 0, -1, 5, -1, 0, -1, 0],
@@ -237,6 +235,12 @@ export function rebuildFilterStack(obj) {
     if (!entry) continue;
     filters.push(entry.make(entry.param ? value : undefined));
   }
+
+  const overlay = [...(data.layerEffects || [])].reverse().find((effect) => effect?.type === 'colorOverlay' && effect.enabled !== false);
+  if (overlay) filters.push(new fabric.filters.BlendColor({
+    color: overlay.color || '#000000', mode: 'tint',
+    alpha: Math.max(0, Math.min(1, Number(overlay.opacity ?? 1))),
+  }));
 
   obj.filters = filters;
   obj.applyFilters();

@@ -24,13 +24,24 @@ export function normalizeLayerEffects(effects = []) {
 export function applyLayerEffectStack(object, effects = []) {
   const stack = normalizeLayerEffects(effects);
   const data = object.get('data') || {};
-  object.set('data', { ...data, layerEffects: stack, outerGlow: stack.some((effect) => effect.type === 'outerGlow' && effect.enabled) });
+  const hasVisualStyle = stack.some((effect) => ['stroke', 'colorOverlay'].includes(effect.type) && effect.enabled);
+  const layerEffectBase = data.layerEffectBase || (hasVisualStyle ? {
+    fill: object.fill,
+    stroke: object.stroke,
+    strokeWidth: object.strokeWidth,
+    paintFirst: object.paintFirst,
+  } : null);
+  object.set('data', { ...data, layerEffects: stack, layerEffectBase, outerGlow: stack.some((effect) => effect.type === 'outerGlow' && effect.enabled) });
 
   const stroke = [...stack].reverse().find((effect) => effect.type === 'stroke' && effect.enabled);
   const overlay = [...stack].reverse().find((effect) => effect.type === 'colorOverlay' && effect.enabled);
   const shadows = stack.filter((effect) => ['dropShadow', 'outerGlow'].includes(effect.type) && effect.enabled);
   if (stroke) object.set({ stroke: withAlpha(stroke.color, stroke.opacity), strokeWidth: Math.max(0, Number(stroke.size) || 0), paintFirst: 'stroke' });
-  if (overlay && ['rect', 'ellipse', 'path', 'textbox', 'text', 'i-text'].includes(object.type)) object.set('fill', withAlpha(overlay.color, overlay.opacity));
+  else if (layerEffectBase) object.set({ stroke: layerEffectBase.stroke, strokeWidth: layerEffectBase.strokeWidth, paintFirst: layerEffectBase.paintFirst });
+  if (['rect', 'ellipse', 'path', 'textbox', 'text', 'i-text'].includes(object.type)) {
+    if (overlay) object.set('fill', withAlpha(overlay.color, overlay.opacity));
+    else if (layerEffectBase) object.set('fill', layerEffectBase.fill);
+  }
 
   object.__amoEffectStack = shadows;
   if (!object.__amoBaseRender) {
