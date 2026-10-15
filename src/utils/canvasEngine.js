@@ -8,6 +8,7 @@
 // share the exact same document shape.
 import * as fabric from 'fabric';
 import { rebuildFilterStack } from './filtersGallery';
+import { applyLayerEffectStack, normalizeLayerEffects } from './layerEffects';
 
 const BLEND_MODE_TO_COMPOSITE = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -269,14 +270,7 @@ function sourceLayerMetadata(layer) {
 }
 
 function applyLayerEffects(fabricObj, layer) {
-  const effect = (layer.effects || []).find((item) => item?.type === 'dropShadow' || item?.type === 'outerGlow');
-  if (!effect) return;
-  fabricObj.set('shadow', new fabric.Shadow({
-    color: effect.color || 'rgba(0,0,0,0.5)',
-    blur: effect.blur || 0,
-    offsetX: effect.type === 'outerGlow' ? 0 : (effect.offsetX || 0),
-    offsetY: effect.type === 'outerGlow' ? 0 : (effect.offsetY || 0),
-  }));
+  applyLayerEffectStack(fabricObj, layer.effects || []);
 }
 
 function applyCommon(fabricObj, layer, { skipPosition } = {}) {
@@ -313,6 +307,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
     textWarp: clonePlain(layer.textWarp || null),
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
+    layerEffects: normalizeLayerEffects(layer.effects || []),
   });
   applyLayerEffects(fabricObj, layer);
 }
@@ -553,8 +548,9 @@ function fabricToLayer(obj) {
   const data = obj.get('data') || {};
   const preserved = clonePlain(data.sourceLayer || {});
   delete preserved.children;
-  const preservedEffects = (preserved.effects || []).filter((effect) => !['dropShadow', 'outerGlow'].includes(effect?.type));
-  if (obj.shadow) {
+  const explicitEffects = normalizeLayerEffects(data.layerEffects || []);
+  const preservedEffects = explicitEffects.length ? explicitEffects : (preserved.effects || []).filter((effect) => !['dropShadow', 'outerGlow'].includes(effect?.type));
+  if (!explicitEffects.length && obj.shadow) {
     preservedEffects.push({
       type: data.outerGlow ? 'outerGlow' : 'dropShadow',
       color: obj.shadow.color || 'rgba(0,0,0,0.5)',
