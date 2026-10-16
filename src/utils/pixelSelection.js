@@ -33,6 +33,28 @@ export function createFullSelection(fabricImage) {
   return { mask, width: mask.width, height: mask.height, count: mask.width * mask.height };
 }
 
+export function createRectangleSelection(width, height, start, end) {
+  const mask = makeMask(width, height);
+  const left = Math.max(0, Math.min(width, Math.floor(Math.min(start.x, end.x))));
+  const top = Math.max(0, Math.min(height, Math.floor(Math.min(start.y, end.y))));
+  const right = Math.max(0, Math.min(width, Math.ceil(Math.max(start.x, end.x))));
+  const bottom = Math.max(0, Math.min(height, Math.ceil(Math.max(start.y, end.y))));
+  if (right > left && bottom > top) mask.getContext('2d').fillRect(left, top, right - left, bottom - top);
+  return { mask, width: mask.width, height: mask.height, count: Math.max(0, right - left) * Math.max(0, bottom - top) };
+}
+
+export function createPolygonSelection(width, height, points = []) {
+  const mask = makeMask(width, height);
+  if (points.length < 3) return { mask, width: mask.width, height: mask.height, count: 0 };
+  const context = mask.getContext('2d');
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+  context.closePath();
+  context.fill();
+  return { mask, width: mask.width, height: mask.height, count: countSelectedPixels(mask) };
+}
+
 export function createColorRangeSelection(fabricImage, color, { tolerance = 32, includeTransparent = false } = {}) {
   const source = imagePixels(fabricImage);
   const pixels = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;

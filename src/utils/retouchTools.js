@@ -215,12 +215,23 @@ export function paintBrushTipAt(fabricImg, scenePoint, tipCanvas, { brushSize = 
 // colour inward from the intact boundary over several passes, averaging the
 // nearest opaque neighbours. This is intentionally offline and never uploads
 // the customer's artwork to a third-party AI service.
-export function contentAwareFillTransparent(fabricImg, { maxPasses = 96 } = {}) {
+export function contentAwareFillTransparent(fabricImg, { maxPasses = 96, regionMask = null } = {}) {
   const canvas = ensureLiveCanvas(fabricImg); const ctx = canvas.getContext('2d');
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height); const { data } = image;
   const pending = new Uint8Array(canvas.width * canvas.height);
+  const region = regionMask?.getContext('2d').getImageData(0, 0, regionMask.width, regionMask.height).data || null;
+  const cropX = Math.max(0, Math.round(fabricImg.cropX || 0));
+  const cropY = Math.max(0, Math.round(fabricImg.cropY || 0));
   let remaining = 0;
-  for (let p = 0; p < pending.length; p += 1) if (data[p * 4 + 3] < 8) { pending[p] = 1; remaining += 1; }
+  for (let p = 0; p < pending.length; p += 1) {
+    if (data[p * 4 + 3] >= 8) continue;
+    if (region) {
+      const x = p % canvas.width, y = Math.floor(p / canvas.width);
+      const mx = x - cropX, my = y - cropY;
+      if (mx < 0 || my < 0 || mx >= regionMask.width || my >= regionMask.height || region[(my * regionMask.width + mx) * 4 + 3] < 8) continue;
+    }
+    pending[p] = 1; remaining += 1;
+  }
   const originalRemaining = remaining;
   for (let pass = 0; pass < maxPasses && remaining; pass += 1) {
     const updates = [];
@@ -242,6 +253,60 @@ export function contentAwareFillTransparent(fabricImg, { maxPasses = 96 } = {}) 
   }
   ctx.putImageData(image, 0, 0); fabricImg.dirty = true;
   return { filled: originalRemaining - remaining, remaining };
+}
+
+export function fillImageSelection(fabricImg, mask, color = '#111827') {
+  const canvas = ensureLiveCanvas(fabricImg);
+  const context = canvas.getContext('2d');
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const selection = mask.getContext('2d').getImageData(0, 0, mask.width, mask.height).data;
+  const rgba = new fabric.Color(color).getSource();
+  const replacement = [rgba[0], rgba[1], rgba[2], Math.round((rgba[3] ?? 1) * 255)];
+  const cropX = Math.max(0, Math.round(fabricImg.cropX || 0));
+  const cropY = Math.max(0, Math.round(fabricImg.cropY || 0));
+  let filled = 0;
+  for (let y = 0; y < mask.height; y += 1) for (let x = 0; x < mask.width; x += 1) {
+    const selectionAlpha = selection[(y * mask.width + x) * 4 + 3] / 255;
+    if (selectionAlpha <= 0) continue;
+    const targetX = x + cropX, targetY = y + cropY;
+    if (targetX < 0 || targetY < 0 || targetX >= canvas.width || targetY >= canvas.height) continue;
+    const index = (targetY * canvas.width + targetX) * 4;
+    const sourceAlpha = image.data[index + 3] / 255;
+    const paintAlpha = (replacement[3] / 255) * selectionAlpha;
+    const outputAlpha = paintAlpha + sourceAlpha * (1 - paintAlpha);
+    if (outputAlpha > 0) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        image.data[index + channel] = (replacement[channel] * paintAlpha + image.data[index + channel] * sourceAlpha * (1 - paintAlpha)) / outputAlpha;
+      }
+      image.data[index + 3] = outputAlpha * 255;
+    }
+    filled += 1;
+  }
+  context.putImageData(image, 0, 0);
+  fabricImg.dirty = true;
+  return { filled };
+}
+
+export function clearImageSelection(fabricImg, mask) {
+  const canvas = ensureLiveCanvas(fabricImg);
+  const context = canvas.getContext('2d');
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const selection = mask.getContext('2d').getImageData(0, 0, mask.width, mask.height).data;
+  const cropX = Math.max(0, Math.round(fabricImg.cropX || 0));
+  const cropY = Math.max(0, Math.round(fabricImg.cropY || 0));
+  let cleared = 0;
+  for (let y = 0; y < mask.height; y += 1) for (let x = 0; x < mask.width; x += 1) {
+    const selectionAlpha = selection[(y * mask.width + x) * 4 + 3] / 255;
+    if (selectionAlpha <= 0) continue;
+    const targetX = x + cropX, targetY = y + cropY;
+    if (targetX < 0 || targetY < 0 || targetX >= canvas.width || targetY >= canvas.height) continue;
+    const alphaIndex = (targetY * canvas.width + targetX) * 4 + 3;
+    image.data[alphaIndex] *= 1 - selectionAlpha;
+    cleared += 1;
+  }
+  context.putImageData(image, 0, 0);
+  fabricImg.dirty = true;
+  return { cleared };
 }
 
 export function sampleColorAt(fabricImg, scenePoint) {

@@ -57,6 +57,10 @@ export class HistoryStack {
 
   _snapshot() {
     const canvasState = this.canvas.toObject(['data']);
+    const removeTransientObjects = (objects = []) => objects
+      .filter((object) => !object?.data?.selectionOverlay && !object?.data?.pathEditorControl)
+      .map((object) => object?.objects ? { ...object, objects: removeTransientObjects(object.objects) } : object);
+    canvasState.objects = removeTransientObjects(canvasState.objects);
     return JSON.stringify(this.getExtra ? { canvas: canvasState, extra: this.getExtra() } : canvasState);
   }
 
