@@ -60,6 +60,15 @@ export function useStudioMenus(ctx) {
     target.set('data', { ...data, galleryFilters: { ...(data.galleryFilters || {}), replaceColor: { from, to, tolerance } } });
     rebuildFilterStack(target); commit(target);
   }
+  function gradientMap() {
+    const target = one(); if (!target) return;
+    const current = target.get('data')?.galleryFilters?.gradientMap || {};
+    const from = window.prompt('Shadow colour', current.from || '#111827'); if (!from) return;
+    const to = window.prompt('Highlight colour', current.to || '#D9B45E'); if (!to) return;
+    const data = target.get('data') || {};
+    target.set('data', { ...data, galleryFilters: { ...(data.galleryFilters || {}), gradientMap: { from, to } } });
+    rebuildFilterStack(target); commit(target);
+  }
 
   // ── Image > Canvas Size / Image Size / Rotate Canvas ──────────────
   function anchorOffset(anchor, dw, dh) {
@@ -71,6 +80,10 @@ export function useStudioMenus(ctx) {
     const d = doc();
     const { dx, dy } = anchorOffset(anchor, width - d.width, height - d.height);
     for (const o of c().getObjects()) { o.set({ left: (o.left || 0) + dx, top: (o.top || 0) + dy }); o.setCoords(); }
+    d.guides = (d.guides || []).map((guide) => ({
+      ...guide,
+      position: guide.position + (guide.axis === 'vertical' ? dx : dy),
+    })).filter((guide) => guide.position >= 0 && guide.position <= (guide.axis === 'vertical' ? width : height));
     d.width = width; d.height = height;
     ctx.applyZoom();
     commit();
@@ -84,12 +97,14 @@ export function useStudioMenus(ctx) {
       o.setPositionByOrigin(new fabric.Point(p.x * sx, p.y * sy), 'center', 'center');
       o.setCoords();
     }
+    d.guides = (d.guides || []).map((guide) => ({ ...guide, position: guide.position * (guide.axis === 'vertical' ? sx : sy) }));
     d.width = width; d.height = height;
     ctx.applyZoom();
     commit();
   }
   function rotateCanvas(deg) {
     const d = doc();
+    const oldWidth = d.width, oldHeight = d.height;
     const swap = Math.abs(deg) % 180 === 90;
     const nw = swap ? d.height : d.width, nh = swap ? d.width : d.height;
     const pivot = new fabric.Point(d.width / 2, d.height / 2);
@@ -100,6 +115,18 @@ export function useStudioMenus(ctx) {
       o.setPositionByOrigin(new fabric.Point(p.x - pivot.x + nw / 2, p.y - pivot.y + nh / 2), 'center', 'center');
       o.setCoords();
     }
+    d.guides = (d.guides || []).map((guide) => {
+      if (deg === 180 || deg === -180) return {
+        ...guide,
+        position: guide.axis === 'vertical' ? oldWidth - guide.position : oldHeight - guide.position,
+      };
+      if (deg === 90 || deg === -270) return guide.axis === 'vertical'
+        ? { ...guide, axis: 'horizontal', position: guide.position }
+        : { ...guide, axis: 'vertical', position: oldHeight - guide.position };
+      return guide.axis === 'vertical'
+        ? { ...guide, axis: 'horizontal', position: oldWidth - guide.position }
+        : { ...guide, axis: 'vertical', position: guide.position };
+    });
     d.width = nw; d.height = nh;
     ctx.applyZoom();
     commit();
@@ -113,17 +140,27 @@ export function useStudioMenus(ctx) {
       o.setPositionByOrigin(new fabric.Point(axis === 'h' ? d.width - p.x : p.x, axis === 'v' ? d.height - p.y : p.y), 'center', 'center');
       o.setCoords();
     }
+    d.guides = (d.guides || []).map((guide) => {
+      if (axis === 'h' && guide.axis === 'vertical') return { ...guide, position: d.width - guide.position };
+      if (axis === 'v' && guide.axis === 'horizontal') return { ...guide, position: d.height - guide.position };
+      return guide;
+    });
     commit();
   }
   function fitCanvasToObjects({ includeCanvas = false } = {}) {
-    const objects = c().getObjects().filter((o) => o.visible !== false);
-    if (!objects.length) return;
-    const rects = objects.map((o) => o.getBoundingRect());
+    const allObjects = c().getObjects();
+    const visibleObjects = allObjects.filter((o) => o.visible !== false);
+    if (!visibleObjects.length) return;
+    const rects = visibleObjects.map((o) => o.getBoundingRect());
     const left = Math.floor(Math.min(includeCanvas ? 0 : Infinity, ...rects.map((r) => r.left)));
     const top = Math.floor(Math.min(includeCanvas ? 0 : Infinity, ...rects.map((r) => r.top)));
     const right = Math.ceil(Math.max(includeCanvas ? doc().width : -Infinity, ...rects.map((r) => r.left + r.width)));
     const bottom = Math.ceil(Math.max(includeCanvas ? doc().height : -Infinity, ...rects.map((r) => r.top + r.height)));
-    for (const o of objects) { o.set({ left: (o.left || 0) - left, top: (o.top || 0) - top }); o.setCoords(); }
+    for (const o of allObjects) { o.set({ left: (o.left || 0) - left, top: (o.top || 0) - top }); o.setCoords(); }
+    doc().guides = (doc().guides || []).map((guide) => ({
+      ...guide,
+      position: guide.position - (guide.axis === 'vertical' ? left : top),
+    })).filter((guide) => guide.position >= 0 && guide.position <= (guide.axis === 'vertical' ? right - left : bottom - top));
     doc().width = Math.max(1, right - left); doc().height = Math.max(1, bottom - top); ctx.applyZoom(); commit();
   }
 
@@ -312,6 +349,19 @@ export function useStudioMenus(ctx) {
     const effects = normalizeLayerEffects(target.get('data')?.layerEffects || target.get('data')?.sourceLayer?.effects || []);
     const currentIndex = effects.findIndex((effect) => effect.type === type);
     const current = currentIndex >= 0 ? effects[currentIndex] : { ...EFFECT_DEFAULTS[type], id: `effect-${type}-${Date.now()}` };
+    if (type === 'gradientOverlay') {
+      const from = window.prompt('Gradient start colour', current.from || EFFECT_DEFAULTS.gradientOverlay.from); if (from == null) return;
+      const to = window.prompt('Gradient end colour', current.to || EFFECT_DEFAULTS.gradientOverlay.to); if (to == null) return;
+      const opacityInput = window.prompt('Gradient opacity from 0 to 100', String(Math.round((current.opacity ?? 1) * 100))); if (opacityInput == null) return;
+      const angleInput = window.prompt('Gradient angle from -180 to 180', String(current.angle ?? 0)); if (angleInput == null) return;
+      const opacity = Math.max(0, Math.min(1, Number(opacityInput) / 100));
+      const angle = Math.max(-180, Math.min(180, Number(angleInput)));
+      if (!Number.isFinite(opacity) || !Number.isFinite(angle)) { ctx.toast('Enter a valid opacity and angle.'); return; }
+      const next = { ...current, from, to, opacity, angle, enabled: true };
+      const stack = currentIndex >= 0 ? effects.map((effect, index) => index === currentIndex ? next : effect) : [...effects, next];
+      applyLayerEffectStack(target, stack); if (target.type === 'image') rebuildFilterStack(target);
+      target.setCoords(); commit(target); ctx.rightPanelTab.value = 'properties'; return;
+    }
     const color = window.prompt(`${current.name} colour`, current.color || '#000000'); if (color == null) return;
     const opacityValue = window.prompt(`${current.name} opacity from 0 to 100`, String(Math.round((current.opacity ?? 1) * 100))); if (opacityValue == null) return;
     const opacity = Math.max(0, Math.min(1, Number(opacityValue) / 100));
@@ -329,29 +379,28 @@ export function useStudioMenus(ctx) {
       next.offsetY = Math.max(-500, Math.min(500, Number(offsetY)));
       if (!Number.isFinite(next.offsetX) || !Number.isFinite(next.offsetY)) { ctx.toast('Enter valid shadow offsets.'); return; }
     }
+    if (type === 'innerShadow') {
+      const sizeInput = window.prompt('Inner edge size', String(current.size ?? 6)); if (sizeInput == null) return;
+      next.size = Math.max(0, Math.min(100, Number(sizeInput)));
+      if (!Number.isFinite(next.size)) { ctx.toast('Enter a valid inner edge size.'); return; }
+    }
+    if (type === 'bevelEmboss') {
+      const shadowColor = window.prompt('Bevel shadow colour', current.shadowColor || '#000000'); if (shadowColor == null) return;
+      const sizeInput = window.prompt('Bevel size', String(current.size ?? 3)); if (sizeInput == null) return;
+      const angleInput = window.prompt('Light angle from -180 to 180', String(current.angle ?? 45)); if (angleInput == null) return;
+      const shadowOpacityInput = window.prompt('Shadow opacity from 0 to 100', String(Math.round((current.shadowOpacity ?? 0.55) * 100))); if (shadowOpacityInput == null) return;
+      next.shadowColor = shadowColor;
+      next.size = Math.max(0, Math.min(100, Number(sizeInput)));
+      next.angle = Math.max(-180, Math.min(180, Number(angleInput)));
+      next.shadowOpacity = Math.max(0, Math.min(1, Number(shadowOpacityInput) / 100));
+      if (![next.size, next.angle, next.shadowOpacity].every(Number.isFinite)) { ctx.toast('Enter valid bevel settings.'); return; }
+    }
     const stack = currentIndex >= 0 ? effects.map((effect, index) => index === currentIndex ? next : effect) : [...effects, next];
     applyLayerEffectStack(target, stack);
     if (target.type === 'image') rebuildFilterStack(target);
     target.setCoords(); commit(target);
     ctx.rightPanelTab.value = 'properties';
     ctx.toast(`${current.name} applied. Its controls are available in Properties.`);
-  }
-  function applyInnerShadow() {
-    const target = one(); if (!target) return;
-    const size = Math.max(1, Math.min(40, Number(window.prompt('Inner edge size', '6')) || 6));
-    const color = window.prompt('Inner shadow colour', 'rgba(0,0,0,0.45)') || 'rgba(0,0,0,0.45)';
-    target.set({ stroke: color, strokeWidth: size * 2, paintFirst: 'fill' });
-    target.set('data', { ...(target.get('data') || {}), layerStylePreset: { type: 'innerShadow', size, color } });
-    target.setCoords(); commit(target);
-    ctx.toast('Inner shadow applied. Stroke width and colour remain editable in Properties.');
-  }
-  function applyBevelEmboss() {
-    const target = one(); if (!target) return;
-    const size = Math.max(1, Math.min(30, Number(window.prompt('Bevel size', '3')) || 3));
-    target.set({ stroke: 'rgba(255,255,255,0.72)', strokeWidth: size, paintFirst: 'stroke', shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.55)', blur: size * 1.5, offsetX: size, offsetY: size }) });
-    target.set('data', { ...(target.get('data') || {}), outerGlow: false, layerStylePreset: { type: 'bevelEmboss', size } });
-    target.setCoords(); commit(target);
-    ctx.toast('Bevel & Emboss applied. Highlight and depth remain editable in Properties.');
   }
   function warpText() {
     const target = one();
@@ -436,6 +485,10 @@ export function useStudioMenus(ctx) {
     spherize: [{ key: 'spherize', label: 'Amount', kind: 'gallery', min: -1, max: 1, default: 0.35 }],
     reduceNoise: [{ key: 'blur', label: 'Smoothing', kind: 'gallery', min: 0, max: 0.18, default: 0.035 }],
     radialBlur: [{ key: 'radialBlur', label: 'Amount', kind: 'gallery', min: 0, max: 0.8, default: 0.18 }],
+    motionBlur: [
+      { key: 'motionBlur', field: 'amount', label: 'Distance', kind: 'galleryObject', min: 0, max: 0.25, step: 0.005, default: 0.03, neutral: 0 },
+      { key: 'motionBlur', field: 'angle', label: 'Angle', kind: 'galleryObject', min: -180, max: 180, step: 1, default: 0, neutral: 0 },
+    ],
     levels: [
       { key: 'levelsBlack', label: 'Black point', kind: 'adj', min: 0, max: 254, step: 1, default: 0, neutral: 0 },
       { key: 'levelsGamma', label: 'Midtone gamma', kind: 'adj', min: 0.1, max: 3, step: 0.01, default: 1, neutral: 1 },
@@ -536,7 +589,7 @@ export function useStudioMenus(ctx) {
           { label: 'Sepia', disabled: notImage, checked: hasFilter('sepia'), action: () => toggleFilter('sepia') },
           { label: 'Posterize…', disabled: notImage, action: () => adjust('Posterize', ADJ.posterize) },
           { label: 'Threshold…', disabled: notImage, action: () => adjust('Threshold', ADJ.threshold) },
-          { label: 'Gradient Map', disabled: notImage, checked: hasFilter('gradientMap'), action: () => toggleFilter('gradientMap') },
+          { label: 'Gradient Map…', disabled: notImage, checked: hasFilter('gradientMap'), action: gradientMap },
           { label: 'Replace Color…', disabled: notImage, action: replaceColor },
           SEP,
           { label: 'Clear All Adjustments', disabled: notImage, action: clearAllFilters },
@@ -599,9 +652,9 @@ export function useStudioMenus(ctx) {
           { label: 'Stroke…', disabled: notOne, action: editStroke },
           { label: 'Outer Glow…', disabled: notOne, action: () => editLayerEffect('outerGlow') },
           { label: 'Color Overlay…', disabled: notOne, action: () => editLayerEffect('colorOverlay') },
-          { label: 'Inner Shadow…', disabled: notOne, action: applyInnerShadow },
-          { label: 'Gradient Overlay…', disabled: notOne, action: applyGradientOverlay },
-          { label: 'Bevel & Emboss…', disabled: notOne, action: applyBevelEmboss },
+          { label: 'Inner Shadow…', disabled: notOne, checked: hasLayerEffect('innerShadow'), action: () => editLayerEffect('innerShadow') },
+          { label: 'Gradient Overlay…', disabled: notOne, checked: hasLayerEffect('gradientOverlay'), action: () => editLayerEffect('gradientOverlay') },
+          { label: 'Bevel & Emboss…', disabled: notOne, checked: hasLayerEffect('bevelEmboss'), action: () => editLayerEffect('bevelEmboss') },
         ] },
         SEP,
         { label: 'Create Clipping Mask', shortcut: '⌥⌘G', disabled: () => sel().length < 2, action: () => ctx.onClipMask(sel()) },
@@ -690,7 +743,7 @@ export function useStudioMenus(ctx) {
         { heading: 'Image layer must be selected' },
         { label: 'Blur', items: [
           { label: 'Gaussian Blur…', disabled: notImage, action: () => adjust('Gaussian Blur', ADJ.blur) },
-          { label: 'Motion Blur', disabled: notImage, checked: hasFilter('motionBlur'), action: () => toggleFilter('motionBlur') },
+          { label: 'Motion Blur…', disabled: notImage, checked: hasFilter('motionBlur'), action: () => adjust('Motion Blur', ADJ.motionBlur) },
           { label: 'Radial Blur…', disabled: notImage, action: () => adjust('Radial Blur', ADJ.radialBlur) },
           { label: 'Lens Blur…', disabled: notImage, action: () => adjust('Lens Blur', [{ key: 'lensBlur', label: 'Radius', kind: 'gallery', min: 0, max: 1, default: 0.18 }]) },
         ] },

@@ -311,13 +311,28 @@
               <button class="btn-ghost !p-1 !text-[10px] text-red-500" title="Remove effect" @click="removeLayerEffect(effect.id)">×</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <label class="text-[10px]">Colour<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.color" @input="updateLayerEffect(effect.id, { color: $event.target.value })" /></label>
-              <label class="text-[10px]">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
+              <template v-if="effect.type === 'gradientOverlay'">
+                <label class="text-[10px]">Start<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.from" @input="updateLayerEffect(effect.id, { from: $event.target.value })" /></label>
+                <label class="text-[10px]">End<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.to" @input="updateLayerEffect(effect.id, { to: $event.target.value })" /></label>
+                <label class="text-[10px] col-span-2">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
+                <label class="text-[10px] col-span-2">Angle — {{ effect.angle }}°<input type="range" min="-180" max="180" step="1" class="w-full accent-brand-gold" :value="effect.angle" @input="updateLayerEffect(effect.id, { angle: Number($event.target.value) })" /></label>
+              </template>
+              <template v-else>
+                <label class="text-[10px]">{{ effect.type === 'bevelEmboss' ? 'Highlight' : 'Colour' }}<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.color" @input="updateLayerEffect(effect.id, { color: $event.target.value })" /></label>
+                <label class="text-[10px]">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
+              </template>
               <label v-if="effect.type === 'stroke'" class="text-[10px] col-span-2">Size — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
               <template v-if="['dropShadow','outerGlow'].includes(effect.type)">
                 <label class="text-[10px] col-span-2">Blur — {{ effect.blur }}<input type="range" min="0" max="160" class="w-full accent-brand-gold" :value="effect.blur" @input="updateLayerEffect(effect.id, { blur: Number($event.target.value) })" /></label>
                 <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset X<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetX" @input="updateLayerEffect(effect.id, { offsetX: Number($event.target.value) })" /></label>
                 <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset Y<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetY" @input="updateLayerEffect(effect.id, { offsetY: Number($event.target.value) })" /></label>
+              </template>
+              <label v-if="effect.type === 'innerShadow'" class="text-[10px] col-span-2">Inner edge — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
+              <template v-if="effect.type === 'bevelEmboss'">
+                <label class="text-[10px]">Shadow<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.shadowColor" @input="updateLayerEffect(effect.id, { shadowColor: $event.target.value })" /></label>
+                <label class="text-[10px]">Shadow opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.shadowOpacity" @input="updateLayerEffect(effect.id, { shadowOpacity: Number($event.target.value) })" /></label>
+                <label class="text-[10px] col-span-2">Size — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
+                <label class="text-[10px] col-span-2">Light angle — {{ effect.angle }}°<input type="range" min="-180" max="180" step="1" class="w-full accent-brand-gold" :value="effect.angle" @input="updateLayerEffect(effect.id, { angle: Number($event.target.value) })" /></label>
               </template>
             </div>
           </div>

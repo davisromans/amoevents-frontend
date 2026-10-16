@@ -16,7 +16,6 @@ const KERNELS = {
   sharpen: [0, -1, 0, -1, 5, -1, 0, -1, 0],
   unsharpMask: [-1, -1, -1, -1, 9, -1, -1, -1, -1],
   smartSharpen: [0, -1, 0, -1, 6, -1, 0, -1, 0],
-  motionBlur: [0, 0, 0, 0, 0, 0.2, 0.2, 0.2, 0.2, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   emboss: [-2, -1, 0, -1, 1, 1, 0, 1, 2],
   findEdges: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
 };
@@ -110,6 +109,36 @@ class OilPaintFilter extends fabric.filters.BaseFilter {
   getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord)*.4; c+=texture2D(uTexture,vTexCoord+vec2(.002,0.0))*.15; c+=texture2D(uTexture,vTexCoord-vec2(.002,0.0))*.15; c+=texture2D(uTexture,vTexCoord+vec2(0.0,.002))*.15; c+=texture2D(uTexture,vTexCoord-vec2(0.0,.002))*.15; c.rgb=floor(c.rgb*11.0+.5)/11.0; gl_FragColor=c; }`; }
   applyTo2d({ imageData }) { const { width, height, data } = imageData, src = new Uint8ClampedArray(data), step = 255 / 11; for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) { const out = (y * width + x) * 4; for (let c = 0; c < 3; c += 1) { let sum = 0, count = 0; for (let oy = -1; oy <= 1; oy += 1) for (let ox = -1; ox <= 1; ox += 1) { const sx = Math.max(0, Math.min(width - 1, x + ox)), sy = Math.max(0, Math.min(height - 1, y + oy)); sum += src[(sy * width + sx) * 4 + c]; count += 1; } data[out + c] = Math.round((sum / count) / step) * step; } } }
 }
+class MotionBlurFilter extends fabric.filters.BaseFilter {
+  static type = 'MotionBlur';
+  static defaults = { amount: 0.03, angle: 0 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec2 uDirection; varying vec2 vTexCoord; void main(){ vec4 c=vec4(0.0); for(int i=0;i<9;i++){ float t=(float(i)-4.0)/4.0; c+=texture2D(uTexture,clamp(vTexCoord+uDirection*t,0.0,1.0)); } gl_FragColor=c/9.0; }`; }
+  getUniformLocations(gl, program) { return { uDirection: gl.getUniformLocation(program, 'uDirection') }; }
+  sendUniformData(gl, uniforms) {
+    const radians = Number(this.angle || 0) * Math.PI / 180;
+    const amount = Math.max(0, Math.min(0.25, Number(this.amount) || 0));
+    gl.uniform2fv(uniforms.uDirection, new Float32Array([Math.cos(radians) * amount, Math.sin(radians) * amount]));
+  }
+  applyTo2d({ imageData }) {
+    const { width, height, data } = imageData;
+    const source = new Uint8ClampedArray(data);
+    const radians = Number(this.angle || 0) * Math.PI / 180;
+    const distance = Math.max(0, Math.min(0.25, Number(this.amount) || 0)) * Math.max(width, height);
+    const dx = Math.cos(radians) * distance, dy = Math.sin(radians) * distance;
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const output = (y * width + x) * 4;
+      const sums = [0, 0, 0, 0];
+      for (let sample = 0; sample < 9; sample += 1) {
+        const t = (sample - 4) / 4;
+        const sx = Math.max(0, Math.min(width - 1, Math.round(x + dx * t)));
+        const sy = Math.max(0, Math.min(height - 1, Math.round(y + dy * t)));
+        const input = (sy * width + sx) * 4;
+        for (let channel = 0; channel < 4; channel += 1) sums[channel] += source[input + channel];
+      }
+      for (let channel = 0; channel < 4; channel += 1) data[output + channel] = sums[channel] / 9;
+    }
+  }
+}
 class GradientMapFilter extends fabric.filters.BaseFilter {
   static type = 'GradientMap';
   static defaults = { from: '#111827', to: '#D9B45E' };
@@ -126,6 +155,35 @@ class GradientMapFilter extends fabric.filters.BaseFilter {
     for (let i = 0; i < d.length; i += 4) { const y = (d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) / 255; for (let c = 0; c < 3; c += 1) d[i + c] = lo[c] + (hi[c] - lo[c]) * y; }
   }
 }
+class GradientOverlayFilter extends fabric.filters.BaseFilter {
+  static type = 'GradientOverlay';
+  static defaults = { from: '#8B5CF6', to: '#D9B45E', opacity: 1, angle: 0 };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec3 uFrom; uniform vec3 uTo; uniform float uOpacity; uniform vec2 uDirection; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); float extent=max(abs(uDirection.x)+abs(uDirection.y),0.0001); float t=clamp(0.5+dot(vTexCoord-vec2(0.5),uDirection)/extent,0.0,1.0); vec3 overlay=mix(uFrom,uTo,t); gl_FragColor=vec4(mix(c.rgb,overlay,uOpacity),c.a); }`; }
+  getUniformLocations(gl, program) { return { uFrom: gl.getUniformLocation(program, 'uFrom'), uTo: gl.getUniformLocation(program, 'uTo'), uOpacity: gl.getUniformLocation(program, 'uOpacity'), uDirection: gl.getUniformLocation(program, 'uDirection') }; }
+  sendUniformData(gl, uniforms) {
+    const parse = (color) => new Float32Array(new fabric.Color(color).getSource().slice(0, 3).map((value) => value / 255));
+    const radians = Number(this.angle || 0) * Math.PI / 180;
+    gl.uniform3fv(uniforms.uFrom, parse(this.from)); gl.uniform3fv(uniforms.uTo, parse(this.to));
+    gl.uniform1f(uniforms.uOpacity, Math.max(0, Math.min(1, Number(this.opacity ?? 1))));
+    gl.uniform2fv(uniforms.uDirection, new Float32Array([Math.cos(radians), Math.sin(radians)]));
+  }
+  applyTo2d({ imageData }) {
+    const { width, height, data } = imageData;
+    const from = new fabric.Color(this.from).getSource(), to = new fabric.Color(this.to).getSource();
+    const opacity = Math.max(0, Math.min(1, Number(this.opacity ?? 1)));
+    const radians = Number(this.angle || 0) * Math.PI / 180;
+    const dx = Math.cos(radians), dy = Math.sin(radians), extent = Math.max(0.0001, Math.abs(dx) + Math.abs(dy));
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const px = width > 1 ? x / (width - 1) : 0.5, py = height > 1 ? y / (height - 1) : 0.5;
+      const t = Math.max(0, Math.min(1, 0.5 + ((px - 0.5) * dx + (py - 0.5) * dy) / extent));
+      const index = (y * width + x) * 4;
+      for (let channel = 0; channel < 3; channel += 1) {
+        const overlay = from[channel] + (to[channel] - from[channel]) * t;
+        data[index + channel] = data[index + channel] * (1 - opacity) + overlay * opacity;
+      }
+    }
+  }
+}
 class ReplaceColorFilter extends fabric.filters.BaseFilter {
   static type = 'ReplaceColor'; static defaults = { from: '#ffffff', to: '#D9B45E', tolerance: 40 };
   getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec3 uFrom; uniform vec3 uTo; uniform float uTolerance; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); if(distance(c.rgb,uFrom)<=uTolerance)c.rgb=uTo; gl_FragColor=c; }`; }
@@ -133,7 +191,7 @@ class ReplaceColorFilter extends fabric.filters.BaseFilter {
   sendUniformData(gl, u) { const parse = (color) => { const source = new fabric.Color(color).getSource(); return new Float32Array(source.slice(0, 3).map((value) => value / 255)); }; gl.uniform3fv(u.uFrom, parse(this.from)); gl.uniform3fv(u.uTo, parse(this.to)); gl.uniform1f(u.uTolerance, (Number(this.tolerance) || 40) / 255); }
   applyTo2d({ imageData }) { const parse = (color) => new fabric.Color(color).getSource().slice(0, 3), from = parse(this.from), to = parse(this.to), d = imageData.data, tolerance = Number(this.tolerance) || 40; for (let i = 0; i < d.length; i += 4) if (Math.hypot(d[i] - from[0], d[i + 1] - from[1], d[i + 2] - from[2]) <= tolerance) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; } }
 }
-fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
+fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(MotionBlurFilter, 'MotionBlur'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(GradientOverlayFilter, 'GradientOverlay'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
 
 // The gallery — id, label, and a factory returning a Fabric filter
 // instance for the given params. `params` are exposed to the UI as
@@ -143,7 +201,7 @@ export const FILTER_GALLERY = [
   { id: 'sharpen', label: 'Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.sharpen }) },
   { id: 'unsharpMask', label: 'Unsharp Mask', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.unsharpMask }) },
   { id: 'smartSharpen', label: 'Smart Sharpen', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.smartSharpen }) },
-  { id: 'motionBlur', label: 'Motion Blur', param: null, make: () => new fabric.filters.Convolute({ matrix: KERNELS.motionBlur }) },
+  { id: 'motionBlur', label: 'Motion Blur', param: { key: 'settings' }, panel: false, make: (value) => new MotionBlurFilter(typeof value === 'object' ? value : {}) },
   { id: 'lensBlur', label: 'Lens Blur', param: { key: 'blur', min: 0, max: 1, default: 0.18 }, make: (v) => new fabric.filters.Blur({ blur: v }) },
   { id: 'radialBlur', label: 'Radial Blur', param: { key: 'amount', min: 0, max: 0.8, default: 0.18 }, make: (v) => new RadialBlurFilter({ amount: v }) },
   { id: 'oilPaint', label: 'Oil Paint', param: null, make: () => new OilPaintFilter() },
@@ -247,11 +305,13 @@ export function rebuildFilterStack(obj) {
     filters.push(entry.make(entry.param ? value : undefined));
   }
 
-  const overlay = [...(data.layerEffects || [])].reverse().find((effect) => effect?.type === 'colorOverlay' && effect.enabled !== false);
-  if (overlay) filters.push(new fabric.filters.BlendColor({
-    color: overlay.color || '#000000', mode: 'tint',
-    alpha: Math.max(0, Math.min(1, Number(overlay.opacity ?? 1))),
-  }));
+  for (const effect of (data.layerEffects || []).filter((candidate) => candidate?.enabled !== false)) {
+    if (effect.type === 'colorOverlay') filters.push(new fabric.filters.BlendColor({
+      color: effect.color || '#000000', mode: 'tint',
+      alpha: Math.max(0, Math.min(1, Number(effect.opacity ?? 1))),
+    }));
+    if (effect.type === 'gradientOverlay') filters.push(new GradientOverlayFilter(effect));
+  }
 
   obj.filters = filters;
   obj.applyFilters();

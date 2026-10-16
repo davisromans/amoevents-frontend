@@ -398,7 +398,7 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
       underline: !!layer.underline,
       linethrough: !!layer.linethrough,
     });
-    if (layer.textWarp?.bend && layer.textMode === 'point') {
+    if (layer.textWarp?.bend) {
       const width = Math.max(40, Number(layer.textWarp.width || layer.width || textbox.width || 200));
       const bend = Math.max(-100, Math.min(100, Number(layer.textWarp.bend))) / 100;
       textbox.set({
