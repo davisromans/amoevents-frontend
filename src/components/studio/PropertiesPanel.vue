@@ -37,10 +37,37 @@
         <div v-if="obj.get('data')?.isAdjustmentLayer" class="space-y-3">
           <p class="section-eyebrow">{{ obj.get('data')?.name || 'Adjustment layer' }}</p>
           <div v-for="control in adjustmentLayerControls" :key="control.key">
-            <p class="field-label mb-1">{{ control.label }} — {{ adjustmentLayerValues[control.key] ?? control.default }}</p>
-            <input type="range" class="w-full accent-brand-gold" :min="control.min" :max="control.max" :step="control.step || 0.01"
-                   :value="adjustmentLayerValues[control.key] ?? control.default" @input="setAdjustmentLayerValue(control.key, Number($event.target.value))" />
+            <template v-if="control.type === 'gradient'">
+              <p class="field-label mb-1">{{ control.label }}</p>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="text-[10px]">Shadows<input type="color" class="mt-1 w-full h-8 rounded" :value="adjustmentLayerValues[control.key]?.from || control.default.from" @input="setAdjustmentLayerGradient(control.key, { from: $event.target.value })" /></label>
+                <label class="text-[10px]">Highlights<input type="color" class="mt-1 w-full h-8 rounded" :value="adjustmentLayerValues[control.key]?.to || control.default.to" @input="setAdjustmentLayerGradient(control.key, { to: $event.target.value })" /></label>
+              </div>
+            </template>
+            <template v-else-if="control.type === 'colorDensity'">
+              <p class="field-label mb-1">{{ control.label }}</p>
+              <label class="text-[10px]">Colour<input type="color" class="mt-1 w-full h-8 rounded" :value="adjustmentLayerValues[control.key]?.color || control.default.color" @input="setAdjustmentLayerObject(control.key, control.default, { color: $event.target.value })" /></label>
+              <p class="field-label mt-2 mb-1">Density — {{ Math.round((adjustmentLayerValues[control.key]?.density ?? control.default.density) * 100) }}%</p>
+              <input type="range" class="w-full accent-brand-gold" min="0" max="1" step="0.01" :value="adjustmentLayerValues[control.key]?.density ?? control.default.density" @input="setAdjustmentLayerObject(control.key, control.default, { density: Number($event.target.value) })" />
+            </template>
+            <template v-else-if="control.type === 'channelMixer'">
+              <p class="field-label mb-1">{{ control.label }}</p>
+              <div v-for="channel in ['red','green','blue']" :key="channel" class="mb-2 rounded-lg border border-surface-mist dark:border-surface-fog p-2">
+                <p class="text-[10px] font-bold capitalize mb-1">{{ channel }} output</p>
+                <div class="grid grid-cols-2 gap-1">
+                  <label v-for="source in ['red','green','blue','constant']" :key="source" class="text-[9px] capitalize">{{ source }}
+                    <input type="number" min="-2" max="2" step="0.01" class="field-input !py-1 !px-1 !text-[10px] mt-0.5" :value="adjustmentLayerValues[control.key]?.[channel]?.[source] ?? control.default[channel][source]" @input="setAdjustmentLayerNested(control.key, control.default, channel, source, Number($event.target.value))" />
+                  </label>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <p class="field-label mb-1">{{ control.label }} — {{ adjustmentLayerValues[control.key] ?? control.default }}</p>
+              <input type="range" class="w-full accent-brand-gold" :min="control.min" :max="control.max" :step="control.step || 0.01"
+                     :value="adjustmentLayerValues[control.key] ?? control.default" @input="setAdjustmentLayerValue(control.key, Number($event.target.value))" />
+            </template>
           </div>
+          <p v-if="!adjustmentLayerControls.length" class="text-[10px] text-surface-slate dark:text-surface-ash">This adjustment has no additional controls.</p>
           <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Affects image layers below it. Move this layer in the Layers panel to change its scope.</p>
         </div>
 
@@ -327,12 +354,17 @@
                 <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset X<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetX" @input="updateLayerEffect(effect.id, { offsetX: Number($event.target.value) })" /></label>
                 <label v-if="effect.type === 'dropShadow'" class="text-[10px]">Offset Y<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.offsetY" @input="updateLayerEffect(effect.id, { offsetY: Number($event.target.value) })" /></label>
               </template>
-              <label v-if="effect.type === 'innerShadow'" class="text-[10px] col-span-2">Inner edge — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
+              <label v-if="['innerShadow','innerGlow'].includes(effect.type)" class="text-[10px] col-span-2">Inner edge — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
               <template v-if="effect.type === 'bevelEmboss'">
                 <label class="text-[10px]">Shadow<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.shadowColor" @input="updateLayerEffect(effect.id, { shadowColor: $event.target.value })" /></label>
                 <label class="text-[10px]">Shadow opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.shadowOpacity" @input="updateLayerEffect(effect.id, { shadowOpacity: Number($event.target.value) })" /></label>
                 <label class="text-[10px] col-span-2">Size — {{ effect.size }}<input type="range" min="1" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
                 <label class="text-[10px] col-span-2">Light angle — {{ effect.angle }}°<input type="range" min="-180" max="180" step="1" class="w-full accent-brand-gold" :value="effect.angle" @input="updateLayerEffect(effect.id, { angle: Number($event.target.value) })" /></label>
+              </template>
+              <template v-if="effect.type === 'satin'">
+                <label class="text-[10px] col-span-2">Softness — {{ effect.size }}<input type="range" min="0" max="100" class="w-full accent-brand-gold" :value="effect.size" @input="updateLayerEffect(effect.id, { size: Number($event.target.value) })" /></label>
+                <label class="text-[10px]">Distance<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="effect.distance" @input="updateLayerEffect(effect.id, { distance: Number($event.target.value) })" /></label>
+                <label class="text-[10px]">Angle<input type="number" min="-180" max="180" class="field-input !py-1 !text-xs mt-1" :value="effect.angle" @input="updateLayerEffect(effect.id, { angle: Number($event.target.value) })" /></label>
               </template>
             </div>
           </div>
@@ -527,12 +559,49 @@ const ADJUSTMENT_LAYER_CONTROLS = {
     { key: 'balanceGreen', label: 'Magenta / Green', min: -1, max: 1, default: 0 },
     { key: 'balanceBlue', label: 'Yellow / Blue', min: -1, max: 1, default: 0 },
   ],
+  curves: [
+    { key: 'curvesShadows', label: 'Shadows', min: -1, max: 1, default: 0 },
+    { key: 'curvesMidtones', label: 'Midtones', min: -1, max: 1, default: 0 },
+    { key: 'curvesHighlights', label: 'Highlights', min: -1, max: 1, default: 0 },
+  ],
+  exposure: [{ key: 'exposure', label: 'Exposure', min: -1, max: 1, default: 0 }],
+  vibrance: [{ key: 'vibrance', label: 'Vibrance', min: -1, max: 1, default: 0 }],
+  blackWhite: [],
+  invert: [],
+  posterize: [{ key: 'posterizeLevels', label: 'Levels', min: 2, max: 32, step: 1, default: 6 }],
+  threshold: [{ key: 'thresholdLevel', label: 'Threshold', min: 0, max: 255, step: 1, default: 128 }],
+  gradientMap: [{ key: 'gradientMap', label: 'Gradient colours', type: 'gradient', default: { from: '#111827', to: '#D9B45E' } }],
+  photoFilter: [{ key: 'photoFilter', label: 'Photo filter', type: 'colorDensity', default: { color: '#f59e0b', density: 0.25 } }],
+  channelMixer: [{ key: 'channelMixer', label: 'Channel mixer', type: 'channelMixer', default: {
+    red: { red: 1, green: 0, blue: 0, constant: 0 },
+    green: { red: 0, green: 1, blue: 0, constant: 0 },
+    blue: { red: 0, green: 0, blue: 1, constant: 0 },
+  } }],
 };
 const adjustmentLayerValues = computed(() => obj.value?.get('data')?.adjustmentValues || {});
 const adjustmentLayerControls = computed(() => ADJUSTMENT_LAYER_CONTROLS[obj.value?.get('data')?.adjustmentKind] || ADJUSTMENT_LAYER_CONTROLS.brightnessContrast);
 function setAdjustmentLayerValue(key, value) {
   const data = obj.value.get('data') || {};
   obj.value.set('data', { ...data, adjustmentValues: { ...(data.adjustmentValues || {}), [key]: value } });
+  props.canvas.fire('object:modified', { target: obj.value });
+}
+function setAdjustmentLayerGradient(key, patch) {
+  const data = obj.value.get('data') || {};
+  const values = data.adjustmentValues || {};
+  obj.value.set('data', { ...data, adjustmentValues: { ...values, [key]: { ...(values[key] || { from: '#111827', to: '#D9B45E' }), ...patch } } });
+  props.canvas.fire('object:modified', { target: obj.value });
+}
+function setAdjustmentLayerObject(key, fallback, patch) {
+  const data = obj.value.get('data') || {};
+  const values = data.adjustmentValues || {};
+  obj.value.set('data', { ...data, adjustmentValues: { ...values, [key]: { ...fallback, ...(values[key] || {}), ...patch } } });
+  props.canvas.fire('object:modified', { target: obj.value });
+}
+function setAdjustmentLayerNested(key, fallback, group, field, value) {
+  const data = obj.value.get('data') || {};
+  const values = data.adjustmentValues || {};
+  const current = values[key] || fallback;
+  obj.value.set('data', { ...data, adjustmentValues: { ...values, [key]: { ...fallback, ...current, [group]: { ...fallback[group], ...(current[group] || {}), [field]: value } } } });
   props.canvas.fire('object:modified', { target: obj.value });
 }
 const qrData = computed(() => ({

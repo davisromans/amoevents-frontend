@@ -6,8 +6,10 @@ export const EFFECT_DEFAULTS = {
   stroke: { type: 'stroke', name: 'Stroke', enabled: true, color: '#111111', opacity: 1, size: 3 },
   colorOverlay: { type: 'colorOverlay', name: 'Colour overlay', enabled: true, color: '#D9B45E', opacity: 1 },
   innerShadow: { type: 'innerShadow', name: 'Inner shadow', enabled: true, color: '#000000', opacity: 0.45, size: 6 },
+  innerGlow: { type: 'innerGlow', name: 'Inner glow', enabled: true, color: '#FDE68A', opacity: 0.65, size: 8 },
   gradientOverlay: { type: 'gradientOverlay', name: 'Gradient overlay', enabled: true, from: '#8B5CF6', to: '#D9B45E', opacity: 1, angle: 0 },
   bevelEmboss: { type: 'bevelEmboss', name: 'Bevel & emboss', enabled: true, color: '#FFFFFF', shadowColor: '#000000', opacity: 0.72, shadowOpacity: 0.55, size: 3, angle: 45 },
+  satin: { type: 'satin', name: 'Satin', enabled: true, color: '#000000', opacity: 0.35, size: 8, distance: 8, angle: 20 },
 };
 
 function withAlpha(color, opacity = 1) {
@@ -52,7 +54,7 @@ export function normalizeLayerEffects(effects = []) {
 export function applyLayerEffectStack(object, effects = []) {
   const stack = normalizeLayerEffects(effects);
   const data = object.get('data') || {};
-  const hasVisualStyle = stack.some((effect) => ['stroke', 'colorOverlay', 'innerShadow', 'gradientOverlay', 'bevelEmboss'].includes(effect.type) && effect.enabled);
+  const hasVisualStyle = stack.some((effect) => ['stroke', 'colorOverlay', 'innerShadow', 'innerGlow', 'gradientOverlay', 'bevelEmboss'].includes(effect.type) && effect.enabled);
   const layerEffectBase = data.layerEffectBase || (hasVisualStyle ? {
     fill: snapshotFill(object.fill),
     stroke: object.stroke,
@@ -65,10 +67,12 @@ export function applyLayerEffectStack(object, effects = []) {
   const overlay = [...stack].reverse().find((effect) => effect.type === 'colorOverlay' && effect.enabled);
   const gradient = [...stack].reverse().find((effect) => effect.type === 'gradientOverlay' && effect.enabled);
   const innerShadow = [...stack].reverse().find((effect) => effect.type === 'innerShadow' && effect.enabled);
+  const innerGlow = [...stack].reverse().find((effect) => effect.type === 'innerGlow' && effect.enabled);
   const bevel = [...stack].reverse().find((effect) => effect.type === 'bevelEmboss' && effect.enabled);
-  const shadows = stack.filter((effect) => ['dropShadow', 'outerGlow', 'bevelEmboss'].includes(effect.type) && effect.enabled);
+  const shadows = stack.filter((effect) => ['dropShadow', 'outerGlow', 'bevelEmboss', 'satin'].includes(effect.type) && effect.enabled);
   if (stroke) object.set({ stroke: withAlpha(stroke.color, stroke.opacity), strokeWidth: Math.max(0, Number(stroke.size) || 0), paintFirst: 'stroke' });
   else if (innerShadow) object.set({ stroke: withAlpha(innerShadow.color, innerShadow.opacity), strokeWidth: Math.max(0, Number(innerShadow.size) || 0) * 2, paintFirst: 'fill' });
+  else if (innerGlow) object.set({ stroke: withAlpha(innerGlow.color, innerGlow.opacity), strokeWidth: Math.max(0, Number(innerGlow.size) || 0) * 2, paintFirst: 'fill' });
   else if (bevel) object.set({ stroke: withAlpha(bevel.color, bevel.opacity), strokeWidth: Math.max(0, Number(bevel.size) || 0), paintFirst: 'stroke' });
   else if (layerEffectBase) object.set({ stroke: layerEffectBase.stroke, strokeWidth: layerEffectBase.strokeWidth, paintFirst: layerEffectBase.paintFirst });
   if (['rect', 'ellipse', 'path', 'textbox', 'text', 'i-text'].includes(object.type)) {
@@ -100,9 +104,9 @@ export function applyLayerEffectStack(object, effects = []) {
         for (const effect of active) {
           this.shadow = new fabric.Shadow({
             color: withAlpha(effect.type === 'bevelEmboss' ? effect.shadowColor : effect.color, effect.type === 'bevelEmboss' ? effect.shadowOpacity : effect.opacity),
-            blur: effect.type === 'bevelEmboss' ? Math.max(0, Number(effect.size) || 0) * 1.5 : Number(effect.blur) || 0,
-            offsetX: effect.type === 'outerGlow' ? 0 : effect.type === 'bevelEmboss' ? Math.cos(Number(effect.angle || 45) * Math.PI / 180) * Number(effect.size || 0) : Number(effect.offsetX) || 0,
-            offsetY: effect.type === 'outerGlow' ? 0 : effect.type === 'bevelEmboss' ? Math.sin(Number(effect.angle || 45) * Math.PI / 180) * Number(effect.size || 0) : Number(effect.offsetY) || 0,
+            blur: ['bevelEmboss', 'satin'].includes(effect.type) ? Math.max(0, Number(effect.size) || 0) * 1.5 : Number(effect.blur) || 0,
+            offsetX: effect.type === 'outerGlow' ? 0 : effect.type === 'bevelEmboss' ? Math.cos(Number(effect.angle || 45) * Math.PI / 180) * Number(effect.size || 0) : effect.type === 'satin' ? Math.cos(Number(effect.angle || 20) * Math.PI / 180) * Number(effect.distance || 0) : Number(effect.offsetX) || 0,
+            offsetY: effect.type === 'outerGlow' ? 0 : effect.type === 'bevelEmboss' ? Math.sin(Number(effect.angle || 45) * Math.PI / 180) * Number(effect.size || 0) : effect.type === 'satin' ? Math.sin(Number(effect.angle || 20) * Math.PI / 180) * Number(effect.distance || 0) : Number(effect.offsetY) || 0,
           });
           baseRender.call(this, ctx);
         }

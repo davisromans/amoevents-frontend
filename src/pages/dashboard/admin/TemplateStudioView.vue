@@ -79,7 +79,7 @@
           <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('png')">Export as PNG</button>
           <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportImage('jpeg')">Export as JPEG</button>
           <button class="btn-ghost !text-2xs !py-1.5 !justify-start !px-2" @click="exportPsd">Export layered PSD</button>
-          <p class="px-2 pb-1 text-[10px] leading-tight text-surface-slate dark:text-surface-ash">PSD keeps layers and appearance; text is rasterized for reliable Photoshop fidelity.</p>
+          <p class="px-2 pb-1 text-[10px] leading-tight text-surface-slate dark:text-surface-ash">PSD keeps layers and editable text metadata, with a bitmap fallback embedded for appearance fidelity.</p>
         </div>
       </div>
       <button class="btn-ghost !text-2xs !py-1.5 !px-3" @click="saveLocalDraft({ notify: true })">Save locally</button>
@@ -1460,7 +1460,7 @@ function onKeyDown(e) {
   const activeImage = active?.type === 'image' ? active : null;
   if (mod && key === 's') {
     e.preventDefault();
-    if (e.shiftKey) save(); else saveLocalDraft({ notify: true });
+    if (e.shiftKey) save(); else saveProjectFile();
     return;
   }
   if (mod && key === 'o' && !e.altKey) { e.preventDefault(); psdInputRef.value?.click(); return; }
@@ -1947,6 +1947,20 @@ const ADJUSTMENT_LAYER_DEFAULTS = {
   hueSaturation: { name: 'Hue / Saturation', values: { hue: 0, saturation: 0.15 } },
   levels: { name: 'Levels', values: { levelsBlack: 0, levelsGamma: 1, levelsWhite: 255 } },
   colorBalance: { name: 'Color Balance', values: { balanceRed: 0, balanceGreen: 0, balanceBlue: 0 } },
+  curves: { name: 'Curves', values: { curvesShadows: 0, curvesMidtones: 0, curvesHighlights: 0 } },
+  exposure: { name: 'Exposure', values: { exposure: 0 } },
+  vibrance: { name: 'Vibrance', values: { vibrance: 0.15 } },
+  blackWhite: { name: 'Black & White', values: { blackWhite: true } },
+  invert: { name: 'Invert', values: { invert: true } },
+  posterize: { name: 'Posterize', values: { posterizeLevels: 6 } },
+  threshold: { name: 'Threshold', values: { thresholdLevel: 128 } },
+  gradientMap: { name: 'Gradient Map', values: { gradientMap: { from: '#111827', to: '#D9B45E' } } },
+  photoFilter: { name: 'Photo Filter', values: { photoFilter: { color: '#f59e0b', density: 0.25 } } },
+  channelMixer: { name: 'Channel Mixer', values: { channelMixer: {
+    red: { red: 1, green: 0, blue: 0, constant: 0 },
+    green: { red: 0, green: 1, blue: 0, constant: 0 },
+    blue: { red: 0, green: 0, blue: 1, constant: 0 },
+  } } },
 };
 function insertAdjustmentLayer(kind = 'brightnessContrast') {
   const preset = ADJUSTMENT_LAYER_DEFAULTS[kind] || ADJUSTMENT_LAYER_DEFAULTS.brightnessContrast;
@@ -3155,7 +3169,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   hasClipboard: () => !!studioClipboard?.objects?.length,
   copySelectedLayers, pasteSelectedLayers, adjustFontSize,
   openPsd: () => psdInputRef.value?.click(),
-  openProject: () => projectInputRef.value?.click(),
+  openProject: openProjectPicker,
   placeImage: () => imageInputRef.value?.click(),
   importFonts: () => fontInputRef.value?.click(),
   importBrushes: () => brushInputRef.value?.click(),
@@ -3169,7 +3183,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   fillLayerOrSelection, addGuide: addManualGuide, clearGuides: clearManualGuides,
   openAdjust: (title, controls) => { adjustState.value = { title, controls, target: markRaw(selectedObjects.value[0]) }; },
   openDocSize: (mode) => { docSizeMode.value = mode; },
-  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
+  openSharedAssets, addPage, duplicatePage, removePage, saveLocalDraft, save, saveProjectFile, exportImage, exportPsd, exportPdf, exportLayers, exportProject, closeStudio,
   insertEmptyLayer, insertAdjustmentLayer, insertTextLayer, insertRectLayer, insertEllipseLayer, insertLineLayer, insertPolygonLayer, insertQrLayer,
   createEmptyGroup, onGroupLayers, onUngroupLayer, onMergeLayers, onRasterizeLayer, onRestoreText,
   mergeVisibleLayers, flattenImage,
@@ -3652,6 +3666,7 @@ const exportMenuOpen = ref(false);
 const exporting = ref(false);
 const psdInputRef = ref(null);
 const projectInputRef = ref(null);
+const projectFileHandle = ref(null);
 
 function visitDocumentAssets(doc, visitor) {
   const walk = async (layers) => {
@@ -3664,13 +3679,10 @@ function visitDocumentAssets(doc, visitor) {
   return walk(doc?.layers);
 }
 
-async function exportProject() {
-  if (!fabricCanvasRaw || exporting.value) return;
-  exporting.value = true; exportMenuOpen.value = false;
-  try {
-    await persistLiveCanvasLayers({ cloud: false });
-    captureActivePage();
-    const { default: JSZip } = await import('jszip');
+async function buildProjectBlob() {
+  await persistLiveCanvasLayers({ cloud: false });
+  captureActivePage();
+  const { default: JSZip } = await import('jszip');
     const zip = new JSZip();
     const packagePages = structuredClone(pages.value);
     let assetIndex = 0;
@@ -3691,15 +3703,70 @@ async function exportProject() {
         record.packagePath = path;
       });
     }
-    zip.file('project.json', JSON.stringify({ format: 'amoeditor-project', version: 1, name: name.value, pages: packagePages }, null, 2));
-    triggerBlobDownload(await zip.generateAsync({ type: 'blob' }), `${safeExportName(name.value || 'template')}.amo`);
+  zip.file('project.json', JSON.stringify({ format: 'amoeditor-project', version: 1, name: name.value, pages: packagePages }, null, 2));
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/zip' });
+}
+
+async function saveProjectFile({ saveAs = false } = {}) {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true; exportMenuOpen.value = false;
+  try {
+    const blob = await buildProjectBlob();
+    let handle = saveAs ? null : projectFileHandle.value;
+    if (!handle && typeof window.showSaveFilePicker === 'function') {
+      handle = await window.showSaveFilePicker({
+        suggestedName: `${safeExportName(name.value || 'template')}.amo`,
+        types: [{ description: 'AmoEditor project', accept: { 'application/zip': ['.amo'] } }],
+      });
+    }
+    if (handle) {
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      projectFileHandle.value = handle;
+      await saveLocalDraft({ notify: false, dirty: true });
+      toast.success('AmoEditor project saved to your device. Further saves will update the same file.');
+    } else {
+      triggerBlobDownload(blob, `${safeExportName(name.value || 'template')}.amo`);
+      toast.success('AmoEditor project downloaded. Your browser does not support direct file updates.');
+    }
+  } catch (err) {
+    if (err?.name !== 'AbortError') { console.error(err); toast.error(`Project save failed: ${apiErrorMessage(err)}`); }
+  } finally { exporting.value = false; }
+}
+
+async function exportProject() {
+  if (!fabricCanvasRaw || exporting.value) return;
+  exporting.value = true; exportMenuOpen.value = false;
+  try {
+    triggerBlobDownload(await buildProjectBlob(), `${safeExportName(name.value || 'template')}.amo`);
     toast.success('Portable AmoEditor project exported with its local artwork.');
   } catch (err) { console.error(err); toast.error(`Project export failed: ${apiErrorMessage(err)}`); }
   finally { exporting.value = false; }
 }
 
+async function openProjectPicker() {
+  if (typeof window.showOpenFilePicker !== 'function') {
+    projectInputRef.value?.click();
+    return;
+  }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      multiple: false,
+      types: [{ description: 'AmoEditor project', accept: { 'application/zip': ['.amo'] } }],
+    });
+    if (handle) await openProjectFile(await handle.getFile(), handle);
+  } catch (err) {
+    if (err?.name !== 'AbortError') toast.error(`Could not open project: ${apiErrorMessage(err)}`);
+  }
+}
+
 async function onProjectFileChosen(e) {
   const file = e.target.files?.[0]; e.target.value = '';
+  await openProjectFile(file, null);
+}
+
+async function openProjectFile(file, handle = null) {
   if (!file || !fabricCanvasRaw) return;
   if (document.value?.layers?.length && !(await askConfirm('Replace the current canvas with this AmoEditor project?'))) return;
   loading.value = true; readyForAutosave = false;
@@ -3722,6 +3789,7 @@ async function onProjectFileChosen(e) {
       });
     }
     name.value = manifest.name || file.name.replace(/\.amo$/i, '') || 'Untitled template';
+    projectFileHandle.value = handle;
     pages.value = manifest.pages; activePage.value = 0; document.value = pages.value[0].document;
     canvasBackground.value = document.value.background || '#FFFFFF';
     await loadDocument(fabricCanvasRaw, document.value, { resolveAssetUrl });

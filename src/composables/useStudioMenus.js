@@ -379,7 +379,7 @@ export function useStudioMenus(ctx) {
       next.offsetY = Math.max(-500, Math.min(500, Number(offsetY)));
       if (!Number.isFinite(next.offsetX) || !Number.isFinite(next.offsetY)) { ctx.toast('Enter valid shadow offsets.'); return; }
     }
-    if (type === 'innerShadow') {
+    if (['innerShadow', 'innerGlow'].includes(type)) {
       const sizeInput = window.prompt('Inner edge size', String(current.size ?? 6)); if (sizeInput == null) return;
       next.size = Math.max(0, Math.min(100, Number(sizeInput)));
       if (!Number.isFinite(next.size)) { ctx.toast('Enter a valid inner edge size.'); return; }
@@ -394,6 +394,15 @@ export function useStudioMenus(ctx) {
       next.angle = Math.max(-180, Math.min(180, Number(angleInput)));
       next.shadowOpacity = Math.max(0, Math.min(1, Number(shadowOpacityInput) / 100));
       if (![next.size, next.angle, next.shadowOpacity].every(Number.isFinite)) { ctx.toast('Enter valid bevel settings.'); return; }
+    }
+    if (type === 'satin') {
+      const sizeInput = window.prompt('Satin softness', String(current.size ?? 8)); if (sizeInput == null) return;
+      const distanceInput = window.prompt('Satin distance', String(current.distance ?? 8)); if (distanceInput == null) return;
+      const angleInput = window.prompt('Satin angle from -180 to 180', String(current.angle ?? 20)); if (angleInput == null) return;
+      next.size = Math.max(0, Math.min(100, Number(sizeInput)));
+      next.distance = Math.max(-200, Math.min(200, Number(distanceInput)));
+      next.angle = Math.max(-180, Math.min(180, Number(angleInput)));
+      if (![next.size, next.distance, next.angle].every(Number.isFinite)) { ctx.toast('Enter valid satin settings.'); return; }
     }
     const stack = currentIndex >= 0 ? effects.map((effect, index) => index === currentIndex ? next : effect) : [...effects, next];
     applyLayerEffectStack(target, stack);
@@ -522,7 +531,9 @@ export function useStudioMenus(ctx) {
         { label: 'Duplicate Page', action: () => ctx.duplicatePage(ctx.activePage.value) },
         { label: 'Delete Page', disabled: () => ctx.pages.value.length < 2, action: () => ctx.removePage(ctx.activePage.value) },
         SEP,
-        { label: 'Save Locally', shortcut: '⌘S', action: () => ctx.saveLocalDraft({ notify: true }) },
+        { label: 'Save Project File', shortcut: '⌘S', action: () => ctx.saveProjectFile() },
+        { label: 'Save Project File As…', action: () => ctx.saveProjectFile({ saveAs: true }) },
+        { label: 'Save Device Draft', action: () => ctx.saveLocalDraft({ notify: true }) },
         { label: 'Save to Cloud', shortcut: '⇧⌘S', disabled: () => !ctx.isOnline.value, action: ctx.save },
         { label: 'Document Preflight…', action: ctx.openPreflight },
         SEP,
@@ -631,7 +642,18 @@ export function useStudioMenus(ctx) {
           { label: 'Brightness / Contrast', action: () => ctx.insertAdjustmentLayer('brightnessContrast') },
           { label: 'Hue / Saturation', action: () => ctx.insertAdjustmentLayer('hueSaturation') },
           { label: 'Levels', action: () => ctx.insertAdjustmentLayer('levels') },
+          { label: 'Curves', action: () => ctx.insertAdjustmentLayer('curves') },
+          { label: 'Exposure', action: () => ctx.insertAdjustmentLayer('exposure') },
+          { label: 'Vibrance', action: () => ctx.insertAdjustmentLayer('vibrance') },
           { label: 'Color Balance', action: () => ctx.insertAdjustmentLayer('colorBalance') },
+          { separator: true },
+          { label: 'Black & White', action: () => ctx.insertAdjustmentLayer('blackWhite') },
+          { label: 'Invert', action: () => ctx.insertAdjustmentLayer('invert') },
+          { label: 'Posterize', action: () => ctx.insertAdjustmentLayer('posterize') },
+          { label: 'Threshold', action: () => ctx.insertAdjustmentLayer('threshold') },
+          { label: 'Gradient Map', action: () => ctx.insertAdjustmentLayer('gradientMap') },
+          { label: 'Photo Filter', action: () => ctx.insertAdjustmentLayer('photoFilter') },
+          { label: 'Channel Mixer', action: () => ctx.insertAdjustmentLayer('channelMixer') },
         ] },
         { label: 'Shape', items: [
           { label: 'Rectangle', action: ctx.insertRectLayer },
@@ -653,8 +675,10 @@ export function useStudioMenus(ctx) {
           { label: 'Outer Glow…', disabled: notOne, action: () => editLayerEffect('outerGlow') },
           { label: 'Color Overlay…', disabled: notOne, action: () => editLayerEffect('colorOverlay') },
           { label: 'Inner Shadow…', disabled: notOne, checked: hasLayerEffect('innerShadow'), action: () => editLayerEffect('innerShadow') },
+          { label: 'Inner Glow…', disabled: notOne, checked: hasLayerEffect('innerGlow'), action: () => editLayerEffect('innerGlow') },
           { label: 'Gradient Overlay…', disabled: notOne, checked: hasLayerEffect('gradientOverlay'), action: () => editLayerEffect('gradientOverlay') },
           { label: 'Bevel & Emboss…', disabled: notOne, checked: hasLayerEffect('bevelEmboss'), action: () => editLayerEffect('bevelEmboss') },
+          { label: 'Satin…', disabled: notOne, checked: hasLayerEffect('satin'), action: () => editLayerEffect('satin') },
         ] },
         SEP,
         { label: 'Create Clipping Mask', shortcut: '⌥⌘G', disabled: () => sel().length < 2, action: () => ctx.onClipMask(sel()) },

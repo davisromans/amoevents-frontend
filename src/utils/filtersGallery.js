@@ -260,6 +260,27 @@ function addAdvancedAdjustments(filters, adj) {
       0, 0, 0, 1, 0,
     ] }));
   }
+  if (adj.exposure) filters.push(new fabric.filters.Brightness({ brightness: Math.max(-1, Math.min(1, Number(adj.exposure) || 0)) }));
+  if (adj.vibrance) filters.push(new fabric.filters.Vibrance({ vibrance: Math.max(-1, Math.min(1, Number(adj.vibrance) || 0)) }));
+  if (adj.invert) filters.push(new fabric.filters.Invert());
+  if (adj.blackWhite) filters.push(new fabric.filters.BlackWhite());
+  if (adj.posterizeLevels) filters.push(new PosterizeFilter({ levels: Math.max(2, Math.min(32, Number(adj.posterizeLevels) || 6)) }));
+  if (adj.thresholdLevel !== undefined) filters.push(new ThresholdFilter({ threshold: Math.max(0, Math.min(255, Number(adj.thresholdLevel) || 0)) }));
+  if (adj.gradientMap?.from && adj.gradientMap?.to) filters.push(new GradientMapFilter(adj.gradientMap));
+  if (adj.photoFilter?.color && Number(adj.photoFilter?.density) > 0) filters.push(new fabric.filters.BlendColor({
+    color: adj.photoFilter.color,
+    mode: 'tint',
+    alpha: Math.max(0, Math.min(1, Number(adj.photoFilter.density))),
+  }));
+  if (adj.channelMixer) {
+    const red = adj.channelMixer.red || {}, green = adj.channelMixer.green || {}, blue = adj.channelMixer.blue || {};
+    filters.push(new fabric.filters.ColorMatrix({ matrix: [
+      Number(red.red ?? 1), Number(red.green || 0), Number(red.blue || 0), 0, Number(red.constant || 0),
+      Number(green.red || 0), Number(green.green ?? 1), Number(green.blue || 0), 0, Number(green.constant || 0),
+      Number(blue.red || 0), Number(blue.green || 0), Number(blue.blue ?? 1), 0, Number(blue.constant || 0),
+      0, 0, 0, 1, 0,
+    ] }));
+  }
 }
 
 /**
