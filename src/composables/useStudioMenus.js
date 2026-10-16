@@ -1,5 +1,5 @@
 import * as fabric from 'fabric';
-import { alignObjects, distributeObjects, bringToFront, sendToBack, setDropShadow, clearDropShadow } from '@/utils/canvasEngine';
+import { alignObjects, distributeObjects, bringToFront, sendToBack } from '@/utils/canvasEngine';
 import { rebuildFilterStack, toggleGalleryFilter } from '@/utils/filtersGallery';
 import { applyLayerEffectStack, EFFECT_DEFAULTS, normalizeLayerEffects } from '@/utils/layerEffects';
 
@@ -165,9 +165,14 @@ export function useStudioMenus(ctx) {
     commit(rect);
   }
   function applyGradientOverlay() {
-    const target = one(); if (!target || target.type === 'image' || target.type === 'group') { ctx.toast('Select a text or shape layer for a gradient overlay.'); return; }
+    const target = one(); if (!target || target.type === 'group') { ctx.toast('Select an image, text, or shape layer for a gradient overlay.'); return; }
     const first = window.prompt('Gradient start colour', '#8B5CF6') || '#8B5CF6';
     const second = window.prompt('Gradient end colour', '#D9B45E') || '#D9B45E';
+    if (target.type === 'image') {
+      const data = target.get('data') || {};
+      target.set('data', { ...data, galleryFilters: { ...(data.galleryFilters || {}), gradientMap: { from: first, to: second } } });
+      rebuildFilterStack(target); commit(target); return;
+    }
     target.set('fill', new fabric.Gradient({ type: 'linear', gradientUnits: 'pixels', coords: { x1: 0, y1: 0, x2: Math.max(1, target.width || target.getScaledWidth()), y2: 0 }, colorStops: [{ offset: 0, color: first }, { offset: 1, color: second }] }));
     target.setCoords(); commit(target);
   }
@@ -230,10 +235,12 @@ export function useStudioMenus(ctx) {
   }
   function deleteSelected() { [...sel()].forEach((o) => ctx.onDeleteLayer(o, parentOf(o))); }
   function fillSelected() {
-    const color = window.prompt('Fill colour (hex, rgb, or CSS colour)', one()?.fill || '#D9B45E');
+    const currentFill = one()?.fill;
+    const color = window.prompt('Fill colour (hex, rgb, or CSS colour)', typeof currentFill === 'string' ? currentFill : '#D9B45E');
     if (!color) return;
-    for (const target of sel()) target.set('fill', color);
-    commit();
+    let changed = 0;
+    for (const target of sel()) if (ctx.fillLayerOrSelection(target, color)) changed += 1;
+    if (!changed) ctx.toast('Select an editable shape, text, or image layer first.');
   }
   function editStroke() {
     const target = one(); if (!target) return;
@@ -299,10 +306,35 @@ export function useStudioMenus(ctx) {
     const targets = [...sel()];
     ctx.copySelectedLayers().then(() => targets.forEach((o) => ctx.onDeleteLayer(o, parentOf(o))));
   }
-  function toggleShadow() {
-    const o = one();
-    if (o.shadow) clearDropShadow(c(), o); else setDropShadow(c(), o, {});
-    commit(o);
+  const hasLayerEffect = (type) => () => normalizeLayerEffects(one()?.get('data')?.layerEffects || one()?.get('data')?.sourceLayer?.effects || []).some((effect) => effect.type === type && effect.enabled);
+  function editLayerEffect(type) {
+    const target = one(); if (!target || !EFFECT_DEFAULTS[type]) return;
+    const effects = normalizeLayerEffects(target.get('data')?.layerEffects || target.get('data')?.sourceLayer?.effects || []);
+    const currentIndex = effects.findIndex((effect) => effect.type === type);
+    const current = currentIndex >= 0 ? effects[currentIndex] : { ...EFFECT_DEFAULTS[type], id: `effect-${type}-${Date.now()}` };
+    const color = window.prompt(`${current.name} colour`, current.color || '#000000'); if (color == null) return;
+    const opacityValue = window.prompt(`${current.name} opacity from 0 to 100`, String(Math.round((current.opacity ?? 1) * 100))); if (opacityValue == null) return;
+    const opacity = Math.max(0, Math.min(1, Number(opacityValue) / 100));
+    if (!Number.isFinite(opacity)) { ctx.toast('Enter a valid opacity.'); return; }
+    const next = { ...current, color, opacity, enabled: true };
+    if (['dropShadow', 'outerGlow'].includes(type)) {
+      const blurValue = window.prompt(`${current.name} blur radius`, String(current.blur ?? 18)); if (blurValue == null) return;
+      next.blur = Math.max(0, Math.min(250, Number(blurValue)));
+      if (!Number.isFinite(next.blur)) { ctx.toast('Enter a valid blur radius.'); return; }
+    }
+    if (type === 'dropShadow') {
+      const offsetX = window.prompt('Horizontal offset', String(current.offsetX ?? 8)); if (offsetX == null) return;
+      const offsetY = window.prompt('Vertical offset', String(current.offsetY ?? 8)); if (offsetY == null) return;
+      next.offsetX = Math.max(-500, Math.min(500, Number(offsetX)));
+      next.offsetY = Math.max(-500, Math.min(500, Number(offsetY)));
+      if (!Number.isFinite(next.offsetX) || !Number.isFinite(next.offsetY)) { ctx.toast('Enter valid shadow offsets.'); return; }
+    }
+    const stack = currentIndex >= 0 ? effects.map((effect, index) => index === currentIndex ? next : effect) : [...effects, next];
+    applyLayerEffectStack(target, stack);
+    if (target.type === 'image') rebuildFilterStack(target);
+    target.setCoords(); commit(target);
+    ctx.rightPanelTab.value = 'properties';
+    ctx.toast(`${current.name} applied. Its controls are available in Properties.`);
   }
   function applyInnerShadow() {
     const target = one(); if (!target) return;
@@ -323,7 +355,7 @@ export function useStudioMenus(ctx) {
   }
   function warpText() {
     const target = one();
-    if (!target || target.type === 'textbox') { ctx.toast('Warp Text currently requires a point-text layer. Convert box text to point text first.'); return; }
+    if (!target) return;
     const bend = Number(window.prompt('Arc bend from -100 to 100 (0 removes warp)', target.get('data')?.textWarp?.bend || 30));
     if (!Number.isFinite(bend)) return;
     const clamped = Math.max(-100, Math.min(100, bend)), width = Math.max(40, target.getScaledWidth?.() || target.width || 200);
@@ -525,7 +557,7 @@ export function useStudioMenus(ctx) {
         { label: 'Trim to Visible Layers', action: () => fitCanvasToObjects() },
         { label: 'Reveal All', action: () => fitCanvasToObjects({ includeCanvas: true }) },
         SEP,
-        { label: 'Remove Background', hint: 'Select an image layer, then use Remove background in Properties', disabled: notImage, action: () => ctx.toast('Use “Remove background” in the Properties panel for the selected image.') },
+        { label: 'Remove Background', hint: 'Runs locally and keeps the original pixels recoverable', disabled: notImage, action: () => ctx.onRemoveBackground(one()) },
         { label: 'Replace Image…', disabled: notImage, action: () => ctx.onReplaceSource(one()) },
       ],
     },
@@ -563,10 +595,10 @@ export function useStudioMenus(ctx) {
         { label: 'Edit Smart Object Contents', disabled: () => !one()?.get('data')?.smartObjectSource, action: () => ctx.onEditSmartObject(one()) },
         SEP,
         { label: 'Layer Style', items: [
-          { label: 'Drop Shadow', disabled: notOne, checked: () => !!one()?.shadow, action: toggleShadow },
-          { label: 'Stroke…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Stroke controls opened in Properties.'); } },
-          { label: 'Outer Glow…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Outer glow controls opened in Properties.'); } },
-          { label: 'Color Overlay…', disabled: notOne, action: () => { ctx.rightPanelTab.value = 'properties'; ctx.toast('Color overlay opened in Properties.'); } },
+          { label: 'Drop Shadow…', disabled: notOne, checked: hasLayerEffect('dropShadow'), action: () => editLayerEffect('dropShadow') },
+          { label: 'Stroke…', disabled: notOne, action: editStroke },
+          { label: 'Outer Glow…', disabled: notOne, action: () => editLayerEffect('outerGlow') },
+          { label: 'Color Overlay…', disabled: notOne, action: () => editLayerEffect('colorOverlay') },
           { label: 'Inner Shadow…', disabled: notOne, action: applyInnerShadow },
           { label: 'Gradient Overlay…', disabled: notOne, action: applyGradientOverlay },
           { label: 'Bevel & Emboss…', disabled: notOne, action: applyBevelEmboss },
@@ -575,7 +607,7 @@ export function useStudioMenus(ctx) {
         { label: 'Create Clipping Mask', shortcut: '⌥⌘G', disabled: () => sel().length < 2, action: () => ctx.onClipMask(sel()) },
         { label: 'Layer Mask', items: [
           { label: 'Paint Mask', disabled: notOne, action: () => ctx.onPaintMask(one()) },
-          { label: 'Remove Mask', disabled: notOne, action: () => ctx.onRemoveMask(one()) },
+          { label: 'Remove Mask', disabled: () => !one()?.clipPath, action: () => ctx.onRemoveMask(one()) },
         ] },
         SEP,
         { label: 'Group Layers', shortcut: '⌘G', disabled: none, action: () => ctx.onGroupLayers(sel()) },
@@ -619,7 +651,7 @@ export function useStudioMenus(ctx) {
         { label: 'Bigger', shortcut: '⇧⌘.', disabled: notText, action: () => ctx.adjustFontSize(one(), 2) },
         { label: 'Smaller', shortcut: '⇧⌘,', disabled: notText, action: () => ctx.adjustFontSize(one(), -2) },
         SEP,
-        { label: 'Restore Editable Text', disabled: notOne, action: () => ctx.onRestoreText(one()) },
+        { label: 'Restore Editable Text', disabled: () => !one()?.get('data')?.sourceLayer?.convertedFromText, action: () => ctx.onRestoreText(one()) },
         { label: 'Rasterize Type Layer', disabled: notText, action: () => ctx.onRasterizeLayer(one()) },
         SEP,
         { label: 'Warp Text…', disabled: notText, action: warpText },
@@ -708,6 +740,12 @@ export function useStudioMenus(ctx) {
         { label: 'Grid', shortcut: "⌘'", checked: () => ctx.showGrid.value, action: () => { ctx.showGrid.value = !ctx.showGrid.value; } },
         { label: 'Snap to Grid', shortcut: '⇧⌘;', checked: () => ctx.snapToGrid.value, action: () => { ctx.snapToGrid.value = !ctx.snapToGrid.value; } },
         { label: 'Smart Guides', checked: () => ctx.smartGuides.value, action: () => { ctx.smartGuides.value = !ctx.smartGuides.value; } },
+        { label: 'Guides', items: [
+          { label: 'Show Guides', checked: () => ctx.showGuides.value, action: () => { ctx.showGuides.value = !ctx.showGuides.value; } },
+          { label: 'New Vertical Guide…', action: () => ctx.addGuide('vertical') },
+          { label: 'New Horizontal Guide…', action: () => ctx.addGuide('horizontal') },
+          { label: 'Clear Guides', disabled: () => !ctx.document.value?.guides?.length, action: ctx.clearGuides },
+        ] },
         SEP,
         { label: 'Preview with Sample Data', checked: () => ctx.previewMode.value, action: ctx.togglePreview },
       ],
@@ -724,8 +762,8 @@ export function useStudioMenus(ctx) {
           { label: 'Dodge / Burn', shortcut: 'O', action: () => ctx.setTool('dodge') },
           { label: 'Magic Wand', shortcut: 'W', action: () => ctx.setTool('magic-wand') },
           { label: 'Lasso', shortcut: 'L', action: () => ctx.setTool('lasso') },
-          { label: 'Marquee', shortcut: 'M', action: () => { ctx.setTool('select'); ctx.toast('Drag on empty canvas to select every enclosed layer.'); } },
-          { label: 'Gradient Tool', disabled: notOne, action: applyGradientOverlay },
+          { label: 'Marquee', shortcut: 'M', action: () => ctx.setTool('marquee') },
+          { label: 'Gradient Tool', disabled: () => sel().length !== 1 || one()?.type === 'group', action: applyGradientOverlay },
           { label: 'Eyedropper', shortcut: 'I', action: () => ctx.setTool('eyedropper') },
           { label: 'Healing Brush', shortcut: 'J', action: () => ctx.setTool('healing') },
           { label: 'Paint Bucket', shortcut: 'G', action: () => ctx.setTool('bucket') },

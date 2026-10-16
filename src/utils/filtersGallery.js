@@ -112,15 +112,26 @@ class OilPaintFilter extends fabric.filters.BaseFilter {
 }
 class GradientMapFilter extends fabric.filters.BaseFilter {
   static type = 'GradientMap';
-  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); float y=dot(c.rgb,vec3(.299,.587,.114)); gl_FragColor=vec4(mix(vec3(.067,.094,.153),vec3(.851,.706,.369),y),c.a); }`; }
-  applyTo2d({ imageData }) { const d = imageData.data, lo = [17, 24, 39], hi = [217, 180, 94]; for (let i = 0; i < d.length; i += 4) { const y = (d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) / 255; for (let c = 0; c < 3; c += 1) d[i + c] = lo[c] + (hi[c] - lo[c]) * y; } }
+  static defaults = { from: '#111827', to: '#D9B45E' };
+  getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec3 uFrom; uniform vec3 uTo; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); float y=dot(c.rgb,vec3(.299,.587,.114)); gl_FragColor=vec4(mix(uFrom,uTo,y),c.a); }`; }
+  getUniformLocations(gl, program) { return { uFrom: gl.getUniformLocation(program, 'uFrom'), uTo: gl.getUniformLocation(program, 'uTo') }; }
+  sendUniformData(gl, uniforms) {
+    const parse = (hex) => { const source = new fabric.Color(hex).getSource(); return new Float32Array([source[0] / 255, source[1] / 255, source[2] / 255]); };
+    gl.uniform3fv(uniforms.uFrom, parse(this.from)); gl.uniform3fv(uniforms.uTo, parse(this.to));
+  }
+  applyTo2d({ imageData }) {
+    const d = imageData.data;
+    const parse = (color) => new fabric.Color(color).getSource().slice(0, 3);
+    const lo = parse(this.from), hi = parse(this.to);
+    for (let i = 0; i < d.length; i += 4) { const y = (d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) / 255; for (let c = 0; c < 3; c += 1) d[i + c] = lo[c] + (hi[c] - lo[c]) * y; }
+  }
 }
 class ReplaceColorFilter extends fabric.filters.BaseFilter {
   static type = 'ReplaceColor'; static defaults = { from: '#ffffff', to: '#D9B45E', tolerance: 40 };
   getFragmentSource() { return `precision highp float; uniform sampler2D uTexture; uniform vec3 uFrom; uniform vec3 uTo; uniform float uTolerance; varying vec2 vTexCoord; void main(){ vec4 c=texture2D(uTexture,vTexCoord); if(distance(c.rgb,uFrom)<=uTolerance)c.rgb=uTo; gl_FragColor=c; }`; }
   getUniformLocations(gl, program) { return { uFrom: gl.getUniformLocation(program, 'uFrom'), uTo: gl.getUniformLocation(program, 'uTo'), uTolerance: gl.getUniformLocation(program, 'uTolerance') }; }
-  sendUniformData(gl, u) { const parse = (hex) => { const h = String(hex).replace('#', ''); return new Float32Array([0, 2, 4].map((p) => parseInt(h.slice(p, p + 2), 16) / 255)); }; gl.uniform3fv(u.uFrom, parse(this.from)); gl.uniform3fv(u.uTo, parse(this.to)); gl.uniform1f(u.uTolerance, (Number(this.tolerance) || 40) / 255); }
-  applyTo2d({ imageData }) { const parse = (hex) => { const h = String(hex).replace('#', ''); return [0, 2, 4].map((p) => parseInt(h.slice(p, p + 2), 16)); }, from = parse(this.from), to = parse(this.to), d = imageData.data, tolerance = Number(this.tolerance) || 40; for (let i = 0; i < d.length; i += 4) if (Math.hypot(d[i] - from[0], d[i + 1] - from[1], d[i + 2] - from[2]) <= tolerance) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; } }
+  sendUniformData(gl, u) { const parse = (color) => { const source = new fabric.Color(color).getSource(); return new Float32Array(source.slice(0, 3).map((value) => value / 255)); }; gl.uniform3fv(u.uFrom, parse(this.from)); gl.uniform3fv(u.uTo, parse(this.to)); gl.uniform1f(u.uTolerance, (Number(this.tolerance) || 40) / 255); }
+  applyTo2d({ imageData }) { const parse = (color) => new fabric.Color(color).getSource().slice(0, 3), from = parse(this.from), to = parse(this.to), d = imageData.data, tolerance = Number(this.tolerance) || 40; for (let i = 0; i < d.length; i += 4) if (Math.hypot(d[i] - from[0], d[i + 1] - from[1], d[i + 2] - from[2]) <= tolerance) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; } }
 }
 fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
 
@@ -136,7 +147,7 @@ export const FILTER_GALLERY = [
   { id: 'lensBlur', label: 'Lens Blur', param: { key: 'blur', min: 0, max: 1, default: 0.18 }, make: (v) => new fabric.filters.Blur({ blur: v }) },
   { id: 'radialBlur', label: 'Radial Blur', param: { key: 'amount', min: 0, max: 0.8, default: 0.18 }, make: (v) => new RadialBlurFilter({ amount: v }) },
   { id: 'oilPaint', label: 'Oil Paint', param: null, make: () => new OilPaintFilter() },
-  { id: 'gradientMap', label: 'Gradient Map', param: null, make: () => new GradientMapFilter() },
+  { id: 'gradientMap', label: 'Gradient Map', param: { key: 'settings' }, panel: false, make: (value) => new GradientMapFilter(typeof value === 'object' ? value : {}) },
   { id: 'replaceColor', label: 'Replace Color', param: { key: 'settings' }, panel: false, make: (v) => new ReplaceColorFilter(v || {}) },
   { id: 'noise', label: 'Noise', param: { key: 'noise', min: 0, max: 400, default: 60 }, make: (v) => new fabric.filters.Noise({ noise: v }) },
   { id: 'pixelate', label: 'Pixelate', param: { key: 'blocksize', min: 1, max: 40, default: 8 }, make: (v) => new fabric.filters.Pixelate({ blocksize: v }) },
