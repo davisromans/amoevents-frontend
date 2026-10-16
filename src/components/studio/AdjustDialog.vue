@@ -7,13 +7,13 @@
           <input v-model="preview" type="checkbox" class="accent-brand-gold" @change="apply" /> Preview
         </label>
       </div>
-      <div v-for="c in controls" :key="c.key" class="space-y-1">
+      <div v-for="c in controls" :key="controlKey(c)" class="space-y-1">
         <div class="flex justify-between text-2xs font-semibold">
           <span>{{ c.label }}</span>
-          <input v-model.number="values[c.key]" type="number" :step="c.step || 0.01" :min="c.min" :max="c.max"
+          <input v-model.number="values[controlKey(c)]" type="number" :step="c.step || 0.01" :min="c.min" :max="c.max"
                  class="w-16 text-right bg-transparent outline-none tabular-nums" @input="apply" />
         </div>
-        <input v-model.number="values[c.key]" type="range" :min="c.min" :max="c.max" :step="c.step || 0.01"
+        <input v-model.number="values[controlKey(c)]" type="range" :min="c.min" :max="c.max" :step="c.step || 0.01"
                class="w-full accent-brand-primary" @input="apply" />
       </div>
       <p v-if="!controls.length" class="text-2xs text-surface-slate">Applies instantly — use Undo to remove.</p>
@@ -33,10 +33,13 @@ import { onMounted, reactive, ref } from 'vue';
 import { rebuildFilterStack } from '@/utils/filtersGallery';
 
 // Live, cancellable edit of an image layer's non-destructive filter stack.
-// controls: [{ key, label, kind: 'adj' | 'gallery', min, max, step, default }]
+// controls: [{ key, label, kind: 'adj' | 'gallery' | 'galleryObject',
+// field?, min, max, step, default }]
 // 'adj' writes data.adjustments[key] (brightness/contrast/saturation/hue);
 // 'gallery' writes data.galleryFilters[key]. Both survive save/reload and
-// are re-applied by the server card renderer.
+// are re-applied by the server card renderer. `galleryObject` lets one filter
+// expose several live controls (for example Motion Blur angle + distance)
+// while remaining one ordered filter in the saved document.
 const props = defineProps({
   canvas: { type: Object, required: true },
   target: { type: Object, required: true },
@@ -54,6 +57,7 @@ const preview = ref(true);
 
 function current(c) {
   const bucket = c.kind === 'adj' ? snapshot.adjustments : snapshot.galleryFilters;
+  if (c.kind === 'galleryObject') return bucket[c.key]?.[c.field] ?? c.default;
   return bucket[c.key] ?? c.default;
 }
 
@@ -63,10 +67,19 @@ function write(useValues) {
   const galleryFilters = { ...snapshot.galleryFilters };
   if (useValues) {
     for (const c of props.controls) {
-      const v = Number(values[c.key]);
+      const valueKey = c.field ? `${c.key}.${c.field}` : c.key;
+      const value = Number(values[valueKey] ?? values[c.key]);
       const neutral = c.neutral ?? 0;
       const bucket = c.kind === 'adj' ? adjustments : galleryFilters;
-      if (Math.abs(v - neutral) < 1e-6) delete bucket[c.key]; else bucket[c.key] = v;
+      if (c.kind === 'galleryObject') {
+        bucket[c.key] = { ...(bucket[c.key] || {}), [c.field]: value };
+      } else if (Math.abs(value - neutral) < 1e-6) delete bucket[c.key]; else bucket[c.key] = value;
+    }
+    for (const c of props.controls.filter((control) => control.kind === 'galleryObject')) {
+      const siblings = props.controls.filter((control) => control.kind === 'galleryObject' && control.key === c.key);
+      if (siblings.every((control) => Math.abs(Number(values[`${control.key}.${control.field}`]) - (control.neutral ?? 0)) < 1e-6)) {
+        delete galleryFilters[c.key];
+      }
     }
   }
   props.target.set('data', { ...data, adjustments, galleryFilters });
@@ -75,12 +88,13 @@ function write(useValues) {
 }
 
 function apply() { write(preview.value); }
-function reset() { for (const c of props.controls) values[c.key] = c.neutral ?? 0; apply(); }
+function controlKey(c) { return c.field ? `${c.key}.${c.field}` : c.key; }
+function reset() { for (const c of props.controls) values[controlKey(c)] = c.neutral ?? 0; apply(); }
 function ok() { write(true); emit('commit'); emit('close'); }
 function cancel() { write(false); emit('close'); }
 
 onMounted(() => {
-  for (const c of props.controls) values[c.key] = current(c);
+  for (const c of props.controls) values[controlKey(c)] = current(c);
   apply();
 });
 </script>
