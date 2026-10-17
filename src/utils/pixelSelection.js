@@ -148,7 +148,7 @@ export function transformSelection(mask, { scaleX = 1, scaleY = 1, angle = 0, of
   return output;
 }
 
-export function selectionEdgeCanvas(mask) {
+export function selectionEdgeCanvas(mask, phase = 0) {
   const width = mask.width, height = mask.height;
   const source = mask.getContext('2d').getImageData(0, 0, width, height).data;
   const output = makeMask(width, height);
@@ -159,7 +159,7 @@ export function selectionEdgeCanvas(mask) {
     if (!selected(x, y)) continue;
     if (selected(x - 1, y) && selected(x + 1, y) && selected(x, y - 1) && selected(x, y + 1)) continue;
     const index = (y * width + x) * 4;
-    const light = (x + y) % 8 < 4;
+    const light = (x + y + phase) % 8 < 4;
     image.data[index] = image.data[index + 1] = image.data[index + 2] = light ? 255 : 0;
     image.data[index + 3] = 255;
   }

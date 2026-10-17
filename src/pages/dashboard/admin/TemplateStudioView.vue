@@ -10,11 +10,13 @@
       <span class="text-2xs text-surface-slate dark:text-surface-ash">
         {{ document ? `${document.width}×${document.height}px` : '' }}
       </span>
+      <span v-if="isSmartObjectMode" class="rounded-full bg-violet-100 px-2 py-1 text-[10px] font-bold text-violet-700">Linked layer editor</span>
 
       <input ref="imageInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileChosen" />
       <input ref="psdInputRef" type="file" accept=".psd,image/vnd.adobe.photoshop" class="hidden" @change="onPsdFileChosen" />
       <input ref="projectInputRef" type="file" accept=".amo,application/zip" class="hidden" @change="onProjectFileChosen" />
       <input ref="brushInputRef" type="file" accept=".abr" multiple class="hidden" @change="onBrushFilesChosen" />
+      <input ref="lutInputRef" type="file" accept=".cube,text/plain" class="hidden" @change="onLutFileChosen" />
 
       <!-- Preview toggle (Batch 22) — swaps every bound text layer between its {{binding}} placeholder and sample data -->
       <button class="btn-ghost !text-2xs !py-1.5 !px-3 ml-1" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': previewMode }" @click="togglePreview">
@@ -65,7 +67,7 @@
       </button>
 
       <span class="text-2xs mr-1" :class="isOnline ? 'text-emerald-600' : 'text-red-500'">
-        {{ isOnline ? (autosaveStatus === 'pending' ? 'Saving local draft…' : autosaveStatus === 'cloud' ? 'Saved to cloud' : autosaveStatus === 'local' ? 'Saved locally' : 'Online') : 'Offline — edits stay on this device' }}
+        {{ isSmartObjectMode ? (autosaveStatus === 'cloud' ? 'Poster updated' : 'Linked to poster') : isOnline ? (autosaveStatus === 'pending' ? 'Saving local draft…' : autosaveStatus === 'cloud' ? 'Saved to cloud' : autosaveStatus === 'local' ? 'Saved locally' : 'Online') : 'Offline — edits stay on this device' }}
       </span>
       <div class="relative">
         <button class="btn-ghost !text-2xs !py-1.5 !px-3 flex items-center gap-1" :disabled="exporting" @click="exportMenuOpen = !exportMenuOpen">
@@ -83,7 +85,7 @@
         </div>
       </div>
       <button class="btn-ghost !text-2xs !py-1.5 !px-3" @click="saveLocalDraft({ notify: true })">Save locally</button>
-      <AppButton :loading="saving" :disabled="!isOnline" @click="save">Save to cloud</AppButton>
+      <AppButton :loading="saving" :disabled="!isSmartObjectMode && !isOnline" @click="save">{{ isSmartObjectMode ? 'Update poster' : 'Save to cloud' }}</AppButton>
     </div>
 
     <StudioMenuBar :menus="studioMenus" />
@@ -348,6 +350,7 @@
             @perspective-warp="openPerspectiveWarp"
             @toggle-shared="onToggleShared"
             @replace-source="onReplaceSource"
+            @edit-smart-object="onEditSmartObject"
             @restore-original-pixels="onRestoreOriginalPixels"
             @update-qr="onUpdateQr"
             @edit-path="onEditPath"
@@ -498,6 +501,7 @@ import { CloneStampController, clearImageSelection, contentAwareFillTransparent,
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
 import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
 import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
+import { parseCubeLut } from '@/utils/cubeLut';
 import { importPsdLocally } from '@/utils/localPsdImport';
 import { removeImageBackground, selectImageSubject } from '@/utils/backgroundRemoval';
 import {
@@ -527,6 +531,8 @@ const DocumentSizeDialog = defineAsyncComponent(() => import('@/components/studi
 
 const route = useRoute();
 const router = useRouter();
+const smartObjectSessionId = computed(() => String(route.query.smartObject || ''));
+const isSmartObjectMode = computed(() => !!smartObjectSessionId.value);
 
 // Dual mode: super-admin editing a shared CardTemplate (/studio/templates/:id)
 // vs. a tenant editing their own event's CardVariant
@@ -568,6 +574,7 @@ const SHORTCUTS = [
 // only succeeds on script-opened tabs — falls back to the library route
 // for the case someone loaded this URL directly (bookmark, refresh, etc).
 function closeStudio() {
+  if (isSmartObjectMode.value) { window.close(); return; }
   window.close();
   setTimeout(() => {
     if (window.closed) return;
@@ -581,7 +588,9 @@ const loading = ref(true);
 const saving = ref(false);
 const autosaveStatus = ref(''); // '' | 'pending' | 'local' | 'cloud'
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine);
-const localProjectId = computed(() => `${isVariantMode.value ? `variant:${variantEventId.value}` : 'template'}:${route.params.id || 'new'}`);
+const localProjectId = computed(() => isSmartObjectMode.value
+  ? `smart-object:${smartObjectSessionId.value}`
+  : `${isVariantMode.value ? `variant:${variantEventId.value}` : 'template'}:${route.params.id || 'new'}`);
 let autosaveTimer = null;
 function onNetworkOnline() { isOnline.value = true; toast.success('Back online. Your next save can sync to the cloud.'); }
 function onNetworkOffline() { isOnline.value = false; toast.error('You are offline. Studio edits will stay on this device.'); }
@@ -643,6 +652,8 @@ const studioSwatches = ref(JSON.parse(localStorage.getItem('studio.swatches') ||
 watch(studioSwatches, (colors) => localStorage.setItem('studio.swatches', JSON.stringify(colors)), { deep: true });
 const utilityPanelMode = ref('swatches');
 const brushInputRef = ref(null);
+const lutInputRef = ref(null);
+let lutTargetObj = null;
 const brushPresets = ref(JSON.parse(localStorage.getItem('studio.brushPresets') || 'null') || [
   { id: 'soft-round', name: 'Soft Round', size: 80, hardness: 0.15, spacing: 15 },
   { id: 'hard-round', name: 'Hard Round', size: 24, hardness: 1, spacing: 10 },
@@ -702,6 +713,31 @@ async function onBrushFilesChosen(event) {
     utilityPanelMode.value = 'brushes'; rightPanelTab.value = 'swatches';
     toast.success(`Imported ${imported} Photoshop brush preset${imported === 1 ? '' : 's'}.`);
   } catch (err) { console.error(err); toast.error(`Brush import failed: ${apiErrorMessage(err)}`); }
+}
+
+function openColorLookup(obj) {
+  if (obj?.type !== 'image') { toast.error('Select an image layer first.'); return; }
+  lutTargetObj = obj;
+  lutInputRef.value?.click();
+}
+
+async function onLutFileChosen(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  const target = lutTargetObj;
+  lutTargetObj = null;
+  if (!file || target?.type !== 'image') return;
+  try {
+    const colorLookup = parseCubeLut(await file.text());
+    const data = target.get('data') || {};
+    target.set('data', { ...data, adjustments: { ...(data.adjustments || {}), colorLookup: { ...colorLookup, fileName: file.name } } });
+    rebuildFilterStack(target);
+    fabricCanvasRaw.fire('object:modified', { target });
+    fabricCanvasRaw.requestRenderAll();
+    toast.success(`Applied 3D LUT “${colorLookup.title}”. It is embedded for offline editing and server exports.`);
+  } catch (error) {
+    toast.error(`Could not import this .cube LUT: ${error?.message || 'invalid file'}`);
+  }
 }
 
 const studioActions = ref(JSON.parse(localStorage.getItem('studio.actions') || '[]'));
@@ -966,6 +1002,7 @@ const brushHardness = ref(0.7); // 0 = soft falloff from center, 1 = hard edge �
 const wandTolerance = ref(28);
 let pixelSelectionOverlay = null;
 let pixelSelectionAnimation = null;
+let pixelSelectionFrames = null;
 let activePixelSelection = null;
 
 // ── Brush cursor preview ─────────────────────────────────────────────────
@@ -1054,12 +1091,14 @@ function clearPixelSelectionOverlay({ keepSelection = false } = {}) {
   pixelSelectionAnimation = null;
   if (pixelSelectionOverlay && fabricCanvasRaw) fabricCanvasRaw.remove(pixelSelectionOverlay);
   pixelSelectionOverlay = null;
+  pixelSelectionFrames = null;
   if (!keepSelection) activePixelSelection = null;
 }
 
 function showPixelSelectionOverlay(target, mask) {
   clearPixelSelectionOverlay({ keepSelection: true });
-  const edge = selectionEdgeCanvas(mask);
+  const edge = selectionEdgeCanvas(mask, 0);
+  pixelSelectionFrames = [edge, selectionEdgeCanvas(mask, 4)];
   pixelSelectionOverlay = new fabric.FabricImage(edge, {
     left: target.left, top: target.top, originX: target.originX, originY: target.originY,
     scaleX: (target.scaleX || 1) * ((target.width || edge.width) / edge.width),
@@ -1071,13 +1110,14 @@ function showPixelSelectionOverlay(target, mask) {
   });
   fabricCanvasRaw.add(pixelSelectionOverlay);
   fabricCanvasRaw.bringObjectToFront(pixelSelectionOverlay);
-  let bright = false;
+  let frame = 0;
   pixelSelectionAnimation = window.setInterval(() => {
     if (!pixelSelectionOverlay || !fabricCanvasRaw) return;
-    bright = !bright;
-    pixelSelectionOverlay.set('opacity', bright ? 1 : 0.65);
+    frame = (frame + 1) % pixelSelectionFrames.length;
+    pixelSelectionOverlay.setElement(pixelSelectionFrames[frame]);
+    pixelSelectionOverlay.dirty = true;
     fabricCanvasRaw.requestRenderAll();
-  }, 220);
+  }, 140);
   fabricCanvasRaw.requestRenderAll();
 }
 
@@ -1460,7 +1500,7 @@ function onKeyDown(e) {
   const activeImage = active?.type === 'image' ? active : null;
   if (mod && key === 's') {
     e.preventDefault();
-    if (e.shiftKey) save(); else saveProjectFile();
+    if (isSmartObjectMode.value || e.shiftKey) save(); else saveProjectFile();
     return;
   }
   if (mod && key === 'o' && !e.altKey) { e.preventDefault(); psdInputRef.value?.click(); return; }
@@ -2606,19 +2646,108 @@ async function onMakeSmartObject(obj) {
   toast.success('Converted to Smart Object. The editable source is preserved.');
 }
 
-async function onEditSmartObject(obj) {
-  const source = obj?.get('data')?.smartObjectSource;
-  if (!source) { toast.error('This layer is not a Smart Object.'); return; }
-  const [restored] = await fabric.util.enlivenObjects([source]);
-  const parent = findParentGroup(obj, fabricCanvasRaw.getObjects());
+const smartObjectSessions = new Map();
+
+async function smartObjectDocumentFor(obj) {
+  const saved = obj?.get('data')?.smartObjectDocument;
+  if (saved?.layers) return structuredClone(saved);
+  const clone = await obj.clone(['data']);
+  const cloneData = clone.get('data') || {};
+  clone.set('data', { ...cloneData, smartObject: false, smartObjectSource: null, smartObjectDocument: null });
+  clone.set({ left: 0, top: 0, originX: 'left', originY: 'top', angle: 0, skewX: 0, skewY: 0, scaleX: 1, scaleY: 1 });
+  clone.setCoords();
+  const width = Math.max(1, Math.ceil(Number(clone.width) || 1));
+  const height = Math.max(1, Math.ceil(Number(clone.height) || 1));
+  const element = window.document.createElement('canvas');
+  const sourceCanvas = new fabric.StaticCanvas(element, { width, height, backgroundColor: 'rgba(0,0,0,0)' });
+  sourceCanvas.add(clone); sourceCanvas.renderAll();
+  const doc = serializeDocument(sourceCanvas, {
+    previousDocument: { version: 2, coordinateSpace: 'local-groups', width, height, background: 'rgba(0,0,0,0)', fontFamilies: [], layers: [] },
+  });
+  sourceCanvas.dispose();
+  return doc;
+}
+
+async function applySmartObjectDocument(target, smartDocument, smartName = 'Linked layer') {
+  if (!target || !smartDocument?.layers || !fabricCanvasRaw) return;
+  const parent = findParentGroup(target, fabricCanvasRaw.getObjects());
   const collection = parent || fabricCanvasRaw;
-  const index = collection.getObjects().indexOf(obj);
-  collection.remove(obj); collection.insertAt(Math.max(0, index), restored);
-  if (!parent) fabricCanvasRaw.setActiveObject(restored);
-  selectedObjects.value = [markRaw(restored)]; selectedParent.value = parent;
+  const index = collection.getObjects().indexOf(target);
+  if (index < 0) return;
+  const element = window.document.createElement('canvas');
+  const previewCanvas = new fabric.StaticCanvas(element, {
+    width: smartDocument.width, height: smartDocument.height,
+    backgroundColor: smartDocument.background || 'rgba(0,0,0,0)',
+  });
+  await preloadDocumentFonts(smartDocument);
+  await loadDocument(previewCanvas, smartDocument, { resolveAssetUrl });
+  previewCanvas.renderAll();
+  const preview = previewCanvas.toCanvasElement(1);
+  const oldWidth = Math.max(1, target.getScaledWidth()), oldHeight = Math.max(1, target.getScaledHeight());
+  const oldData = target.get('data') || {};
+  const replacement = new fabric.FabricImage(preview, {
+    left: target.left, top: target.top, originX: target.originX, originY: target.originY,
+    angle: target.angle || 0, skewX: target.skewX || 0, skewY: target.skewY || 0,
+    flipX: !!target.flipX, flipY: !!target.flipY, opacity: target.opacity ?? 1,
+    globalCompositeOperation: target.globalCompositeOperation || 'source-over',
+    scaleX: oldWidth / Math.max(1, smartDocument.width), scaleY: oldHeight / Math.max(1, smartDocument.height),
+  });
+  replacement.set('data', {
+    ...oldData, name: oldData.name || smartName, smartObject: true,
+    smartObjectSource: null, smartObjectDocument: structuredClone(smartDocument),
+    layerEffects: [], layerEffectBase: null, liveCanvas: true,
+  });
+  previewCanvas.dispose();
+  collection.remove(target); collection.insertAt(Math.max(0, index), replacement);
+  if (!parent) fabricCanvasRaw.setActiveObject(replacement);
+  selectedObjects.value = [markRaw(replacement)]; selectedParent.value = parent;
   fabricCanvasRaw.requestRenderAll(); refreshLayersList();
-  fabricCanvasRaw.fire('object:modified', { target: restored });
-  toast.success('Smart Object source restored for editing. Convert it again when finished.');
+  fabricCanvasRaw.fire('object:modified', { target: replacement });
+}
+
+async function receiveSmartObjectSave(message) {
+  if (message?.type !== 'amoeditor-smart-object-save' || !message.sessionId) return;
+  const session = smartObjectSessions.get(message.sessionId);
+  if (!session) return;
+  const target = walkFabricObjects(fabricCanvasRaw.getObjects()).find((object) => object.get('data')?.layerId === session.layerId);
+  if (!target) { toast.error('The linked poster layer no longer exists.'); return; }
+  await applySmartObjectDocument(target, message.document, message.name);
+  toast.success(`Updated “${target.get('data')?.name || 'linked layer'}” from its editor tab.`);
+}
+
+function onSmartObjectWindowMessage(event) {
+  if (event.origin !== window.location.origin) return;
+  receiveSmartObjectSave(event.data);
+}
+
+async function onEditSmartObject(obj) {
+  if (!obj || !fabricCanvasRaw) return;
+  const childWindow = window.open('about:blank', '_blank');
+  if (!childWindow) { toast.error('Allow pop-ups for AmoEditor so linked layer contents can open in a new tab.'); return; }
+  try {
+    const sessionId = crypto.randomUUID();
+    const smartDocument = await smartObjectDocumentFor(obj);
+    const layerId = obj.get('data')?.layerId || `layer_${Math.random().toString(36).slice(2, 10)}`;
+    obj.set('data', { ...(obj.get('data') || {}), layerId, smartObject: true, smartObjectDocument: structuredClone(smartDocument) });
+    const saved = await putTemplateProject(`smart-object:${sessionId}`, {
+      name: `${obj.get('data')?.name || 'Layer'} contents`, template: null,
+      document: smartDocument, pages: [{ name: 'Contents', document: smartDocument }], dirty: false,
+    });
+    if (!saved) throw new Error('Could not prepare this linked layer for local editing.');
+    const session = { layerId, channel: null };
+    if (typeof BroadcastChannel !== 'undefined') {
+      session.channel = new BroadcastChannel(`amoeditor-smart-object:${sessionId}`);
+      session.channel.onmessage = (event) => receiveSmartObjectSave(event.data);
+    }
+    smartObjectSessions.set(sessionId, session);
+    const destination = router.resolve({ path: route.path, query: { ...route.query, smartObject: sessionId } }).href;
+    childWindow.location.replace(new URL(destination, window.location.origin).href);
+    fabricCanvasRaw.fire('object:modified', { target: obj });
+    toast.success('Linked layer opened in a new AmoEditor tab. Save there to update this poster automatically.');
+  } catch (error) {
+    childWindow.close();
+    toast.error(error?.message || 'Could not open the linked layer editor.');
+  }
 }
 
 async function onRestoreText(obj, { notify = true } = {}) {
@@ -3173,6 +3302,7 @@ const { menus: studioMenus, resizeCanvas, resizeImage } = useStudioMenus({
   placeImage: () => imageInputRef.value?.click(),
   importFonts: () => fontInputRef.value?.click(),
   importBrushes: () => brushInputRef.value?.click(),
+  openColorLookup,
   openUtilityPanel: (mode) => { utilityPanelMode.value = mode; rightPanelTab.value = 'swatches'; },
   openPreflight: () => { showPreflight.value = true; },
   clearPixelSelection: clearPixelSelectionOverlay,
@@ -3265,7 +3395,12 @@ async function boot() {
     const blank = () => ({ version: 1, width: 1080, height: 1920, background: '#FFFFFF', fontFamilies: [], layers: [] });
     const localDraft = await getTemplateProject(localProjectId.value);
     let localDraftNeedsSync = false;
-    if (id) {
+    if (isSmartObjectMode.value) {
+      if (!localDraft?.pages?.length) throw new Error('This linked layer editing session is no longer available. Reopen it from the poster.');
+      template.value = null;
+      name.value = localDraft.name || 'Linked layer';
+      pages.value = localDraft.pages;
+    } else if (id) {
       try {
         if (!isOnline.value) throw new Error('offline');
         const tpl = await api.adminGet(id);
@@ -3613,8 +3748,36 @@ async function materializeDocumentAssetsForCloud(doc) {
   await visit(doc?.layers);
 }
 
+async function saveSmartObjectToParent() {
+  if (!fabricCanvasRaw || !smartObjectSessionId.value) return;
+  saving.value = true;
+  try {
+    await persistLiveCanvasLayers({ cloud: false });
+    captureActivePage();
+    const project = {
+      name: name.value, template: null, document: pages.value[0]?.document,
+      pages: pages.value, dirty: false,
+    };
+    if (!(await putTemplateProject(localProjectId.value, project))) throw new Error('Could not save the linked layer project on this device.');
+    const message = {
+      type: 'amoeditor-smart-object-save', sessionId: smartObjectSessionId.value,
+      document: pages.value[0].document, name: name.value,
+    };
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(`amoeditor-smart-object:${smartObjectSessionId.value}`);
+      channel.postMessage(message); channel.close();
+    }
+    window.opener?.postMessage(message, window.location.origin);
+    autosaveStatus.value = 'cloud';
+    toast.success('Poster updated. You can keep editing this linked layer or close this tab.');
+  } catch (error) {
+    toast.error(error?.message || 'Could not update the poster.');
+  } finally { saving.value = false; }
+}
+
 async function save() {
   if (!fabricCanvasRaw) return;
+  if (isSmartObjectMode.value) return saveSmartObjectToParent();
   if (!isOnline.value) {
     await saveLocalDraft({ notify: true });
     return;
@@ -3712,6 +3875,18 @@ async function saveProjectFile({ saveAs = false } = {}) {
   exporting.value = true; exportMenuOpen.value = false;
   try {
     const blob = await buildProjectBlob();
+    if (window.amoDesktop?.saveProject) {
+      const result = await window.amoDesktop.saveProject({
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        suggestedName: `${safeExportName(name.value || 'template')}.amo`,
+        saveAs,
+      });
+      if (!result?.canceled) {
+        await saveLocalDraft({ notify: false, dirty: true });
+        toast.success(`AmoEditor project saved as ${result?.name || 'a local project'}.`);
+      }
+      return;
+    }
     let handle = saveAs ? null : projectFileHandle.value;
     if (!handle && typeof window.showSaveFilePicker === 'function') {
       handle = await window.showSaveFilePicker({
@@ -3746,6 +3921,17 @@ async function exportProject() {
 }
 
 async function openProjectPicker() {
+  if (window.amoDesktop?.openProject) {
+    try {
+      const result = await window.amoDesktop.openProject();
+      if (!result) return;
+      const file = new File([result.bytes], result.name || 'Untitled.amo', { type: 'application/zip' });
+      await openProjectFile(file, null);
+    } catch (err) {
+      toast.error(`Could not open project: ${apiErrorMessage(err)}`);
+    }
+    return;
+  }
   if (typeof window.showOpenFilePicker !== 'function') {
     projectInputRef.value?.click();
     return;
@@ -3953,12 +4139,20 @@ async function exportLayers() {
   finally { exporting.value = false; }
 }
 
+let detachDesktopMenu = null;
 onMounted(() => {
   window.addEventListener('online', onNetworkOnline);
   window.addEventListener('offline', onNetworkOffline);
+  window.addEventListener('message', onSmartObjectWindowMessage);
+  detachDesktopMenu = window.amoDesktop?.onMenuCommand?.((command) => {
+    if (command === 'open-project') openProjectPicker();
+    else if (command === 'save-project') isSmartObjectMode.value ? save() : saveProjectFile();
+    else if (command === 'save-project-as') saveProjectFile({ saveAs: true });
+  }) || null;
   boot();
 });
 onBeforeUnmount(() => {
+  detachDesktopMenu?.();
   clearTimeout(autosaveTimer);
   history?.detach();
   penTool?.stop();
@@ -3971,6 +4165,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onViewportScroll);
   window.removeEventListener('online', onNetworkOnline);
   window.removeEventListener('offline', onNetworkOffline);
+  window.removeEventListener('message', onSmartObjectWindowMessage);
+  smartObjectSessions.forEach((session) => session.channel?.close());
+  smartObjectSessions.clear();
   viewportRef.value?.removeEventListener('scroll', onViewportScroll);
 });
 </script>

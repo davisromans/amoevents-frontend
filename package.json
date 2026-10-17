@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5174",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4174"
+    "preview": "vite preview --host 0.0.0.0 --port 4174",
+    "desktop:dev": "npm run build && npm --prefix desktop run dev",
+    "desktop:dist": "npm run build && npm --prefix desktop run dist"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
