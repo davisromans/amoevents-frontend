@@ -585,6 +585,7 @@ function fabricToLayer(obj) {
     clipMaskSourceLayerId: data.clipMaskSourceLayerId || null,
     smartObject: !!data.smartObject,
     smartObjectSource: clonePlain(data.smartObjectSource || preserved.smartObjectSource || null),
+    smartObjectDocument: clonePlain(data.smartObjectDocument || preserved.smartObjectDocument || null),
     effects: preservedEffects,
   };
 

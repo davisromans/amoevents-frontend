@@ -1,4 +1,5 @@
 import * as fabric from 'fabric';
+import { sampleCubeLut } from '@/utils/cubeLut';
 
 // Batch 16 — filters gallery for image layers. Fabric ships a genuinely
 // solid native set already (Blur, Noise, Pixelate — used as-is below);
@@ -155,6 +156,20 @@ class GradientMapFilter extends fabric.filters.BaseFilter {
     for (let i = 0; i < d.length; i += 4) { const y = (d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) / 255; for (let c = 0; c < 3; c += 1) d[i + c] = lo[c] + (hi[c] - lo[c]) * y; }
   }
 }
+class CubeLutFilter extends fabric.filters.BaseFilter {
+  static type = 'CubeLut';
+  static defaults = { lut: null };
+  applyTo2d({ imageData }) {
+    if (!this.lut) return;
+    const data = imageData.data;
+    for (let index = 0; index < data.length; index += 4) {
+      const [red, green, blue] = sampleCubeLut(this.lut, data[index] / 255, data[index + 1] / 255, data[index + 2] / 255);
+      data[index] = Math.round(red * 255);
+      data[index + 1] = Math.round(green * 255);
+      data[index + 2] = Math.round(blue * 255);
+    }
+  }
+}
 class GradientOverlayFilter extends fabric.filters.BaseFilter {
   static type = 'GradientOverlay';
   static defaults = { from: '#8B5CF6', to: '#D9B45E', opacity: 1, angle: 0 };
@@ -191,7 +206,7 @@ class ReplaceColorFilter extends fabric.filters.BaseFilter {
   sendUniformData(gl, u) { const parse = (color) => { const source = new fabric.Color(color).getSource(); return new Float32Array(source.slice(0, 3).map((value) => value / 255)); }; gl.uniform3fv(u.uFrom, parse(this.from)); gl.uniform3fv(u.uTo, parse(this.to)); gl.uniform1f(u.uTolerance, (Number(this.tolerance) || 40) / 255); }
   applyTo2d({ imageData }) { const parse = (color) => new fabric.Color(color).getSource().slice(0, 3), from = parse(this.from), to = parse(this.to), d = imageData.data, tolerance = Number(this.tolerance) || 40; for (let i = 0; i < d.length; i += 4) if (Math.hypot(d[i] - from[0], d[i + 1] - from[1], d[i + 2] - from[2]) <= tolerance) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; } }
 }
-fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(MotionBlurFilter, 'MotionBlur'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(GradientOverlayFilter, 'GradientOverlay'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
+fabric.classRegistry.setClass(PosterizeFilter, 'Posterize'); fabric.classRegistry.setClass(ThresholdFilter, 'Threshold'); fabric.classRegistry.setClass(RadialDistortFilter, 'RadialDistort'); fabric.classRegistry.setClass(RadialBlurFilter, 'RadialBlur'); fabric.classRegistry.setClass(OilPaintFilter, 'OilPaint'); fabric.classRegistry.setClass(MotionBlurFilter, 'MotionBlur'); fabric.classRegistry.setClass(GradientMapFilter, 'GradientMap'); fabric.classRegistry.setClass(CubeLutFilter, 'CubeLut'); fabric.classRegistry.setClass(GradientOverlayFilter, 'GradientOverlay'); fabric.classRegistry.setClass(ReplaceColorFilter, 'ReplaceColor');
 
 // The gallery — id, label, and a factory returning a Fabric filter
 // instance for the given params. `params` are exposed to the UI as
@@ -281,6 +296,7 @@ function addAdvancedAdjustments(filters, adj) {
       0, 0, 0, 1, 0,
     ] }));
   }
+  if (adj.colorLookup?.kind === 'cube3d') filters.push(new CubeLutFilter({ lut: adj.colorLookup }));
 }
 
 /**
@@ -313,6 +329,14 @@ export function rebuildFilterStack(obj) {
   const filters = [];
 
   const adj = { ...(data.adjustments || {}), ...(data.inheritedAdjustments || {}) };
+  // A .cube LUT is a genuine 3D colour transform. Fabric's generic WebGL
+  // backend cannot represent an arbitrary imported cube without uploading
+  // a dedicated LUT texture, so switch to its exact Canvas2D pipeline for
+  // documents that use one. This keeps browser preview and server output
+  // pixel-compatible instead of silently rendering a pass-through shader.
+  if (adj.colorLookup?.kind === 'cube3d' && fabric.setFilterBackend && fabric.Canvas2dFilterBackend) {
+    fabric.setFilterBackend(new fabric.Canvas2dFilterBackend());
+  }
   if (adj.brightness) filters.push(new fabric.filters.Brightness({ brightness: adj.brightness }));
   if (adj.contrast) filters.push(new fabric.filters.Contrast({ contrast: adj.contrast }));
   if (adj.saturation) filters.push(new fabric.filters.Saturation({ saturation: adj.saturation }));

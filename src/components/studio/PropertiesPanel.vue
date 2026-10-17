@@ -275,6 +275,11 @@
             <input type="range" :min="a.min" :max="a.max" step="0.02" class="w-full accent-brand-gold"
                    :value="adjustments[a.key]" @input="setAdjustment(a.key, Number($event.target.value))" />
           </div>
+          <div v-if="adjustments.colorLookup" class="rounded-lg border border-surface-mist dark:border-surface-fog p-2">
+            <p class="text-2xs font-bold">3D LUT · {{ adjustments.colorLookup.title || adjustments.colorLookup.fileName }}</p>
+            <p class="text-[10px] text-surface-slate dark:text-surface-ash">{{ adjustments.colorLookup.size }}³ colour lookup · embedded for offline and export</p>
+            <button class="mt-1 text-[10px] font-bold text-red-500" @click="clearColorLookup">Remove colour lookup</button>
+          </div>
 
           <p class="section-eyebrow pt-2">Filters</p>
           <div v-for="f in FILTER_GALLERY.filter((entry) => entry.panel !== false)" :key="f.id">
@@ -293,6 +298,7 @@
           <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">Runs on this device. The first use downloads the model; later use works offline.</p>
 
           <p class="section-eyebrow pt-2">Smart object</p>
+          <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="$emit('edit-smart-object', obj)">Edit contents in new tab…</button>
           <label class="flex items-center gap-2 text-2xs font-bold">
             <input type="checkbox" class="accent-brand-gold" :checked="isShared" @change="$emit('toggle-shared', obj, $event.target.checked)" />
             Shared across templates
@@ -325,7 +331,35 @@
               <button class="btn-ghost !p-1 !text-[10px] text-red-500" title="Remove effect" @click="removeLayerEffect(effect.id)">×</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <template v-if="effect.type === 'gradientOverlay'">
+              <template v-if="effect.type === 'stroke'">
+                <label class="text-[10px] col-span-2">Stroke paint
+                  <select class="field-input !py-1 !text-xs mt-1" :value="effect.fillType || 'color'" @change="updateLayerEffect(effect.id, { fillType: $event.target.value })">
+                    <option value="color">Solid colour</option>
+                    <option value="gradient">Gradient</option>
+                    <option value="pattern">Pattern</option>
+                  </select>
+                </label>
+                <template v-if="(effect.fillType || 'color') === 'color'">
+                  <label class="text-[10px] col-span-2">Colour<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.color" @input="updateLayerEffect(effect.id, { color: $event.target.value })" /></label>
+                </template>
+                <template v-else-if="effect.fillType === 'gradient'">
+                  <label class="text-[10px]">Start<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.from" @input="updateLayerEffect(effect.id, { from: $event.target.value })" /></label>
+                  <label class="text-[10px]">End<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.to" @input="updateLayerEffect(effect.id, { to: $event.target.value })" /></label>
+                  <label class="text-[10px] col-span-2">Angle — {{ effect.angle }}°<input type="range" min="-180" max="180" step="1" class="w-full accent-brand-gold" :value="effect.angle" @input="updateLayerEffect(effect.id, { angle: Number($event.target.value) })" /></label>
+                </template>
+                <template v-else>
+                  <label class="text-[10px] col-span-2">Pattern
+                    <select class="field-input !py-1 !text-xs mt-1" :value="effect.patternKind || 'diagonal'" @change="updateLayerEffect(effect.id, { patternKind: $event.target.value })">
+                      <option value="diagonal">Diagonal stripes</option><option value="dots">Dots</option><option value="checker">Checker</option>
+                    </select>
+                  </label>
+                  <label class="text-[10px]">Foreground<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.patternColor" @input="updateLayerEffect(effect.id, { patternColor: $event.target.value })" /></label>
+                  <label class="text-[10px]">Background<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.patternBackground" @input="updateLayerEffect(effect.id, { patternBackground: $event.target.value })" /></label>
+                  <label class="text-[10px] col-span-2">Pattern scale — {{ effect.patternScale }}×<input type="range" min="0.25" max="8" step="0.25" class="w-full accent-brand-gold" :value="effect.patternScale" @input="updateLayerEffect(effect.id, { patternScale: Number($event.target.value) })" /></label>
+                </template>
+                <label class="text-[10px] col-span-2">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
+              </template>
+              <template v-else-if="effect.type === 'gradientOverlay'">
                 <label class="text-[10px]">Start<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.from" @input="updateLayerEffect(effect.id, { from: $event.target.value })" /></label>
                 <label class="text-[10px]">End<input type="color" class="mt-1 w-full h-7 rounded" :value="effect.to" @input="updateLayerEffect(effect.id, { to: $event.target.value })" /></label>
                 <label class="text-[10px] col-span-2">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="effect.opacity" @input="updateLayerEffect(effect.id, { opacity: Number($event.target.value) })" /></label>
@@ -465,7 +499,7 @@ const props = defineProps({
   canvas: { type: Object, required: true },
   selected: { type: Array, default: () => [] },
 });
-const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'restore-original-pixels', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr', 'edit-path']);
+const emit = defineEmits(['bring-forward', 'send-backward', 'delete', 'clip-mask', 'paint-mask', 'remove-mask', 'toggle-shared', 'replace-source', 'restore-original-pixels', 'start-crop', 'perspective-warp', 'rasterize', 'restore-text', 'update-qr', 'edit-path', 'edit-smart-object']);
 
 // Fabric objects in `selected` are markRaw'd (see TemplateStudioView.vue's
 // refreshLayersList comment) — Vue never tracks mutations to them, which
@@ -567,6 +601,17 @@ function setAdjustmentLayerNested(key, fallback, group, field, value) {
   const current = values[key] || fallback;
   obj.value.set('data', { ...data, adjustmentValues: { ...values, [key]: { ...fallback, ...current, [group]: { ...fallback[group], ...(current[group] || {}), [field]: value } } } });
   props.canvas.fire('object:modified', { target: obj.value });
+}
+function clearColorLookup() {
+  const target = obj.value;
+  if (target?.type !== 'image') return;
+  const data = target.get('data') || {};
+  const next = { ...(data.adjustments || {}) };
+  delete next.colorLookup;
+  target.set('data', { ...data, adjustments: next });
+  rebuildFilterStack(target);
+  props.canvas.fire('object:modified', { target });
+  props.canvas.requestRenderAll();
 }
 const qrData = computed(() => ({
   fg: '#111111', bg: '#FFFFFF', borderColor: '#111111', borderWidth: 0, borderRadius: 0, padding: 12,

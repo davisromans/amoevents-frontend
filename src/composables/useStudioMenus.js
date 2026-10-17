@@ -601,6 +601,7 @@ export function useStudioMenus(ctx) {
           { label: 'Posterize…', disabled: notImage, action: () => adjust('Posterize', ADJ.posterize) },
           { label: 'Threshold…', disabled: notImage, action: () => adjust('Threshold', ADJ.threshold) },
           { label: 'Gradient Map…', disabled: notImage, checked: hasFilter('gradientMap'), action: gradientMap },
+          { label: 'Color Lookup (3D LUT)…', disabled: notImage, action: () => ctx.openColorLookup(one()) },
           { label: 'Replace Color…', disabled: notImage, action: replaceColor },
           SEP,
           { label: 'Clear All Adjustments', disabled: notImage, action: clearAllFilters },
@@ -667,7 +668,7 @@ export function useStudioMenus(ctx) {
         { label: 'Delete Layer', disabled: none, action: deleteSelected },
         { label: 'Rename Layer…', disabled: notOne, action: renameSelected },
         { label: 'Convert to Smart Object', disabled: notOne, action: () => ctx.onMakeSmartObject(one()) },
-        { label: 'Edit Smart Object Contents', disabled: () => !one()?.get('data')?.smartObjectSource, action: () => ctx.onEditSmartObject(one()) },
+        { label: 'Edit Layer Contents in New Tab…', disabled: notOne, action: () => ctx.onEditSmartObject(one()) },
         SEP,
         { label: 'Layer Style', items: [
           { label: 'Drop Shadow…', disabled: notOne, checked: hasLayerEffect('dropShadow'), action: () => editLayerEffect('dropShadow') },
