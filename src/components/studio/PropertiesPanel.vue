@@ -47,6 +47,19 @@
               <option v-for="f in BINDING_FIELDS" :key="f.key" :value="f.key">{{ f.label }}</option>
             </select>
           </div>
+          <div v-if="obj.type === 'textbox'" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-1.5">
+            <p class="field-label">Resize text</p>
+            <div class="grid grid-cols-2 gap-1">
+              <button class="btn-ghost !text-2xs !py-1.5" :class="{ 'bg-brand-primary-glow': textResizeMode === 'frame' }"
+                      @click="setTextResizeMode('frame')">Frame only</button>
+              <button class="btn-ghost !text-2xs !py-1.5" :class="{ 'bg-brand-primary-glow': textResizeMode === 'content' }"
+                      @click="setTextResizeMode('content')">Frame + text</button>
+            </div>
+            <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">
+              <template v-if="textResizeMode === 'frame'">Side handles and W resize the text box only; the font does not stretch. Height follows wrapped lines.</template>
+              <template v-else>Corner handles and W/H scale the box and the text inside together.</template>
+            </p>
+          </div>
           <div>
             <p class="field-label mb-1">Font{{ currentSelectionLabel }}</p>
             <FontPicker :model-value="currentFontFamily" :required-family="originalPsdFont" @update:model-value="setFont" />
@@ -276,12 +289,12 @@
                 <input type="number" class="field-input !py-1.5 !text-xs flex-1" :value="Math.round(obj.top || 0)" @change="setProp('top', Number($event.target.value))" />
               </label>
               <label class="flex items-center gap-1 text-2xs">
-                <span class="text-surface-slate dark:text-surface-ash w-4">W</span>
+                <span class="text-surface-slate dark:text-surface-ash w-10">{{ textFrameOnly ? 'Frame W' : 'W' }}</span>
                 <input type="number" min="1" class="field-input !py-1.5 !text-xs flex-1" :value="Math.round(obj.getScaledWidth())" @change="setWidthPx(Number($event.target.value))" />
               </label>
               <label class="flex items-center gap-1 text-2xs">
-                <span class="text-surface-slate dark:text-surface-ash w-4">H</span>
-                <input type="number" min="1" class="field-input !py-1.5 !text-xs flex-1" :value="Math.round(obj.getScaledHeight())" @change="setHeightPx(Number($event.target.value))" />
+                <span class="text-surface-slate dark:text-surface-ash w-10">{{ textFrameOnly ? 'Auto H' : 'H' }}</span>
+                <input type="number" min="1" class="field-input !py-1.5 !text-xs flex-1" :disabled="textFrameOnly" :title="textFrameOnly ? 'A text frame grows taller as its text wraps. Switch to Frame + text to scale height and glyphs together.' : ''" :value="Math.round(obj.getScaledHeight())" @change="setHeightPx(Number($event.target.value))" />
               </label>
             </div>
             <label class="flex items-center gap-1.5 text-2xs mt-2">
@@ -421,6 +434,34 @@ function flip(axis) {
   setProp(key, -(obj.value[key] || 1));
 }
 
+// A text layer has two intentionally different resize behaviours. A
+// paragraph frame changes wrapping without distorting glyphs; content scale
+// changes the frame and glyphs together. Persist the choice on the layer and
+// change the visible Fabric handles to match, so neither action is implicit.
+const textResizeMode = computed(() => obj.value?.get('data')?.textResizeMode || 'frame');
+const textFrameOnly = computed(() => obj.value?.type === 'textbox' && textResizeMode.value === 'frame');
+function applyTextResizeControls(target) {
+  if (target?.type !== 'textbox' || typeof target.setControlsVisibility !== 'function') return;
+  const frame = (target.get('data')?.textResizeMode || 'frame') === 'frame';
+  target.setControlsVisibility({
+    mt: false, mb: false,
+    ml: frame, mr: frame,
+    tl: !frame, tr: !frame, bl: !frame, br: !frame,
+    mtr: true,
+  });
+  target.setCoords();
+}
+function setTextResizeMode(mode) {
+  const target = obj.value;
+  if (target?.type !== 'textbox') return;
+  const data = target.get('data') || {};
+  target.set('data', { ...data, textResizeMode: mode === 'content' ? 'content' : 'frame' });
+  applyTextResizeControls(target);
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
+}
+watch(obj, (target) => applyTextResizeControls(target), { immediate: true });
+
 // ── Numeric W/H fields ───────────────────────────────────────────────────
 // Fabric objects always expose their unscaled intrinsic width/height
 // regardless of type (Rect, Ellipse, Textbox, Image, Path all support it),
@@ -429,6 +470,16 @@ function flip(axis) {
 const lockAspect = ref(false);
 function setWidthPx(px) {
   if (!px || px <= 0) return;
+  if (textFrameOnly.value) {
+    // Textbox.width is its paragraph frame. Preserve the current glyph scale
+    // while adjusting the intrinsic frame width so only wrapping changes.
+    obj.value.set('width', px / Math.max(0.01, Math.abs(obj.value.scaleX || 1)));
+    obj.value.initDimensions?.();
+    obj.value.setCoords();
+    props.canvas.requestRenderAll();
+    props.canvas.fire('object:modified', { target: obj.value });
+    return;
+  }
   const scaleX = px / (obj.value.width || 1);
   if (lockAspect.value) {
     const ratio = obj.value.scaleY / (obj.value.scaleX || 1);
@@ -442,6 +493,7 @@ function setWidthPx(px) {
 }
 function setHeightPx(px) {
   if (!px || px <= 0) return;
+  if (textFrameOnly.value) return;
   const scaleY = px / (obj.value.height || 1);
   if (lockAspect.value) {
     const ratio = obj.value.scaleX / (obj.value.scaleY || 1);

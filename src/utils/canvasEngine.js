@@ -298,6 +298,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     adjustments: clonePlain(layer.adjustments || {}),
     galleryFilters: clonePlain(layer.galleryFilters || {}),
     clipMaskSourceLayerId: layer.clipMaskSourceLayerId || null,
+    textResizeMode: layer.textResizeMode || (layer.textMode === 'box' ? 'frame' : 'content'),
   });
   applyLayerEffects(fabricObj, layer);
 }
@@ -561,6 +562,7 @@ function fabricToLayer(obj) {
       stroke: obj.stroke || null, strokeWidth: obj.strokeWidth || 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
+      textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
       textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
   }
