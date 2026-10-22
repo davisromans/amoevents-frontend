@@ -307,6 +307,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
     textWarp: clonePlain(layer.textWarp || null),
+    textResizeMode: layer.textResizeMode || (layer.textMode === 'box' ? 'frame' : 'content'),
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
     layerEffects: normalizeLayerEffects(layer.effects || []),
   });
@@ -603,6 +604,7 @@ function fabricToLayer(obj) {
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
       textWarp: clonePlain(data.textWarp || preserved.textWarp || null),
+      textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
       textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
   }
