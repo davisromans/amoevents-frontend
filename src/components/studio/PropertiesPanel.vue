@@ -383,9 +383,32 @@ watch(() => props.canvas, (canvas) => {
   detachTick = null;
   if (!canvas) return;
   const bump = () => { tick.value++; };
+  // A Textbox's normal side controls already resize its paragraph width, but
+  // imported canvas JSON (and a few touch/trackpad gestures) can still reach
+  // Fabric's generic scale path.  In frame mode that must *never* stretch the
+  // glyphs.  Convert such a transform into a width change while it is being
+  // performed, before Fabric paints the scaled text.
+  const keepTextFrameUnscaled = ({ target }) => {
+    if (target?.type !== 'textbox' || (target.get('data')?.textResizeMode || 'frame') !== 'frame') return;
+    const scaleX = Math.abs(Number(target.scaleX) || 1);
+    const scaleY = Math.abs(Number(target.scaleY) || 1);
+    if (Math.abs(scaleX - 1) < 0.0001 && Math.abs(scaleY - 1) < 0.0001) return;
+    target.set({
+      width: Math.max(1, (Number(target.width) || 1) * scaleX),
+      scaleX: 1,
+      scaleY: 1,
+    });
+    target.initDimensions?.();
+    target.setCoords();
+    canvas.requestRenderAll();
+  };
   const events = ['object:modified', 'object:scaling', 'object:moving', 'object:rotating', 'text:changed', 'text:selection:changed', 'text:editing:entered', 'text:editing:exited'];
   events.forEach((ev) => canvas.on(ev, bump));
-  detachTick = () => events.forEach((ev) => canvas.off(ev, bump));
+  canvas.on('object:scaling', keepTextFrameUnscaled);
+  detachTick = () => {
+    events.forEach((ev) => canvas.off(ev, bump));
+    canvas.off('object:scaling', keepTextFrameUnscaled);
+  };
 }, { immediate: true });
 onBeforeUnmount(() => detachTick?.());
 
@@ -443,6 +466,14 @@ const textFrameOnly = computed(() => obj.value?.type === 'textbox' && textResize
 function applyTextResizeControls(target) {
   if (target?.type !== 'textbox' || typeof target.setControlsVisibility !== 'function') return;
   const frame = (target.get('data')?.textResizeMode || 'frame') === 'frame';
+  // Explicitly restore Fabric's Textbox width action.  This matters for PSD
+  // imports where a serialized control set may otherwise retain the generic
+  // object-scale handler even after the layer becomes a Textbox.
+  if (frame) {
+    if (target.controls?.ml) target.controls.ml.actionHandler = fabric.controlsUtils.changeWidth;
+    if (target.controls?.mr) target.controls.mr.actionHandler = fabric.controlsUtils.changeWidth;
+  }
+  target.set({ lockScalingY: frame });
   target.setControlsVisibility({
     mt: false, mb: false,
     ml: frame, mr: frame,
@@ -471,9 +502,10 @@ const lockAspect = ref(false);
 function setWidthPx(px) {
   if (!px || px <= 0) return;
   if (textFrameOnly.value) {
-    // Textbox.width is its paragraph frame. Preserve the current glyph scale
-    // while adjusting the intrinsic frame width so only wrapping changes.
-    obj.value.set('width', px / Math.max(0.01, Math.abs(obj.value.scaleX || 1)));
+    // Textbox.width is its paragraph frame.  Clearing transform scale here
+    // makes the numeric Frame W field obey exactly the same no-font-scaling
+    // contract as the left/right canvas handles.
+    obj.value.set({ width: px, scaleX: 1, scaleY: 1 });
     obj.value.initDimensions?.();
     obj.value.setCoords();
     props.canvas.requestRenderAll();
