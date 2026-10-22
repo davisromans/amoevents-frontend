@@ -42,6 +42,13 @@
       </div>
 
       <div class="border-t border-surface-mist dark:border-surface-fog pt-2">
+        <label class="px-2 pb-1 flex items-center justify-between gap-2 text-[10px] text-surface-slate dark:text-surface-ash">
+          <span>When this weight/style already exists</span>
+          <select v-model="duplicateMode" class="field-input !w-auto !py-0.5 !text-[10px]">
+            <option value="skip">Skip existing</option>
+            <option value="replace">Replace existing</option>
+          </select>
+        </label>
         <label class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-2xs font-bold flex items-center gap-1.5 cursor-pointer"
                :class="{ 'pointer-events-none opacity-60': uploading }">
           <ArrowUpTrayIcon class="w-3.5 h-3.5 shrink-0" />
@@ -87,6 +94,7 @@ const uploadMessage = ref('');
 const uploading = ref(false);
 const fontFileRef = ref(null);
 const requiredAvailable = ref(null);
+const duplicateMode = ref('skip');
 let pendingFamilyHint = '';
 const SYSTEM_FONTS = new Set(['arial', 'helvetica', 'times new roman', 'georgia', 'courier new', 'verdana', 'trebuchet ms', 'system-ui', 'sans-serif', 'serif', 'monospace']);
 
@@ -117,16 +125,18 @@ async function onFontFilesChosen(event) {
     let imported;
     let failed = [];
     if (pendingFamilyHint && files.length === 1) {
-      imported = [await uploadFontVariant(files[0], { family: pendingFamilyHint })];
+      imported = [await uploadFontVariant(files[0], { family: pendingFamilyHint, duplicateMode: duplicateMode.value })];
     } else {
-      const result = await uploadFontFiles(files);
+      const result = await uploadFontFiles(files, { duplicateMode: duplicateMode.value });
       imported = result.fonts || [];
       failed = result.failed || [];
     }
     await Promise.allSettled(imported.map((font) => loadFont(font)));
     await refreshActive();
-    const importedNames = imported.map((font) => font.family);
-    uploadMessage.value = `${imported.length} font file${imported.length === 1 ? '' : 's'} imported${importedNames.length ? `: ${importedNames.join(', ')}` : ''}.`;
+    const skipped = imported.filter((font) => font.skipped).length;
+    const stored = imported.filter((font) => !font.skipped);
+    const importedNames = stored.map((font) => font.family);
+    uploadMessage.value = `${stored.length} font file${stored.length === 1 ? '' : 's'} added to the universal roster${importedNames.length ? `: ${importedNames.join(', ')}` : ''}${skipped ? ` · ${skipped} existing variant${skipped === 1 ? '' : 's'} skipped` : ''}.`;
     if (failed.length) uploadError.value = failed.map((item) => `${item.fileName}: ${item.error}`).join('\n');
     if (pendingFamilyHint && imported.length) {
       requiredAvailable.value = true;

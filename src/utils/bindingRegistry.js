@@ -17,6 +17,7 @@ export const BINDING_FIELDS = [
   { key: 'guest.seatType', label: 'Invitation type', sample: 'Double x2' },
   { key: 'guest.pubCode', label: 'Guest short code', sample: 'A7K' },
   { key: 'event.name', label: 'Event name', sample: 'Amara & Kitos Wedding' },
+  { key: 'event.familyName', label: 'Family name', sample: 'Mwaisemba family' },
   { key: 'event.coupleNames', label: 'Couple names', sample: 'Amara & Kitos' },
   { key: 'event.date', label: 'Event date', sample: 'Saturday, 14 March 2026' },
   { key: 'event.time', label: 'Event time', sample: '2:00 PM' },

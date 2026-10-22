@@ -3186,7 +3186,12 @@ async function onFontFilesChosen(e) {
   e.target.value = '';
   if (!files.length) return;
   try {
-    await uploadFontFiles(files);
+    // This menu is also a bulk-import entry point. Make the otherwise
+    // destructive case explicit: Cancel means retain an existing variant.
+    const replaceExisting = window.confirm(
+      'If a font with the same family, weight and style already exists, replace it?\n\nOK = Replace existing\nCancel = Skip existing',
+    );
+    await uploadFontFiles(files, { duplicateMode: replaceExisting ? 'replace' : 'skip' });
     await onFontsImported();
   } catch (err) { toast.error(apiErrorMessage(err)); }
 }

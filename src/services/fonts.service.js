@@ -24,7 +24,7 @@ export const searchGoogleCatalog = (params) => http.get('/fonts/google-catalog',
 
 export const addGoogleFont = (family) => http.post('/admin/fonts/google', { family }).then(unwrap);
 
-export async function uploadFontVariant(file, { family, category } = {}) {
+export async function uploadFontVariant(file, { family, category, duplicateMode = 'skip' } = {}) {
   const form = new FormData();
   form.append('file', file);
   // Family/weight/style come from the font's own name and OS/2 tables. A
@@ -32,6 +32,7 @@ export async function uploadFontVariant(file, { family, category } = {}) {
   // embedded alias must remain the CSS family used by that document.
   if (family) form.append('familyHint', family);
   if (category) form.append('category', category);
+  form.append('duplicateMode', duplicateMode);
   try {
     // Font uploads are small, but a slow client-to-origin path can lose the
     // response after the server has already committed the file. Give it more
@@ -61,11 +62,12 @@ export async function uploadFontVariant(file, { family, category } = {}) {
   }
 }
 
-export async function uploadFontFiles(files) {
+export async function uploadFontFiles(files, { duplicateMode = 'skip' } = {}) {
   const list = [...(files || [])];
   if (!list.length) return { fonts: [], failed: [], total: 0 };
   const form = new FormData();
   list.forEach((file) => form.append('files', file));
+  form.append('duplicateMode', duplicateMode);
   const response = await http.post('/admin/fonts/upload-batch', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000,
