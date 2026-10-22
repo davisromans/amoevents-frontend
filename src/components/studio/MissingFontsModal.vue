@@ -8,6 +8,13 @@
       </div>
 
       <div class="rounded-xl border border-surface-mist p-3 dark:border-surface-fog">
+        <label class="mb-2 flex items-center justify-between gap-2 text-2xs text-surface-slate dark:text-surface-ash">
+          <span>When this weight/style already exists</span>
+          <select v-model="duplicateMode" class="field-input !w-auto !py-1 !text-2xs">
+            <option value="skip">Skip existing</option>
+            <option value="replace">Replace existing</option>
+          </select>
+        </label>
         <label class="btn-secondary !py-2 !px-3 !text-xs cursor-pointer inline-flex"
                :class="{ 'pointer-events-none opacity-60': batchUploading || uploadingFamily }">
           {{ batchUploading ? 'Reading font metadata…' : 'Import several font files' }}
@@ -84,6 +91,7 @@ const savedVariants = reactive({});
 const batchUploading = ref(false);
 const batchMessage = ref('');
 const batchError = ref('');
+const duplicateMode = ref('skip');
 
 async function uploadBatch(event) {
   const files = [...(event.target.files || [])];
@@ -93,10 +101,11 @@ async function uploadBatch(event) {
   batchMessage.value = '';
   batchError.value = '';
   try {
-    const result = await uploadFontFiles(files);
+    const result = await uploadFontFiles(files, { duplicateMode: duplicateMode.value });
     const imported = result.fonts || [];
     const failed = result.failed || [];
-    batchMessage.value = `${imported.length} of ${files.length} font file${files.length === 1 ? '' : 's'} imported.`;
+    const skipped = imported.filter((font) => font.skipped).length;
+    batchMessage.value = `${imported.length - skipped} of ${files.length} font file${files.length === 1 ? '' : 's'} added to the universal roster${skipped ? ` · ${skipped} existing variant${skipped === 1 ? '' : 's'} skipped` : ''}.`;
     if (failed.length) batchError.value = failed.map((item) => `${item.fileName}: ${item.error}`).join('\n');
     emit('imported', imported);
   } catch (error) {
@@ -129,7 +138,7 @@ async function upload(font, event) {
   uploadingFamily.value = font.family;
   errors[font.family] = '';
   try {
-    const uploaded = await uploadFontVariant(file, { family: font.family });
+    const uploaded = await uploadFontVariant(file, { family: font.family, duplicateMode: duplicateMode.value });
     const detected = uploaded.detectedMetadata || {};
     const variant = (uploaded.variants || []).find((item) =>
       Number(item.weight) === Number(detected.weight) && item.style === detected.style)

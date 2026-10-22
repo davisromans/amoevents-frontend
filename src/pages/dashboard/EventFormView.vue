@@ -16,6 +16,7 @@
       </div>
 
       <AppInput v-model="form.coupleNames" label="Celebrant / couple names" placeholder="Davis Mwaisemba & Neema Yohana" />
+      <AppInput v-model="form.familyName" label="Family name" placeholder="Mwaisemba family" />
       <AppInput v-model="form.hostText" label="Host text" type="textarea" placeholder="Familia ya Mzee Mwaisemba kwa ajili ya kijana yao…" />
 
       <!-- Venue — the picker sets name + address + lat/lng; capacity is separate. -->
@@ -329,7 +330,7 @@ const GUEST_LIST_VISIBILITY = [
 const form = reactive({
   name: '', eventType: 'wedding',
   day: '', startTime: '00:00', endTime: '23:59',
-  coupleNames: '', hostText: '',
+  coupleNames: '', familyName: '', hostText: '',
   venue: { name: '', address: '', lat: null, lng: null },
   church: { enabled: false, name: '', address: '', arrivalTime: '', serviceTime: '' },
   paymentContacts: [],
@@ -377,6 +378,7 @@ onMounted(async () => {
         day: s.day, startTime: s.time || '00:00',
         endTime: e.time || '23:59',
         coupleNames: event.coupleNames || '',
+        familyName: event.familyName || '',
         hostText: event.hostText || '',
         venue: event.venue || { name: '', address: '', lat: null, lng: null },
         church: event.church || { enabled: false, name: '', address: '', arrivalTime: '', serviceTime: '' },
@@ -472,6 +474,7 @@ async function submit() {
       date: joinDT(form.day, form.startTime || '00:00'),
       endDate: joinDT(form.day, form.endTime || '23:59'),
       coupleNames: form.coupleNames,
+      familyName: form.familyName,
       hostText: form.hostText,
       venue: form.venue?.name || form.venue?.address ? form.venue : undefined,
       venueCapacity: form.venueCapacity || undefined,

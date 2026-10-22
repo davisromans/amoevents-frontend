@@ -14,9 +14,6 @@
         <button class="btn-secondary !text-sm" @click="exportOpen = true">
           Export names…
         </button>
-        <router-link v-if="missingCardCount" :to="`/app/events/${route.params.id}/cards/templates?mode=missing&count=${missingCardCount}`" class="btn-primary !text-sm">
-          Generate {{ missingCardCount }} missing card{{ missingCardCount === 1 ? '' : 's' }}
-        </router-link>
         <router-link :to="`/app/events/${route.params.id}/cards/templates`" class="btn-primary !text-sm">
           Browse templates
         </router-link>

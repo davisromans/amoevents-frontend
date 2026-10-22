@@ -566,15 +566,20 @@ function chooseVariable(key) {
   setBinding(key === '__clear__' ? '' : key);
 }
 function setBinding(key) {
-  const data = obj.value.get('data') || {};
-  obj.value.set('data', { ...data, binding: key || null });
-  // Bound layers show their literal {{key}} placeholder as the actual text
-  // content — this is what the server-side renderer (Batch 28) finds and
-  // substitutes, and what makes a bound layer visually obvious while
-  // editing without needing a separate "preview" state per-field.
-  obj.value.set('text', key ? `{{${key}}}` : 'Double-click to edit');
+  const target = obj.value;
+  // A variable placeholder is often much shorter than the text it replaces.
+  // Preserve the exact rectangle the operator drew; a binding must change
+  // content only, never turn a paragraph frame into a tiny glyph-sized box.
+  mutateTextPreservingLayout(target, () => {
+    const data = target.get('data') || {};
+    target.set('data', { ...data, binding: key || null });
+    // Bound layers show their literal {{key}} placeholder as the actual text
+    // content — this is what the server-side renderer finds and substitutes.
+    target.set('text', key ? `{{${key}}}` : 'Double-click to edit');
+  });
+  target.dirty = true;
   props.canvas.requestRenderAll();
-  props.canvas.fire('object:modified', { target: obj.value });
+  props.canvas.fire('object:modified', { target });
 }
 
 // ── Layer style — drop shadow (Batch 14) ────────────────────────────────

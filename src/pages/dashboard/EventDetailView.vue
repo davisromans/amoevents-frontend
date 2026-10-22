@@ -69,6 +69,7 @@
         </SectionHeader>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
           <DetailRow label="Couple / celebrant" :value="event.coupleNames || '—'" />
+          <DetailRow label="Family name" :value="event.familyName || '—'" />
           <DetailRow label="Venue" :value="event.venue?.name || '—'" />
           <DetailRow label="Address" :value="event.venue?.address || '—'" />
           <DetailRow v-if="event.venue?.lat && event.venue?.lng" label="Directions">

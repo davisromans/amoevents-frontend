@@ -683,6 +683,7 @@ const PLACEHOLDERS = [
   { token: '{{last_name}}', label: 'Last name' },
   { token: '{{guest_name}}', label: 'Full name' },
   { token: '{{event_name}}', label: 'Event' },
+  { token: '{{family_name}}', label: 'Family name' },
   { token: '{{event_type}}', label: 'Event type' },
   { token: '{{date}}', label: 'Date' },
   { token: '{{time}}', label: 'Time' },
@@ -1077,6 +1078,7 @@ function tokenValues() {
     full_name:    `${g.firstName || ''} ${g.lastName || ''}`.trim() || 'Davis',
     guest_name:   `${g.firstName || ''} ${g.lastName || ''}`.trim() || 'Davis',
     event_name:   ev.name || 'Event',
+    family_name:  ev.familyName || '—',
     event_type:   ev.eventType || '',
     // Explicit timeZone — the stored event.date is a UTC instant matching
     // the event's own local midnight/time, and formatting without a
