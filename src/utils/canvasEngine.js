@@ -122,6 +122,15 @@ function isFabricText(obj) {
   return ['textbox', 'text', 'i-text'].includes(obj?.type);
 }
 
+// A real guest/event variable must keep one authored rectangle regardless of
+// how long a particular person's value is.  PSD imports often mark the
+// original sample label as point text; treating that as point text after it
+// becomes {{guest.fullName}} makes Fabric stretch each guest name to the old
+// sample's dimensions.  Bound text is therefore always a paragraph frame.
+function layerUsesVariable(layer) {
+  return !!layer?.binding || /\{\{[\w.]+\}\}/.test(String(layer?.text || ''));
+}
+
 /**
  * Recalculate glyph metrics while keeping the authored layer rectangle.
  * Browsers and Photoshop do not always report identical ascent/descent and
@@ -231,6 +240,12 @@ function fitNewTextToLayerBounds(textbox, layer) {
   const targetWidth = Number(layer.width);
   const targetHeight = Number(layer.height);
   if (!(targetWidth > 0) || !(targetHeight > 0)) return;
+  if (layerUsesVariable(layer)) {
+    textbox.set({ width: targetWidth, scaleX: 1, scaleY: 1 });
+    textbox.initDimensions?.();
+    textbox.setCoords();
+    return;
+  }
   if (isLegacyPsdSingleLineText(layer)) {
     reflowLegacyPsdSingleLineText(textbox);
     return;
@@ -307,7 +322,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
     textWarp: clonePlain(layer.textWarp || null),
-    textResizeMode: layer.textResizeMode || (layer.textMode === 'box' ? 'frame' : 'content'),
+    textResizeMode: layer.textResizeMode || ((layer.textMode === 'box' || layerUsesVariable(layer)) ? 'frame' : 'content'),
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
     layerEffects: normalizeLayerEffects(layer.effects || []),
   });
@@ -366,9 +381,10 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // IText keeps point text directly editable on-canvas. FabricText is a
     // display-only class, which made imported Photoshop point text look
     // selectable but impossible to type into.
-    const TextClass = layer.textMode === 'point' ? fabric.IText : fabric.Textbox;
+    const isVariableFrame = layerUsesVariable(layer);
+    const TextClass = layer.textMode === 'point' && !isVariableFrame ? fabric.IText : fabric.Textbox;
     const textbox = new TextClass(layer.text || '', {
-      ...(layer.textMode === 'point' ? {} : { width: layer.width }),
+      ...(layer.textMode === 'point' && !isVariableFrame ? {} : { width: layer.width }),
       fontFamily: layer.fontFamily || 'Arial',
       fontSize: layer.fontSize || 24,
       fontWeight: layer.fontWeight || 400,
