@@ -97,6 +97,16 @@
               <template v-else>Corner handles and W/H scale the box and the text inside together.</template>
             </p>
           </div>
+          <div v-if="obj.type === 'textbox'" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-1.5">
+            <p class="field-label">Text in this frame</p>
+            <select class="field-input !py-1.5 !text-xs" :value="textFitMode" @change="setTextFitMode($event.target.value)">
+              <option value="wrap">Keep font size · wrap to next line</option>
+              <option value="shrink">Keep one line · reduce text size only if needed</option>
+            </select>
+            <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">
+              The frame you draw stays fixed. Use side handles or Frame W to set where text wraps.
+            </p>
+          </div>
           <div>
             <p class="field-label mb-1">Font{{ currentSelectionLabel }}</p>
             <FontPicker :model-value="currentFontFamily" :required-family="originalPsdFont" @update:model-value="setFont" />
@@ -772,6 +782,7 @@ function flip(axis) {
 // change the visible Fabric handles to match, so neither action is implicit.
 const textResizeMode = computed(() => obj.value?.get('data')?.textResizeMode || 'frame');
 const textFrameOnly = computed(() => obj.value?.type === 'textbox' && textResizeMode.value === 'frame');
+const textFitMode = computed(() => obj.value?.get('data')?.textFitMode || 'wrap');
 function applyTextResizeControls(target) {
   if (target?.type !== 'textbox' || typeof target.setControlsVisibility !== 'function') return;
   const frame = (target.get('data')?.textResizeMode || 'frame') === 'frame';
@@ -797,6 +808,15 @@ function setTextResizeMode(mode) {
   const data = target.get('data') || {};
   target.set('data', { ...data, textResizeMode: mode === 'content' ? 'content' : 'frame' });
   applyTextResizeControls(target);
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
+}
+function setTextFitMode(mode) {
+  const target = obj.value;
+  if (target?.type !== 'textbox') return;
+  const data = target.get('data') || {};
+  target.set('data', { ...data, textFitMode: mode === 'shrink' ? 'shrink' : 'wrap' });
+  target.dirty = true;
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target });
 }
