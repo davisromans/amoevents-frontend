@@ -228,6 +228,12 @@
             <label class="text-2xs font-bold">Corner radius<input type="number" min="0" max="160" class="field-input !py-1.5 !text-xs mt-1" :value="qrData.borderRadius" @change="updateQr({ borderRadius: Number($event.target.value) })" /></label>
             <label class="text-2xs font-bold">Padding<input type="number" min="0" max="100" class="field-input !py-1.5 !text-xs mt-1" :value="qrData.padding" @change="updateQr({ padding: Number($event.target.value) })" /></label>
           </div>
+          <label class="text-2xs font-bold block">Label placement
+            <select class="field-input !py-1.5 !text-xs mt-1" :value="qrData.labelPlacement" @change="updateQr({ labelPlacement: $event.target.value })">
+              <option value="outside">Outside the QR panel</option>
+              <option value="inside">Inside the white QR panel</option>
+            </select>
+          </label>
           <div v-for="position in ['top','bottom']" :key="position" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-2">
             <label class="flex items-center gap-2 text-2xs font-bold capitalize">
               <input type="checkbox" class="accent-brand-gold" :checked="qrData[`show${position[0].toUpperCase() + position.slice(1)}Label`]" @change="updateQr({ [`show${position[0].toUpperCase() + position.slice(1)}Label`]: $event.target.checked })" />
@@ -251,6 +257,14 @@
                 <label class="text-2xs col-span-2">Letter spacing<input type="number" min="-5" max="30" step="0.5" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelLetterSpacing`]" @change="updateQr({ [`${position}LabelLetterSpacing`]: Number($event.target.value) })" /></label>
                 <label class="text-2xs">Offset X<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelOffsetX`]" @change="updateQr({ [`${position}LabelOffsetX`]: Number($event.target.value) })" /></label>
                 <label class="text-2xs">Offset Y<input type="number" min="-200" max="200" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelOffsetY`]" @change="updateQr({ [`${position}LabelOffsetY`]: Number($event.target.value) })" /></label>
+                <label class="flex items-center gap-2 text-2xs col-span-2 font-bold"><input type="checkbox" class="accent-brand-gold" :checked="qrData[`${position}LabelBackgroundEnabled`]" @change="updateQr({ [`${position}LabelBackgroundEnabled`]: $event.target.checked })" /> Label background</label>
+                <template v-if="qrData[`${position}LabelBackgroundEnabled`]">
+                  <label class="text-2xs">Colour<input type="color" class="mt-1 w-full h-7 rounded" :value="qrData[`${position}LabelBackgroundColor`]" @input="updateQr({ [`${position}LabelBackgroundColor`]: $event.target.value })" /></label>
+                  <label class="text-2xs">Opacity<input type="range" min="0" max="1" step="0.01" class="mt-2 w-full accent-brand-gold" :value="qrData[`${position}LabelBackgroundOpacity`]" @input="updateQr({ [`${position}LabelBackgroundOpacity`]: Number($event.target.value) })" /></label>
+                  <label class="text-2xs">Horizontal padding<input type="number" min="0" max="100" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelBackgroundPaddingX`]" @change="updateQr({ [`${position}LabelBackgroundPaddingX`]: Number($event.target.value) })" /></label>
+                  <label class="text-2xs">Vertical padding<input type="number" min="0" max="100" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelBackgroundPaddingY`]" @change="updateQr({ [`${position}LabelBackgroundPaddingY`]: Number($event.target.value) })" /></label>
+                  <label class="text-2xs col-span-2">Corner radius<input type="number" min="0" max="100" class="field-input !py-1 !text-xs mt-1" :value="qrData[`${position}LabelBackgroundRadius`]" @change="updateQr({ [`${position}LabelBackgroundRadius`]: Number($event.target.value) })" /></label>
+                </template>
               </div>
             </template>
           </div>
@@ -655,7 +669,14 @@ const qrData = computed(() => ({
   topLabelFontFamily: 'Arial', bottomLabelFontFamily: 'Arial', topLabelFontWeight: 700, bottomLabelFontWeight: 700,
   topLabelFontStyle: 'normal', bottomLabelFontStyle: 'normal', topLabelLetterSpacing: 1, bottomLabelLetterSpacing: 1,
   topLabelFontSize: 28, bottomLabelFontSize: 28, topLabelOffsetX: 0, topLabelOffsetY: 0,
-  bottomLabelOffsetX: 0, bottomLabelOffsetY: 0, ...(obj.value?.get('data') || {}),
+  bottomLabelOffsetX: 0, bottomLabelOffsetY: 0,
+  labelPlacement: 'outside', topLabelBackgroundEnabled: false, bottomLabelBackgroundEnabled: false,
+  topLabelBackgroundColor: '#FFFFFF', bottomLabelBackgroundColor: '#FFFFFF',
+  topLabelBackgroundOpacity: 1, bottomLabelBackgroundOpacity: 1,
+  topLabelBackgroundPaddingX: 16, bottomLabelBackgroundPaddingX: 16,
+  topLabelBackgroundPaddingY: 8, bottomLabelBackgroundPaddingY: 8,
+  topLabelBackgroundRadius: 0, bottomLabelBackgroundRadius: 0,
+  ...(obj.value?.get('data') || {}),
 }));
 function updateQr(patch) { emit('update-qr', obj.value, patch); }
 function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type); }

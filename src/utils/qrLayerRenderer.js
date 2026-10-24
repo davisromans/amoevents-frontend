@@ -16,6 +16,13 @@ export const DEFAULT_QR_LAYER_STYLE = Object.freeze({
   topLabelFontSize: 28, bottomLabelFontSize: 28,
   topLabelLetterSpacing: 1, bottomLabelLetterSpacing: 1,
   topLabelOffsetX: 0, topLabelOffsetY: 0, bottomLabelOffsetX: 0, bottomLabelOffsetY: 0,
+  labelPlacement: 'outside',
+  topLabelBackgroundEnabled: false, bottomLabelBackgroundEnabled: false,
+  topLabelBackgroundColor: '#FFFFFF', bottomLabelBackgroundColor: '#FFFFFF',
+  topLabelBackgroundOpacity: 1, bottomLabelBackgroundOpacity: 1,
+  topLabelBackgroundPaddingX: 16, bottomLabelBackgroundPaddingX: 16,
+  topLabelBackgroundPaddingY: 8, bottomLabelBackgroundPaddingY: 8,
+  topLabelBackgroundRadius: 0, bottomLabelBackgroundRadius: 0,
 });
 
 function roundedRect(ctx, x, y, width, height, radius) {
@@ -28,17 +35,24 @@ export async function renderQrImage(options = {}) {
   const config = { ...DEFAULT_QR_LAYER_STYLE, ...options };
   const size = Number(config.size) || 512;
   const labelBand = Math.round(size * 0.16);
+  const labelsInside = config.labelPlacement === 'inside';
   const topBand = config.showTopLabel ? labelBand : 0;
   const bottomBand = config.showBottomLabel ? labelBand : 0;
+  const qrAreaHeight = labelsInside ? size - topBand - bottomBand : size;
+  const qrSide = Math.max(64, Math.min(size, qrAreaHeight));
+  const qrLeft = Math.round((size - qrSide) / 2);
+  // The QR artwork always starts below the top label band. With outside labels
+  // that band lives above the panel; with inside labels it lives inside it.
+  const qrTop = topBand;
   const canvas = document.createElement('canvas');
   canvas.width = size;
-  canvas.height = size + topBand + bottomBand;
+  canvas.height = labelsInside ? size : size + topBand + bottomBand;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const inset = Math.max(0, Number(config.padding) || 0);
   const qrDataUrl = await QRCode.toDataURL(config.text || 'SAMPLE-QR-PAYLOAD', {
-    color: { dark: config.fg, light: config.bg }, width: size - inset * 2, margin: 1,
+    color: { dark: config.fg, light: config.bg }, width: qrSide - inset * 2, margin: 1,
     errorCorrectionLevel: config.errorCorrection || 'M',
   });
   const qr = await new Promise((resolve, reject) => {
@@ -48,13 +62,13 @@ export async function renderQrImage(options = {}) {
     image.src = qrDataUrl;
   });
   ctx.fillStyle = config.bg;
-  roundedRect(ctx, 0, topBand, size, size, Number(config.borderRadius) || 0);
+  roundedRect(ctx, 0, labelsInside ? 0 : topBand, size, labelsInside ? size : size, Number(config.borderRadius) || 0);
   ctx.fill();
-  ctx.drawImage(qr, inset, topBand + inset, size - inset * 2, size - inset * 2);
+  ctx.drawImage(qr, qrLeft + inset, qrTop + inset, qrSide - inset * 2, qrSide - inset * 2);
   if (Number(config.borderWidth) > 0) {
     ctx.strokeStyle = config.borderColor;
     ctx.lineWidth = Number(config.borderWidth);
-    roundedRect(ctx, ctx.lineWidth / 2, topBand + ctx.lineWidth / 2, size - ctx.lineWidth, size - ctx.lineWidth, Number(config.borderRadius) || 0);
+    roundedRect(ctx, ctx.lineWidth / 2, (labelsInside ? 0 : topBand) + ctx.lineWidth / 2, size - ctx.lineWidth, (labelsInside ? size : size) - ctx.lineWidth, Number(config.borderRadius) || 0);
     ctx.stroke();
   }
   const drawLabel = (text, y, prefix) => {
@@ -65,17 +79,29 @@ export async function renderQrImage(options = {}) {
     const spacing = Number(config[`${prefix}LabelLetterSpacing`] || 0);
     const x = size / 2 + Number(config[`${prefix}LabelOffsetX`] || 0);
     const labelY = y + Number(config[`${prefix}LabelOffsetY`] || 0);
+    const chars = [...text];
+    const widths = chars.map((char) => ctx.measureText(char).width);
+    const total = widths.reduce((sum, width) => sum + width, 0) + spacing * Math.max(0, chars.length - 1);
+    if (config[`${prefix}LabelBackgroundEnabled`]) {
+      const padX = Math.max(0, Number(config[`${prefix}LabelBackgroundPaddingX`]) || 0);
+      const padY = Math.max(0, Number(config[`${prefix}LabelBackgroundPaddingY`]) || 0);
+      const alpha = Math.max(0, Math.min(1, Number(config[`${prefix}LabelBackgroundOpacity`]) ?? 1));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = config[`${prefix}LabelBackgroundColor`] || '#FFFFFF';
+      roundedRect(ctx, x - total / 2 - padX, labelY - (Number(config[`${prefix}LabelFontSize`]) || 28) / 2 - padY, total + padX * 2, (Number(config[`${prefix}LabelFontSize`]) || 28) + padY * 2, Number(config[`${prefix}LabelBackgroundRadius`]) || 0);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = config[`${prefix}LabelColor`];
+    }
     if (!spacing) ctx.fillText(text, x, labelY);
     else {
-      const chars = [...text];
-      const widths = chars.map((char) => ctx.measureText(char).width);
-      const total = widths.reduce((sum, width) => sum + width, 0) + spacing * Math.max(0, chars.length - 1);
       ctx.textAlign = 'left';
       let cursor = x - total / 2;
       chars.forEach((char, index) => { ctx.fillText(char, cursor, labelY); cursor += widths[index] + spacing; });
     }
   };
   if (config.showTopLabel) drawLabel(config.topLabelSample || 'AMO-A7X', topBand / 2, 'top');
-  if (config.showBottomLabel) drawLabel(config.bottomLabelSample || 'DOUBLE', topBand + size + bottomBand / 2, 'bottom');
+  if (config.showBottomLabel) drawLabel(config.bottomLabelSample || 'DOUBLE', labelsInside ? topBand + qrSide + bottomBand / 2 : topBand + size + bottomBand / 2, 'bottom');
   return new fabric.FabricImage(canvas);
 }

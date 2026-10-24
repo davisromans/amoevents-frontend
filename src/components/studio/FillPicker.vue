@@ -139,6 +139,11 @@ function saveGradientPreset() {
 function applyGradientPreset(preset) { mode.value = preset.type; angle.value = preset.angle ?? 90; stops.value = preset.stops.map((s) => ({ ...s })); emitGradient(); }
 
 watch(mode, (m) => { if (m !== 'solid') emitGradient(); else setSolid(solidValue.value); });
+// The Studio keeps this control mounted while the selection changes. Without
+// watching the prop, the picker continued to edit the *previous* layer's
+// colour after the user selected another rectangle — it looked like swatches
+// and colour actions did nothing to the newly selected shape.
+watch(() => props.modelValue, loadFromModelValue, { deep: true });
 
 function loadPalette() {
   palette.value = JSON.parse(localStorage.getItem(PALETTE_KEY) || '[]');

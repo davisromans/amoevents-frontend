@@ -772,8 +772,13 @@ function useSwatch(color, event) {
   if (event.shiftKey) { studioSwatches.value = studioSwatches.value.filter((v) => v !== color); return; }
   brushColor.value = color;
   const target = selectedObjects.value[0];
-  if (target && ['rect','ellipse','path','textbox','text','i-text'].includes(target.type)) {
-    target.set('fill', color); fabricCanvasRaw.requestRenderAll(); fabricCanvasRaw.fire('object:modified', { target });
+  // Use the same path as Edit → Fill. The former direct `target.set('fill')`
+  // skipped active text selections and did not report unsupported targets,
+  // making the Colours panel appear unresponsive.
+  if (target) {
+    const applied = fillLayerOrSelection(target, color);
+    if (!applied) toast.error('Select a text layer, shape, or editable image first.');
+    else { fabricCanvasRaw.requestRenderAll(); refreshLayersList(); }
   }
 }
 function startLayersPanelResize(e) {
