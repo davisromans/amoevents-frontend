@@ -176,7 +176,7 @@ export function mutateTextPreservingLayout(obj, mutation) {
   const top = obj.top;
   mutation?.();
   obj.initDimensions?.();
-  if (data.sourceLayer?.textLayoutVersion >= 2 && obj.type === 'textbox') {
+  if (obj.type === 'textbox' && (data.textResizeMode === 'frame' || data.binding || data.sourceLayer?.textLayoutVersion >= 2)) {
     // Photoshop paragraph text owns a frame width, not a glyph rectangle
     // that should be stretched in both directions when its font loads.
     obj.set({ left, top, width: targetWidth, scaleX: 1, scaleY: 1 });
@@ -323,6 +323,7 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
     textWarp: clonePlain(layer.textWarp || null),
+    textFitMode: layer.textFitMode || 'wrap',
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
     layerEffects: normalizeLayerEffects(layer.effects || []),
   });
@@ -621,6 +622,7 @@ function fabricToLayer(obj) {
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
       textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
       textWarp: clonePlain(data.textWarp || preserved.textWarp || null),
+      textFitMode: data.textFitMode || preserved.textFitMode || 'wrap',
       textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
   }
