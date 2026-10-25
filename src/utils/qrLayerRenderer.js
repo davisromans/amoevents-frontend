@@ -37,9 +37,15 @@ export async function renderQrImage(options = {}) {
   const labelsInside = config.labelPlacement === 'inside';
   const panelWidth = Math.max(64, Number(config.panelWidth) || size);
   const authoredScale = panelWidth / size;
-  const labelBand = Math.round(size * 0.16 * authoredScale);
-  const topBand = config.showTopLabel ? labelBand : 0;
-  const bottomBand = config.showBottomLabel ? labelBand : 0;
+  // The old fixed 16% band was smaller than an imported 80px status label.
+  // It put "Single"/"Double" directly on the final QR row. Each label now
+  // reserves its measured font height plus a deliberate clear gap.
+  const labelBand = (prefix) => Math.ceil(Math.max(
+    size * 0.16 * authoredScale,
+    ((Number(config[`${prefix}LabelFontSize`]) || 28) + 24) * authoredScale,
+  ));
+  const topBand = config.showTopLabel ? labelBand('top') : 0;
+  const bottomBand = config.showBottomLabel ? labelBand('bottom') : 0;
   const naturalHeight = labelsInside ? panelWidth : panelWidth + topBand + bottomBand;
   const panelHeight = Math.max(64, Number(config.panelHeight) || naturalHeight);
   const qrAreaHeight = Math.max(1, panelHeight - topBand - bottomBand);
