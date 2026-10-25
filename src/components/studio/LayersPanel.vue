@@ -7,13 +7,13 @@
          :draggable="!isLocked(row.obj)"
          class="group flex items-center gap-2 py-1.5 rounded-md text-xs cursor-pointer"
          :style="{ paddingLeft: (8 + row.depth * 16) + 'px', paddingRight: '8px' }"
-         :class="[isSelected(row.obj) ? 'bg-brand-primary-glow text-brand-primary-deep' : 'hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50', dragOverIndex === i ? 'outline outline-1 outline-brand-primary' : '']"
+         :class="[isSelected(row.obj) ? 'bg-brand-primary-glow text-brand-primary-deep' : 'hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50', dragOver?.index === i ? dragOver.mode === 'before' ? 'border-t-2 border-brand-primary' : dragOver.mode === 'after' ? 'border-b-2 border-brand-primary' : 'outline outline-1 outline-brand-primary' : '']"
          @click="$emit('select', row.obj, $event)"
          @contextmenu.prevent="openContextMenu(row, $event)"
          @dragstart="onDragStart(i, $event)"
-         @dragend="dragRow = null; dragOverIndex = null"
-         @dragover.prevent="canDropOn(row) && (dragOverIndex = i)"
-         @dragleave="dragOverIndex = dragOverIndex === i ? null : dragOverIndex"
+         @dragend="dragRows = []; dragOver = null"
+         @dragover.prevent="onDragOver(i, $event)"
+         @dragleave="dragOver?.index === i && (dragOver = null)"
          @drop="onDrop(i, $event)">
       <button v-if="row.obj.type === 'group'" class="p-0 shrink-0" title="Expand/collapse" @click.stop="toggleExpanded(row.obj)">
         <ChevronRightIcon class="w-3 h-3 transition-transform" :class="{ 'rotate-90': isExpanded(row.obj) }" />
@@ -182,35 +182,53 @@ function commitRename(obj) {
 // Drag-to-reorder. Layers can be reordered inside their own parent group
 // as well as at the canvas root; cross-group moves are deliberately kept
 // explicit so a simple reorder can never silently change coordinates.
-const dragOverIndex = ref(null);
-let dragRow = null;
+const dragOver = ref(null);
+let dragRows = [];
 function onDragStart(i, e) {
   const row = visibleRows.value[i];
   if (!row || isLocked(row.obj)) { e.preventDefault(); return; }
-  dragRow = row;
+  // Dragging a selected layer moves the complete selection. Keep only the
+  // outermost selected rows: a selected group already carries its children.
+  const selected = isSelected(row.obj)
+    ? rows.value.filter((candidate) => isSelected(candidate.obj) && !isLocked(candidate.obj))
+    : [row];
+  dragRows = selected.filter((candidate) => !selected.some((other) => other !== candidate && candidate.obj.isDescendantOf?.(other.obj)));
+  if (!dragRows.length) { e.preventDefault(); return; }
   e.dataTransfer.effectAllowed = 'move';
   // Firefox requires a payload before it will start native drag/drop.
   e.dataTransfer.setData('text/plain', layerKey(row.obj));
 }
-function dropCollection(row) {
-  // Dropping directly on a folder moves the layer into it. Dropping on a
-  // regular layer moves/reorders it beside that layer.
-  return row.obj.type === 'group' ? row.obj : row.parent;
+function dropMode(row, e) {
+  const bounds = e.currentTarget.getBoundingClientRect();
+  const vertical = (e.clientY - bounds.top) / Math.max(1, bounds.height);
+  // A group accepts a child only in its centre. Its top and bottom thirds are
+  // explicit insertion lanes, so a group at the top never traps a layer.
+  if (row.obj.type === 'group' && vertical > 0.30 && vertical < 0.70) return 'inside';
+  return vertical < 0.5 ? 'before' : 'after';
 }
-function canDropOn(row) {
-  if (!dragRow || dragRow.obj === row.obj) return false;
-  const destination = dropCollection(row);
-  // Never allow a group to be moved into itself or one of its descendants.
-  if (destination === dragRow.obj || destination?.isDescendantOf?.(dragRow.obj)) return false;
+function dropCollection(row, mode) {
+  return row.obj.type === 'group' && mode === 'inside' ? row.obj : row.parent;
+}
+function canDropOn(row, mode) {
+  if (!dragRows.length || dragRows.some((candidate) => candidate.obj === row.obj)) return false;
+  const destination = dropCollection(row, mode);
+  // Never allow an outer group to be moved into itself or a descendant.
+  if (dragRows.some((candidate) => destination === candidate.obj || destination?.isDescendantOf?.(candidate.obj))) return false;
   return true;
+}
+function onDragOver(i, e) {
+  const row = visibleRows.value[i];
+  const mode = dropMode(row, e);
+  dragOver.value = canDropOn(row, mode) ? { index: i, mode } : null;
 }
 function onDrop(i, e) {
   e.preventDefault();
-  dragOverIndex.value = null;
+  dragOver.value = null;
   const target = visibleRows.value[i];
-  if (!target || !canDropOn(target)) { dragRow = null; return; }
-  emit('move-to', dragRow, target);
-  dragRow = null;
+  const mode = target ? dropMode(target, e) : null;
+  if (!target || !canDropOn(target, mode)) { dragRows = []; return; }
+  emit('move-to', { rows: dragRows }, target, mode);
+  dragRows = [];
 }
 
 // Right-click context menu — Photoshop convention.

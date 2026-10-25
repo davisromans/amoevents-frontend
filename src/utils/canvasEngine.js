@@ -518,8 +518,11 @@ async function layerToFabric(layer, { resolveAssetUrl }) {
     // sample text only. The real per-guest signed payload is generated
     // server-side at export (Batch 28), never in the editor.
     const { renderQrImage } = await import('./qrLayerRenderer');
-    const qrImg = await renderQrImage(layer);
-    qrImg.set({ scaleX: layer.width / qrImg.width, scaleY: layer.height / qrImg.height });
+    // Render at the layer's final panel dimensions. A QR is inherently square:
+    // scaling a 512px square independently to a tall panel turns its modules
+    // into rectangles. The renderer reserves the extra height for labels.
+    const qrImg = await renderQrImage({ ...layer, panelWidth: layer.width, panelHeight: layer.height });
+    qrImg.set({ scaleX: 1, scaleY: 1 });
     applyCommon(qrImg, layer);
     qrImg.set('data', { ...qrImg.get('data'), ...clonePlain(layer), isQr: true });
     return qrImg;
