@@ -164,7 +164,7 @@
             </div>
             <div>
               <p class="field-label mb-1">Case</p>
-              <select class="field-input !py-1.5 !text-xs" value="" @change="transformTextCase($event.target.value); $event.target.value = ''">
+              <select class="field-input !py-1.5 !text-xs" value="" @mousedown="captureSelectionNow" @change="transformTextCase($event.target.value); $event.target.value = ''">
                 <option value="" disabled>Change case…</option>
                 <option value="upper">UPPERCASE</option>
                 <option value="lower">lowercase</option>
@@ -1034,15 +1034,28 @@ function transformTextCase(mode) {
   if (!mode) return;
   const target = obj.value;
   const sel = getEffectiveSelection();
+  const original = String(target?.text || '');
+  if (!target || !original) return;
   mutateTextPreservingLayout(target, () => {
     if (sel) {
-      const original = target.text.slice(sel.start, sel.end);
-      target.insertChars(transformCase(original, mode), undefined, sel.start, sel.end);
+      // `insertChars` retains Fabric's character-style map while replacing
+      // precisely the selected graphemes.  Using the saved selection matters:
+      // the native <select> steals focus from Fabric before `change` fires.
+      const start = Math.max(0, Math.min(sel.start, original.length));
+      const end = Math.max(start, Math.min(sel.end, original.length));
+      const replacement = transformCase(original.slice(start, end), mode);
+      target.insertChars(replacement, undefined, start, end);
+      target.selectionStart = start;
+      target.selectionEnd = start + replacement.length;
     } else {
-      target.set('text', transformCase(target.text || '', mode));
+      target.set('text', transformCase(original, mode));
     }
   });
+  // A selection is only valid for the edit that produced it. Leaving an old
+  // range cached caused later property actions/saves to operate on stale text.
+  cachedSelection.value = null;
   target.dirty = true;
+  target.fire?.('changed');
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target });
 }
