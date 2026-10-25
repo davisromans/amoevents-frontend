@@ -84,7 +84,14 @@
               <option v-for="f in BINDING_FIELDS" :key="f.key" :value="f.key">{{ f.label }}</option>
             </select>
           </div>
-          <div v-if="obj.type === 'textbox'" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-1.5">
+          <div v-if="obj.type !== 'textbox'" class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-1.5">
+            <p class="field-label">Text frame</p>
+            <p class="text-[10px] leading-snug text-surface-slate dark:text-surface-ash">
+              This imported layer is point text. Convert it to a fixed frame to set its width, wrap lines, and use side handles without changing its font size.
+            </p>
+            <button class="btn-ghost !text-2xs !py-1.5 w-full" @click="convertToTextFrame">Convert to fixed text frame</button>
+          </div>
+          <div v-else class="rounded-xl border border-surface-mist dark:border-surface-fog p-2 space-y-1.5">
             <p class="field-label">Resize text</p>
             <div class="grid grid-cols-2 gap-1">
               <button class="btn-ghost !text-2xs !py-1.5" :class="{ 'bg-brand-primary-glow': textResizeMode === 'frame' }"
@@ -690,6 +697,62 @@ const qrData = computed(() => ({
 }));
 function updateQr(patch) { emit('update-qr', obj.value, patch); }
 function isTextObject(o) { return ['textbox', 'text', 'i-text'].includes(o?.type); }
+function convertToTextFrame() {
+  const target = obj.value;
+  if (!target || target.type === 'textbox' || !isTextObject(target)) return;
+  const canvas = props.canvas;
+  const data = target.get('data') || {};
+  const width = Math.max(24, Number(target.getScaledWidth?.() || target.width || 24));
+  const frame = new fabric.Textbox(target.text || '', {
+    left: target.left,
+    top: target.top,
+    originX: target.originX || 'left',
+    originY: target.originY || 'top',
+    width,
+    scaleX: 1,
+    scaleY: 1,
+    angle: target.angle || 0,
+    skewX: target.skewX || 0,
+    skewY: target.skewY || 0,
+    opacity: target.opacity ?? 1,
+    visible: target.visible !== false,
+    selectable: target.selectable !== false,
+    evented: target.evented !== false,
+    fontFamily: target.fontFamily,
+    fontSize: target.fontSize,
+    fontWeight: target.fontWeight,
+    fontStyle: target.fontStyle,
+    fill: target.fill,
+    stroke: target.stroke,
+    strokeWidth: target.strokeWidth,
+    underline: target.underline,
+    linethrough: target.linethrough,
+    textAlign: target.textAlign,
+    lineHeight: target.lineHeight,
+    charSpacing: target.charSpacing,
+    shadow: target.shadow,
+    globalCompositeOperation: target.globalCompositeOperation,
+  });
+  // Per-character styling is part of the design and must survive conversion.
+  frame.styles = JSON.parse(JSON.stringify(target.styles || {}));
+  frame.set('data', { ...data, textResizeMode: 'frame', textFitMode: data.textFitMode || 'wrap' });
+  const parent = target.group;
+  if (parent) {
+    const index = parent.getObjects().indexOf(target);
+    parent.remove(target);
+    parent.insertAt(Math.max(0, index), frame);
+    parent.setCoords();
+    parent.dirty = true;
+  } else {
+    const index = canvas.getObjects().indexOf(target);
+    canvas.remove(target);
+    canvas.insertAt(Math.max(0, index), frame);
+  }
+  applyTextResizeControls(frame);
+  canvas.setActiveObject(frame);
+  canvas.requestRenderAll();
+  canvas.fire('object:modified', { target: frame });
+}
 const originalPsdFont = computed(() => obj.value?.get('data')?.sourceLayer?.convertedFromText?.fontFamily
   || obj.value?.get('data')?.sourceLayer?.fontFamily
   || '');
