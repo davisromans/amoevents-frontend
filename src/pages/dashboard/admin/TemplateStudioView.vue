@@ -1942,9 +1942,10 @@ async function onUpdateQr(obj, patch) {
   const { renderQrImage } = await import('@/utils/qrLayerRenderer');
   const data = { ...(obj.get('data') || {}), ...patch, isQr: true };
   const width = obj.getScaledWidth();
-  const fresh = await renderQrImage(data);
+  const height = obj.getScaledHeight();
+  const fresh = await renderQrImage({ ...data, panelWidth: width, panelHeight: height });
   obj.setElement(fresh.getElement());
-  obj.set({ scaleX: width / obj.width, scaleY: width / obj.width, data });
+  obj.set({ width: fresh.width, height: fresh.height, scaleX: 1, scaleY: 1, data });
   obj.setCoords();
   fabricCanvasRaw.requestRenderAll();
   fabricCanvasRaw.fire('object:modified', { target: obj });
@@ -2562,52 +2563,58 @@ function onRenameLayer(obj, name) {
   refreshLayersList();
   fabricCanvasRaw.fire('object:modified', {});
 }
-function onMoveLayerTo(fromRow, toRow) {
-  if (!fromRow?.obj || !toRow?.obj || fromRow.obj === toRow.obj) return;
-  const source = fromRow.parent || fabricCanvasRaw;
-  const destination = toRow.obj.type === 'group' ? toRow.obj : (toRow.parent || fabricCanvasRaw);
-  if (destination === fromRow.obj || destination?.isDescendantOf?.(fromRow.obj)) return;
+function onMoveLayerTo(fromPayload, toRow, placement = 'before') {
+  const requestedRows = Array.isArray(fromPayload?.rows) ? fromPayload.rows : [fromPayload];
+  const movingRows = requestedRows
+    .filter((row) => row?.obj)
+    // Moving a selected group already moves every child in it; never extract
+    // a selected child from the group as a second operation.
+    .filter((row, _index, all) => !all.some((other) => other !== row && row.obj.isDescendantOf?.(other.obj)));
+  if (!movingRows.length || !toRow?.obj || movingRows.some((row) => row.obj === toRow.obj)) return;
 
-  if (source === destination && toRow.obj.type !== 'group') {
-    const targetZ = destination.getObjects().indexOf(toRow.obj);
-    if (targetZ < 0 || destination.getObjects().indexOf(fromRow.obj) < 0) return;
-    if (destination === fabricCanvasRaw) fabricCanvasRaw.moveObjectTo(fromRow.obj, targetZ);
-    else {
-      destination.remove(fromRow.obj);
-      destination.insertAt(Math.min(targetZ, destination.getObjects().length), fromRow.obj);
-      destination.dirty = true;
-      destination.setCoords();
-    }
-  } else {
-    // Fabric's Group.remove() sends a child back to canvas coordinates;
-    // Group.add()/insertAt() then converts it into the destination group's
-    // plane. Using those APIs preserves the layer's visible position.
-    source.remove(fromRow.obj);
-    if (destination === fabricCanvasRaw) {
-      const targetZ = toRow.obj.type === 'group'
-        ? fabricCanvasRaw.getObjects().indexOf(toRow.obj) + 1
-        : fabricCanvasRaw.getObjects().indexOf(toRow.obj);
-      fabricCanvasRaw.insertAt(Math.max(0, targetZ), fromRow.obj);
-    } else {
-      const targetZ = toRow.obj.type === 'group'
-        ? destination.getObjects().length
-        : destination.getObjects().indexOf(toRow.obj);
-      destination.insertAt(Math.max(0, targetZ), fromRow.obj);
-      destination.dirty = true;
-      destination.setCoords();
-    }
+  const destination = toRow.obj.type === 'group' && placement === 'inside'
+    ? toRow.obj
+    : (toRow.parent || fabricCanvasRaw);
+  if (movingRows.some((row) => destination === row.obj || destination?.isDescendantOf?.(row.obj))) return;
+
+  const movingObjects = movingRows.map((row) => row.obj);
+  const objectOrder = (row) => (row.parent || fabricCanvasRaw).getObjects().indexOf(row.obj);
+  // Fabric stores objects from back to front. Sorting this way preserves the
+  // selected stack exactly when a group of rows is dropped together.
+  movingRows.sort((a, b) => objectOrder(a) - objectOrder(b));
+
+  let targetIndex = destination.getObjects().length;
+  if (placement !== 'inside') {
+    targetIndex = destination.getObjects().indexOf(toRow.obj);
+    if (targetIndex < 0) return;
+    if (placement === 'after') targetIndex += 1;
+    // Removing earlier siblings shifts the desired insertion position.
+    targetIndex -= movingRows.filter((row) => (row.parent || fabricCanvasRaw) === destination && objectOrder(row) < targetIndex).length;
   }
+
+  // Fabric's Group.remove() converts a child back into canvas coordinates and
+  // insertAt() converts it into the new group. These APIs retain its visible
+  // placement while moving between folders and the root canvas.
+  for (const row of movingRows) {
+    const source = row.parent || fabricCanvasRaw;
+    source.remove(row.obj);
+    if (source !== fabricCanvasRaw) { source.dirty = true; source.setCoords(); }
+  }
+  movingRows.forEach((row, offset) => destination.insertAt(Math.max(0, targetIndex + offset), row.obj));
+  if (destination !== fabricCanvasRaw) { destination.dirty = true; destination.setCoords(); }
+
   if (destination === fabricCanvasRaw) {
-    fabricCanvasRaw.setActiveObject(fromRow.obj);
     selectedParent.value = null;
+    if (movingObjects.length === 1) fabricCanvasRaw.setActiveObject(movingObjects[0]);
+    else fabricCanvasRaw.setActiveObject(new fabric.ActiveSelection(movingObjects, { canvas: fabricCanvasRaw }));
   } else {
     fabricCanvasRaw.discardActiveObject();
-    selectedObjects.value = [markRaw(fromRow.obj)];
+    selectedObjects.value = movingObjects.map(markRaw);
     selectedParent.value = destination;
   }
   fabricCanvasRaw.requestRenderAll();
   refreshLayersList();
-  fabricCanvasRaw.fire('object:modified', { target: fromRow.obj });
+  fabricCanvasRaw.fire('object:modified', { target: movingObjects[0] });
 }
 function onDeleteLayer(obj, parent) {
   if (activeSelectionFor(obj)) clearPixelSelectionOverlay();
