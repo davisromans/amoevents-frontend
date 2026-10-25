@@ -115,6 +115,6 @@ export async function renderQrImage(options = {}) {
   if (config.showTopLabel) drawLabel(config.topLabelSample || 'AMO-A7X', topBand / 2, 'top');
   // For inside labels the lower band starts *after* the QR area. The prior
   // subtraction centred status text on the final QR modules.
-  if (config.showBottomLabel) drawLabel(config.bottomLabelSample || 'DOUBLE', labelsInside ? topBand + qrAreaHeight + bottomBand / 2 : topBand + qrSide + bottomBand / 2, 'bottom');
+  if (config.showBottomLabel) drawLabel(String(config.bottomLabelSample || 'DOUBLE').toUpperCase(), labelsInside ? topBand + qrAreaHeight + bottomBand / 2 : topBand + qrSide + bottomBand / 2, 'bottom');
   return new fabric.FabricImage(canvas);
 }
