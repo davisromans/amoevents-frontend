@@ -7,7 +7,6 @@
         </router-link>
         <router-link v-if="samplerVariant?.sourceType === 'document'"
                      :to="`/studio/variants/${route.params.id}/${samplerVariant._id}`"
-                     target="_blank"
                      class="btn-secondary !text-sm">
           <PencilSquareIcon class="w-4 h-4" /> Edit design
         </router-link>
