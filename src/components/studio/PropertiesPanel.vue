@@ -74,7 +74,7 @@
         <div v-else-if="isTextObject(obj)" class="space-y-3">
           <div v-if="!currentBinding">
             <p class="field-label mb-1">Text</p>
-            <textarea class="field-input !text-xs w-full" rows="3" :value="obj.text" @change="setProp('text', $event.target.value)" />
+            <textarea class="field-input !text-xs w-full" rows="3" :value="obj.text" @input="setTextValue($event.target.value)" />
           </div>
           <div>
             <p class="field-label mb-1">Variable</p>
@@ -826,6 +826,19 @@ function setProp(key, value) {
   obj.value.setCoords();
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target: obj.value }); // feeds the history stack (Batch 8)
+}
+
+// The text textarea must commit on each input, not only after its native
+// `change` event. A direct Save click can otherwise serialize the previous
+// canvas value before the textarea has blurred, making the design appear to
+// save successfully but reopen with its old text.
+function setTextValue(value) {
+  const target = obj.value;
+  if (!isTextObject(target)) return;
+  mutateTextPreservingLayout(target, () => target.set('text', String(value ?? '')));
+  target.dirty = true;
+  props.canvas.requestRenderAll();
+  props.canvas.fire('object:modified', { target });
 }
 function clampSkew(value) { return Math.max(-85, Math.min(85, Number(value) || 0)); }
 function resetSkew() {
