@@ -20,6 +20,18 @@ export async function updateGuest(eventId, guestId, patch) {
   return unwrap(res);
 }
 
+// Preview is read-only; applying repeats the selected rule only after the
+// organiser explicitly confirms it.
+export async function previewGuestStandardization(eventId, options) {
+  const res = await http.post(`/events/${eventId}/guests/standardize/preview`, options);
+  return unwrap(res);
+}
+
+export async function applyGuestStandardization(eventId, options) {
+  const res = await http.post(`/events/${eventId}/guests/standardize/apply`, options);
+  return unwrap(res);
+}
+
 export async function listPledges(eventId) {
   const res = await http.get(`/events/${eventId}/guests/pledges`);
   return unwrap(res);

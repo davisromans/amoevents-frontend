@@ -5,9 +5,9 @@
     :crumbs="[{ label: 'Events', to: '/app/events' }, { label: eventName, to: `/app/events/${route.params.id}` }, { label: 'Guests' }]"
   >
     <template #actions>
-      <Button variant="secondary" size="md" :loading="checkingAllWa" @click="runCheckAllWa">
+      <Button variant="secondary" size="md" @click="openStandardize">
         <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
-        Check WhatsApp
+        Standardize
       </Button>
       <Button variant="secondary" size="md" @click="openSmartImport = true">
         <template #leading><ArrowUpTrayIcon class="w-4 h-4" /></template>
@@ -20,6 +20,27 @@
     </template>
 
     <SmartImportModal v-model:open="openSmartImport" :event-id="route.params.id" @imported="refresh" />
+
+    <Modal v-model="standardizeOpen" title="Standardize guest details" description="Preview first. Nothing changes until you apply the selected rule." :max-width="720">
+      <div class="space-y-5">
+        <div class="grid sm:grid-cols-2 gap-4">
+          <Field label="Names"><template #default="{ id }"><Select :id="id" v-model="standardizeForm.nameFormat" :options="NAME_FORMATS" @change="standardizePreview = null" /></template></Field>
+          <Field label="Phone numbers"><template #default="{ id }"><Select :id="id" v-model="standardizeForm.phoneFormat" :options="PHONE_FORMATS" @change="standardizePreview = null" /></template></Field>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="flex items-center gap-2 text-sm font-semibold text-surface-charcoal dark:text-surface-bone cursor-pointer"><input v-model="standardizeForm.scope" value="all" type="radio" class="accent-brand-primary" @change="standardizePreview = null" />All {{ items.length }} guests</label>
+          <label :class="['flex items-center gap-2 text-sm font-semibold cursor-pointer', selected.size ? 'text-surface-charcoal dark:text-surface-bone' : 'text-surface-slate dark:text-surface-ash']"><input v-model="standardizeForm.scope" value="selected" type="radio" class="accent-brand-primary" :disabled="!selected.size" @change="standardizePreview = null" />{{ selected.size }} selected guests</label>
+        </div>
+        <label class="flex items-start gap-2 text-sm text-surface-slate dark:text-surface-ash cursor-pointer"><input v-model="standardizeForm.includeWhatsapp" type="checkbox" class="accent-brand-primary mt-0.5" /><span>Apply the same phone format to saved WhatsApp numbers.</span></label>
+        <p class="text-xs text-surface-slate dark:text-surface-ash">Message and delivery history keeps its original recipient number. New messages use the standardized contact number.</p>
+        <div v-if="standardizePreview" class="rounded-xl border border-surface-mist dark:border-surface-fog overflow-hidden">
+          <div class="px-4 py-3 bg-brand-primary-glow/40 flex flex-wrap gap-x-5 gap-y-1 text-sm"><span><strong>{{ standardizePreview.changed }}</strong> will change</span><span><strong>{{ standardizePreview.unchanged }}</strong> already match</span><span v-if="standardizePreview.phoneSkipped"><strong>{{ standardizePreview.phoneSkipped }}</strong> without phone skipped</span></div>
+          <div v-if="standardizePreview.examples?.length" class="divide-y divide-surface-mist dark:divide-surface-fog max-h-72 overflow-y-auto"><div v-for="row in standardizePreview.examples" :key="row.guestId" class="px-4 py-3 text-xs grid sm:grid-cols-2 gap-2"><div><p class="font-black text-surface-slate dark:text-surface-ash">BEFORE · {{ row.memberId }}</p><p>{{ fullName(row.before) || '—' }}</p><p class="font-mono">{{ row.before.phone || '—' }}</p></div><div><p class="font-black text-state-success">AFTER</p><p>{{ fullName(row.after) || '—' }}</p><p class="font-mono">{{ row.after.phone || '—' }}</p></div></div></div>
+          <p v-else class="px-4 py-5 text-sm text-surface-slate dark:text-surface-ash">Everything in this scope already matches the selected formatting.</p>
+        </div>
+      </div>
+      <template #footer><Button variant="secondary" @click="standardizeOpen = false">Cancel</Button><Button variant="secondary" :loading="standardizeLoading" @click="previewStandardization">Preview changes</Button><Button variant="primary" :disabled="!standardizePreview?.changed" :loading="standardizeApplying" @click="applyStandardization">Apply {{ standardizePreview?.changed || '' }} changes</Button></template>
+    </Modal>
 
     <!-- Filter row: RSVP status chips + search input -->
     <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
@@ -323,12 +344,12 @@ import {
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
   listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr,
+  previewGuestStandardization, applyGuestStandardization,
 } from '@/services/guests.service';
 import { getEvent } from '@/services/events.service';
 import { listTags } from '@/services/tags.service';
 import SmartImportModal from '@/components/guests/SmartImportModal.vue';
 import GuestDetailSheet from '@/components/guests/GuestDetailSheet.vue';
-import { checkAllWa } from '@/services/messaging.service';
 import { manualEntry } from '@/services/scan.service';
 import { apiErrorMessage } from '@/services/http';
 import { useToast } from '@/composables/useToast';
@@ -353,6 +374,20 @@ const RSVP_FILTERS = [
   { value: 'no',      label: 'No' },
   { value: 'pending', label: 'Pending' },
 ];
+const NAME_FORMATS = [
+  { value: 'title', label: 'Title Case — Mr&Mrs Davis' },
+  { value: 'clean', label: 'Clean spacing only' },
+  { value: 'upper', label: 'UPPERCASE' },
+  { value: 'lower', label: 'lowercase' },
+  { value: 'sentence', label: 'Sentence case' },
+];
+const PHONE_FORMATS = [
+  { value: 'e164', label: 'Recommended: +255712345678' },
+  { value: 'clean', label: 'Digits / + only' },
+  { value: 'tz-local', label: 'Tanzania local: 0712345678' },
+  { value: 'digits', label: 'Digits only: 255712345678' },
+  { value: 'keep', label: 'Keep phone number as entered' },
+];
 
 const route = useRoute();
 const toast = useToast();
@@ -366,6 +401,11 @@ const rsvpFilter = ref('all');
 const availableTags = ref([]);
 
 const openSmartImport = ref(false);
+const standardizeOpen = ref(false);
+const standardizeLoading = ref(false);
+const standardizeApplying = ref(false);
+const standardizePreview = ref(null);
+const standardizeForm = reactive({ nameFormat: 'title', phoneFormat: 'e164', includeWhatsapp: true, scope: 'all' });
 const checkInPending = ref(new Set());
 // A list refresh can overlap a check-in request and briefly return the old
 // guest document while the write is still propagating through MongoDB. Keep
@@ -576,20 +616,45 @@ async function downloadQrFor(g) {
   } catch (err) { toast.error(apiErrorMessage(err)); }
 }
 
-// ── WhatsApp availability check across the whole guest list ─────────
-const checkingAllWa = ref(false);
-async function runCheckAllWa() {
-  checkingAllWa.value = true;
+// ── Preview-first name / phone standardization ──────────────────────
+function standardizePayload() {
+  return {
+    nameFormat: standardizeForm.nameFormat,
+    phoneFormat: standardizeForm.phoneFormat,
+    includeWhatsapp: standardizeForm.includeWhatsapp,
+    guestIds: standardizeForm.scope === 'selected' ? [...selected.value] : [],
+  };
+}
+function openStandardize() {
+  if (!selected.value.size) standardizeForm.scope = 'all';
+  standardizePreview.value = null;
+  standardizeOpen.value = true;
+  void previewStandardization();
+}
+async function previewStandardization() {
+  standardizeLoading.value = true;
+  try { standardizePreview.value = await previewGuestStandardization(route.params.id, standardizePayload()); }
+  catch (err) { toast.error(apiErrorMessage(err)); }
+  finally { standardizeLoading.value = false; }
+}
+async function applyStandardization() {
+  if (!standardizePreview.value?.changed) return;
+  const label = standardizeForm.scope === 'selected' ? `${selected.value.size} selected guests` : 'all guests in this event';
+  if (!(await askConfirm(`Apply these formatting changes to ${label}?`))) return;
+  standardizeApplying.value = true;
   try {
-    await checkAllWa(route.params.id);
-    toast.success('WhatsApp numbers checked — cached numbers reused');
-    await refresh();
+    const result = await applyGuestStandardization(route.params.id, standardizePayload());
+    toast.success(`Standardized ${result.updated} guest${result.updated === 1 ? '' : 's'}`);
+    standardizeOpen.value = false;
+    selected.value = new Set();
+    await refresh({ background: true });
   } catch (err) { toast.error(apiErrorMessage(err)); }
-  finally { checkingAllWa.value = false; }
+  finally { standardizeApplying.value = false; }
 }
 
 // ── Filtering ────────────────────────────────────────────────────────
 function isPlaceholderPhone(phone) { return String(phone || '').startsWith('no-phone:'); }
+function fullName(g) { return `${g?.firstName || ''} ${g?.lastName || ''}`.replace(/\s+/g, ' ').trim(); }
 function tagsOf(g) {
   const ids = (g.tags || []).map((t) => (typeof t === 'string' ? t : t._id));
   return availableTags.value.filter((t) => ids.includes(t._id));
