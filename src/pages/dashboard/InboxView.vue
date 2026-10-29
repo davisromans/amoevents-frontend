@@ -359,7 +359,7 @@ onUnmounted(() => {
                 <span class="truncate text-xs text-slate-500 dark:text-slate-400">{{ conversation.lastMessageText || conversation.phone }}</span>
                 <span class="flex shrink-0 items-center gap-1.5">
                   <span v-if="conversation.lastMessageType === 'template' && conversation.lastMessageMediaUrl" class="text-xs text-slate-400">▧</span>
-                  <span v-if="conversation.lastMessageStatus" :class="tickClass(conversation.lastMessageStatus)" class="text-sm font-black leading-none">{{ ticks(conversation.lastMessageStatus) }}</span>
+                  <span v-if="conversation.lastMessageStatus" :class="tickClass(conversation.lastMessageStatus)" class="text-sm font-black leading-none" :title="`WhatsApp ${conversation.lastMessageStatus}`" :aria-label="`WhatsApp ${conversation.lastMessageStatus}`">{{ ticks(conversation.lastMessageStatus) }}</span>
                   <span v-if="conversation.unreadCount" class="min-w-5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-center text-[10px] font-black text-white dark:text-[#07120e]">{{ conversation.unreadCount }}</span>
                 </span>
               </div>
@@ -414,7 +414,7 @@ onUnmounted(() => {
                   <p class="whitespace-pre-wrap break-words">{{ message.text }}</p>
                   <p class="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-60" :title="fullTime(message.receivedAt)">
                     {{ messageTime(message.receivedAt) }}
-                    <span v-if="message.direction === 'outbound'" :class="tickClass(message.providerStatus)" class="font-black">{{ ticks(message.providerStatus) }}</span>
+                    <span v-if="message.direction === 'outbound'" :class="tickClass(message.providerStatus)" class="font-black" :title="`WhatsApp ${message.providerStatus || 'sent'}`" :aria-label="`WhatsApp ${message.providerStatus || 'sent'}`">{{ ticks(message.providerStatus) }}</span>
                   </p>
                 </div>
               </div>
