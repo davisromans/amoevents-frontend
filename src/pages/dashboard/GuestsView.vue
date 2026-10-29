@@ -137,6 +137,15 @@
                       <StarIcon v-if="g.isVip" class="w-3 h-3 text-brand-primary-deep dark:text-brand-primary-soft shrink-0" />
                     </div>
                     <p class="text-2xs text-surface-slate dark:text-surface-ash font-mono">{{ g.memberId }}</p>
+                    <div class="mt-1.5 flex flex-wrap items-center gap-1.5 sm:hidden" @click.stop>
+                      <a v-if="!isPlaceholderPhone(g.phone)" :href="`tel:${g.phone}`" class="inline-flex items-center gap-1 rounded-md bg-brand-primary-glow px-2 py-1 text-2xs font-black text-brand-primary-deep dark:text-brand-primary-soft" @click="dialGuest(g)">
+                        <PhoneIcon class="h-3 w-3" /> Call
+                      </a>
+                      <button v-if="!isPlaceholderPhone(g.phone)" type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-black" :class="g.callStatus === 'called' ? 'bg-state-success-bg text-state-success' : 'bg-surface-mist text-surface-slate dark:bg-surface-fog dark:text-surface-ash'" @click="setCalled(g, g.callStatus !== 'called')">
+                        {{ g.callStatus === 'called' ? 'Called ✓' : 'Mark called' }}
+                      </button>
+                      <span v-if="whatsAppDelivery(g)" class="inline-flex items-center gap-0.5 text-2xs font-black" :class="whatsAppDelivery(g).status === 'read' ? 'text-sky-600 dark:text-sky-400' : whatsAppDelivery(g).status === 'failed' ? 'text-state-danger' : 'text-surface-slate dark:text-surface-ash'" :title="whatsAppDelivery(g).label">{{ whatsAppDelivery(g).tick }} {{ whatsAppDelivery(g).label }}</span>
+                    </div>
                   </div>
                 </div>
               </td>
@@ -158,6 +167,11 @@
                     {{ g.phone }}
                     <CheckCircleIcon v-if="g.whatsappStatus === 'available'" class="w-3.5 h-3.5 text-state-success shrink-0" :title="`On WhatsApp${g.whatsappCheckedAt ? ' · checked ' + timeAgo(g.whatsappCheckedAt) : ''}`" />
                   </span>
+                  <div class="mt-1 flex flex-wrap items-center gap-2">
+                    <a :href="`tel:${g.phone}`" class="inline-flex items-center gap-1 text-2xs font-black text-brand-primary-deep hover:underline dark:text-brand-primary-soft" @click.stop="dialGuest(g)"><PhoneIcon class="h-3 w-3" />Call</a>
+                    <button type="button" class="text-2xs font-black" :class="g.callStatus === 'called' ? 'text-state-success' : 'text-surface-slate dark:text-surface-ash hover:text-brand-primary-deep'" @click.stop="setCalled(g, g.callStatus !== 'called')">{{ g.callStatus === 'called' ? 'Called ✓' : 'Mark called' }}</button>
+                    <span v-if="whatsAppDelivery(g)" class="inline-flex items-center gap-0.5 text-2xs font-black" :class="whatsAppDelivery(g).status === 'read' ? 'text-sky-600 dark:text-sky-400' : whatsAppDelivery(g).status === 'failed' ? 'text-state-danger' : 'text-surface-slate dark:text-surface-ash'" :title="whatsAppDelivery(g).label">{{ whatsAppDelivery(g).tick }} {{ whatsAppDelivery(g).label }}</span>
+                  </div>
                 </template>
               </td>
               <td class="px-4 py-3 hidden md:table-cell">
@@ -277,7 +291,7 @@
           <Field v-if="form.type === 'family'" label="Scans allowed"
                  :help="`Shows on the card as ${seatTypeLabel({ type: 'family', familySize: form.familySize || 3 })}`">
             <template #default="{ id }">
-              <TextInput v-model.number="form.familySize" :id="id" type="number" min="3" max="20" />
+              <TextInput v-model.number="form.familySize" :id="id" type="number" min="3" />
             </template>
           </Field>
         </div>
@@ -339,11 +353,11 @@ import { askConfirm } from '@/composables/useConfirm';
 import { useRoute } from 'vue-router';
 import {
   MagnifyingGlassIcon, UserPlusIcon, UsersIcon, ExclamationTriangleIcon,
-  ArrowUpTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon,
+  ArrowUpTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon, PhoneIcon,
 } from '@heroicons/vue/24/outline';
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
-  listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr,
+  listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr, markGuestCalled,
   previewGuestStandardization, applyGuestStandardization,
 } from '@/services/guests.service';
 import { getEvent } from '@/services/events.service';
@@ -654,6 +668,41 @@ async function applyStandardization() {
 
 // ── Filtering ────────────────────────────────────────────────────────
 function isPlaceholderPhone(phone) { return String(phone || '').startsWith('no-phone:'); }
+function whatsAppDelivery(g) {
+  const latest = [...(g?.invitations || [])]
+    .filter((item) => item.channel === 'whatsapp')
+    .sort((a, b) => new Date(b.readAt || b.deliveredAt || b.sentAt || 0) - new Date(a.readAt || a.deliveredAt || a.sentAt || 0))[0];
+  if (!latest) return null;
+  const status = latest.status || 'sent';
+  const labels = { read: 'Read', delivered: 'Delivered', failed: 'Failed', sent: 'Sent' };
+  return { status, label: `WhatsApp ${labels[status] || 'Sent'}`, tick: status === 'failed' ? '×' : status === 'sent' ? '✓' : '✓✓' };
+}
+async function setCalled(g, called) {
+  const before = { ...g };
+  const optimistic = {
+    ...g,
+    callStatus: called ? 'called' : 'not_called',
+    calledAt: called ? new Date().toISOString() : null,
+    callCount: called ? (Number(g.callCount) || 0) + 1 : g.callCount,
+  };
+  items.value = items.value.map((item) => item._id === g._id ? optimistic : item);
+  if (detailGuest.value?._id === g._id) detailGuest.value = optimistic;
+  try {
+    const saved = await markGuestCalled(route.params.id, g._id, called);
+    items.value = items.value.map((item) => item._id === g._id ? saved : item);
+    if (detailGuest.value?._id === g._id) detailGuest.value = saved;
+    await saveGuestSnapshot();
+  } catch (err) {
+    items.value = items.value.map((item) => item._id === g._id ? before : item);
+    if (detailGuest.value?._id === g._id) detailGuest.value = before;
+    toast.error(apiErrorMessage(err));
+  }
+}
+function dialGuest(g) {
+  // Starting the dialler is separate from saying a conversation is complete;
+  // this marks the follow-up attempt and the adjacent button can undo it.
+  if (g.callStatus !== 'called') void setCalled(g, true);
+}
 function fullName(g) { return `${g?.firstName || ''} ${g?.lastName || ''}`.replace(/\s+/g, ' ').trim(); }
 function tagsOf(g) {
   const ids = (g.tags || []).map((t) => (typeof t === 'string' ? t : t._id));
