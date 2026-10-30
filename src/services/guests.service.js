@@ -31,6 +31,11 @@ export async function exportGuestDeliverySummary(eventId) {
   }
 }
 
+export async function reconcileSmsDelivery(eventId) {
+  const res = await http.post(`/events/${eventId}/guests/reconcile-sms-delivery`, {}, { timeout: 120000 });
+  return unwrap(res);
+}
+
 export async function createGuest(eventId, payload) {
   const res = await http.post(`/events/${eventId}/guests`, payload);
   return unwrap(res);

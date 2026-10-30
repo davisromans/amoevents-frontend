@@ -9,6 +9,10 @@
         <template #leading><ArrowDownTrayIcon class="w-4 h-4" /></template>
         Export delivery
       </Button>
+      <Button variant="secondary" size="md" :loading="reconcilingSms" @click="refreshSmsDelivery">
+        <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
+        Refresh SMS delivery
+      </Button>
       <Button variant="secondary" size="md" @click="openStandardize">
         <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
         Standardize
@@ -362,7 +366,7 @@ import {
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
   listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr, markGuestCalled,
-  previewGuestStandardization, applyGuestStandardization, exportGuestDeliverySummary,
+  previewGuestStandardization, applyGuestStandardization, exportGuestDeliverySummary, reconcileSmsDelivery,
 } from '@/services/guests.service';
 import { getEvent } from '@/services/events.service';
 import { listTags } from '@/services/tags.service';
@@ -418,6 +422,7 @@ const q = ref('');
 const rsvpFilter = ref('all');
 const availableTags = ref([]);
 const exportingDelivery = ref(false);
+const reconcilingSms = ref(false);
 
 const openSmartImport = ref(false);
 const standardizeOpen = ref(false);
@@ -450,6 +455,20 @@ async function downloadDeliverySummary() {
     toast.error(apiErrorMessage(err));
   } finally {
     exportingDelivery.value = false;
+  }
+}
+
+async function refreshSmsDelivery() {
+  reconcilingSms.value = true;
+  try {
+    const result = await reconcileSmsDelivery(eventId.value);
+    const updated = Number(result.delivered || 0) + Number(result.failed || 0);
+    toast.success(`Checked ${result.checked} SMS: ${result.delivered} delivered, ${result.failed} failed, ${result.pending} pending${result.errors ? `, ${result.errors} unavailable` : ''}`);
+    if (updated) await refresh({ background: true });
+  } catch (err) {
+    toast.error(apiErrorMessage(err));
+  } finally {
+    reconcilingSms.value = false;
   }
 }
 
