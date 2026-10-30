@@ -5,25 +5,18 @@
     :crumbs="[{ label: 'Events', to: '/app/events' }, { label: eventName, to: `/app/events/${route.params.id}` }, { label: 'Guests' }]"
   >
     <template #actions>
-      <Button variant="secondary" size="md" :loading="exportingDelivery" @click="downloadDeliverySummary">
-        <template #leading><ArrowDownTrayIcon class="w-4 h-4" /></template>
-        Export delivery
-      </Button>
-      <Button variant="secondary" size="md" :loading="reconcilingSms" @click="refreshSmsDelivery">
-        <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
-        Refresh SMS delivery
-      </Button>
-      <Button variant="secondary" size="md" @click="openStandardize">
-        <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
-        Standardize
-      </Button>
-      <Button variant="secondary" size="md" @click="openSmartImport = true">
-        <template #leading><ArrowUpTrayIcon class="w-4 h-4" /></template>
-        Import
-      </Button>
-      <Button variant="primary" size="md" @click="openAddGuest">
+      <Menu align="end" :items="guestActionMenu">
+        <template #trigger="{ toggle, open }">
+          <Button variant="secondary" size="md" :aria-expanded="open" aria-label="Guest actions" @click="toggle">
+            <template #leading><EllipsisVerticalIcon class="w-5 h-5" /></template>
+            <span class="hidden sm:inline">Actions</span>
+          </Button>
+        </template>
+      </Menu>
+      <Button variant="primary" size="md" class="!px-3 sm:!px-4" @click="openAddGuest">
         <template #leading><UserPlusIcon class="w-4 h-4" /></template>
-        Add guest
+        <span class="hidden sm:inline">Add guest</span>
+        <span class="sm:hidden">Add</span>
       </Button>
     </template>
 
@@ -361,7 +354,7 @@ import { askConfirm } from '@/composables/useConfirm';
 import { useRoute } from 'vue-router';
 import {
   MagnifyingGlassIcon, UserPlusIcon, UsersIcon, ExclamationTriangleIcon,
-  ArrowUpTrayIcon, ArrowDownTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon, PhoneIcon,
+  ArrowUpTrayIcon, ArrowDownTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon, PhoneIcon, EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline';
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
@@ -380,7 +373,7 @@ import { queueHttpMutation } from '@/services/offline-sync.service';
 import PhoneInput from '@/components/common/PhoneInput.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import PageShell from '@/components/shell/PageShell.vue';
-import { Badge, Button, EmptyState, Field, Modal, Select, TextInput } from '@/components/ui';
+import { Badge, Button, EmptyState, Field, Menu, Modal, Select, TextInput } from '@/components/ui';
 import { seatTypeLabel } from '@/utils/seatType';
 import { normalizePhoneInput } from '@/utils/phone';
 
@@ -423,6 +416,35 @@ const rsvpFilter = ref('all');
 const availableTags = ref([]);
 const exportingDelivery = ref(false);
 const reconcilingSms = ref(false);
+
+// Keep one primary action visible.  Secondary, infrequent actions belong in a
+// menu so the title row stays usable on phones and does not turn into a long
+// horizontal button bar on desktop.
+const guestActionMenu = computed(() => [
+  {
+    label: 'Import guests',
+    icon: ArrowUpTrayIcon,
+    onSelect: () => { openSmartImport.value = true; },
+  },
+  {
+    label: 'Standardize names and numbers',
+    icon: ArrowPathIcon,
+    onSelect: () => { openStandardize(); },
+  },
+  { divider: true },
+  {
+    label: exportingDelivery.value ? 'Preparing delivery export…' : 'Export delivery report',
+    icon: ArrowDownTrayIcon,
+    disabled: exportingDelivery.value,
+    onSelect: () => { void downloadDeliverySummary(); },
+  },
+  {
+    label: reconcilingSms.value ? 'Refreshing SMS delivery…' : 'Refresh SMS delivery',
+    icon: ArrowPathIcon,
+    disabled: reconcilingSms.value,
+    onSelect: () => { void refreshSmsDelivery(); },
+  },
+]);
 
 const openSmartImport = ref(false);
 const standardizeOpen = ref(false);
