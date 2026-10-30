@@ -5,6 +5,10 @@
     :crumbs="[{ label: 'Events', to: '/app/events' }, { label: eventName, to: `/app/events/${route.params.id}` }, { label: 'Guests' }]"
   >
     <template #actions>
+      <Button variant="secondary" size="md" :loading="exportingDelivery" @click="downloadDeliverySummary">
+        <template #leading><ArrowDownTrayIcon class="w-4 h-4" /></template>
+        Export delivery
+      </Button>
       <Button variant="secondary" size="md" @click="openStandardize">
         <template #leading><ArrowPathIcon class="w-4 h-4" /></template>
         Standardize
@@ -353,12 +357,12 @@ import { askConfirm } from '@/composables/useConfirm';
 import { useRoute } from 'vue-router';
 import {
   MagnifyingGlassIcon, UserPlusIcon, UsersIcon, ExclamationTriangleIcon,
-  ArrowUpTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon, PhoneIcon,
+  ArrowUpTrayIcon, ArrowDownTrayIcon, ArrowPathIcon, CheckCircleIcon, TrashIcon, XMarkIcon, PhoneIcon,
 } from '@heroicons/vue/24/outline';
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
   listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr, markGuestCalled,
-  previewGuestStandardization, applyGuestStandardization,
+  previewGuestStandardization, applyGuestStandardization, exportGuestDeliverySummary,
 } from '@/services/guests.service';
 import { getEvent } from '@/services/events.service';
 import { listTags } from '@/services/tags.service';
@@ -413,6 +417,7 @@ const loading = ref(true);
 const q = ref('');
 const rsvpFilter = ref('all');
 const availableTags = ref([]);
+const exportingDelivery = ref(false);
 
 const openSmartImport = ref(false);
 const standardizeOpen = ref(false);
@@ -427,6 +432,26 @@ const checkInPending = ref(new Set());
 // background reconciliation cannot make a just-updated button jump back to
 // 0/2.
 const checkInFloors = new Map();
+
+async function downloadDeliverySummary() {
+  exportingDelivery.value = true;
+  try {
+    const { blob, filename, count } = await exportGuestDeliverySummary(eventId.value);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+    toast.success(`Downloaded delivery summary for ${count} guest${count === 1 ? '' : 's'}`);
+  } catch (err) {
+    toast.error(apiErrorMessage(err));
+  } finally {
+    exportingDelivery.value = false;
+  }
+}
 
 // ── Detail sheet (read-only) ─────────────────────────────────────────
 const detailOpen = ref(false);
