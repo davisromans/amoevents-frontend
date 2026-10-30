@@ -6,8 +6,10 @@
   >
     <template #actions>
       <Menu align="end" :items="guestActionMenu">
-        <template #trigger="{ toggle, open }">
-          <Button variant="secondary" size="md" :aria-expanded="open" aria-label="Guest actions" @click="toggle">
+        <template #trigger="{ open }">
+          <!-- Popover owns the trigger click. Calling toggle here as well
+               immediately opened then closed the menu through event bubbling. -->
+          <Button variant="secondary" size="md" :aria-expanded="open" aria-label="Guest actions">
             <template #leading><EllipsisVerticalIcon class="w-5 h-5" /></template>
             <span class="hidden sm:inline">Actions</span>
           </Button>
