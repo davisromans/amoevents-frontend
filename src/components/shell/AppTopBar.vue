@@ -1,6 +1,12 @@
 <template>
   <header class="sticky top-0 z-30 border-b border-surface-mist dark:border-surface-fog bg-surface-cream/85 dark:bg-surface-night/85 backdrop-blur-xl">
     <div class="flex items-center gap-3 px-4 sm:px-6 lg:px-8 h-14">
+      <!-- The desktop rail is hidden on phones, so this is the route to the
+           complete event navigation—not merely the five bottom-nav tabs. -->
+      <button type="button" class="md:hidden btn-ghost !h-9 !w-9 !p-0 shrink-0"
+              aria-label="Open navigation menu" title="Menu" @click="shell.openMobileMenu()">
+        <Bars3Icon class="w-5 h-5" />
+      </button>
       <!-- Search-open button (also has ⌘K shortcut globally) -->
       <button type="button" class="flex-1 min-w-0 max-w-md flex items-center gap-2 rounded-xl border border-surface-mist dark:border-surface-fog bg-surface-ivory dark:bg-surface-coal px-3 py-1.5 text-sm text-surface-slate dark:text-surface-ash hover:border-brand-primary/40 transition-colors" @click="openPalette">
         <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -40,13 +46,15 @@
 import { computed, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useShellStore } from '@/stores/shell';
 import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import LanguageSwitcher from '@/components/common/LanguageSwitcher.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import Menu from '@/components/ui/Menu.vue';
-import { Cog6ToothIcon, ArrowRightOnRectangleIcon, UserIcon } from '@heroicons/vue/24/outline';
+import { Bars3Icon, Cog6ToothIcon, ArrowRightOnRectangleIcon, UserIcon } from '@heroicons/vue/24/outline';
 
 const auth = useAuthStore();
+const shell = useShellStore();
 const router = useRouter();
 
 const modKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
