@@ -1,4 +1,37 @@
 <template>
+  <!-- Phone drawer: same sections and routes as the desktop sidebar. -->
+  <Teleport to="body">
+    <div v-if="shell.mobileMenuOpen" class="md:hidden fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Navigation menu">
+      <button class="absolute inset-0 bg-black/55" aria-label="Close navigation menu" @click="shell.closeMobileMenu()" />
+      <aside class="relative flex h-full w-[min(21rem,88vw)] flex-col bg-surface-ivory dark:bg-surface-coal shadow-2xl">
+        <div class="px-4 py-4 border-b border-surface-mist dark:border-surface-fog">
+          <div class="flex items-center gap-2">
+            <router-link to="/app" class="flex-1" @click="shell.closeMobileMenu()"><AppLogo :size="26" /></router-link>
+            <button type="button" class="btn-ghost !h-9 !w-9 !p-0" aria-label="Close navigation menu" @click="shell.closeMobileMenu()">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+          <div class="mt-4"><EventSwitcher /></div>
+        </div>
+        <nav class="flex-1 overflow-y-auto py-4 space-y-6">
+          <div v-for="section in sections" :key="`mobile-${section.heading}`">
+            <p v-if="section.heading" class="px-5 mb-1.5 text-2xs uppercase tracking-widest font-black text-surface-slate dark:text-surface-ash">{{ section.heading }}</p>
+            <div class="px-3 space-y-1">
+              <router-link v-for="item in section.items" :key="`mobile-${item.to || item.label}`" :to="item.to"
+                class="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold"
+                :class="isActive(item) ? 'bg-brand-primary-glow text-brand-primary-deep dark:text-brand-primary-soft' : 'text-surface-slate dark:text-surface-ash hover:bg-surface-mist/60 dark:hover:bg-surface-fog/60'"
+                @click="shell.closeMobileMenu()">
+                <component :is="item.icon" class="w-5 h-5 shrink-0" />
+                <span class="min-w-0 truncate">{{ item.label }}</span>
+                <span v-if="item.badge != null" class="ml-auto text-2xs font-bold px-1.5 py-0.5 rounded bg-surface-mist dark:bg-surface-fog">{{ item.badge }}</span>
+              </router-link>
+            </div>
+          </div>
+        </nav>
+      </aside>
+    </div>
+  </Teleport>
+
   <aside :class="['hidden md:flex md:flex-col shrink-0 border-r border-surface-mist dark:border-surface-fog bg-surface-ivory dark:bg-surface-coal transition-[width] duration-base',
                   shell.sidebarCollapsed ? 'w-16' : 'w-64']">
     <!-- Brand + collapse toggle (always visible at the top). AppLogo
@@ -51,7 +84,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useShellStore } from '@/stores/shell';
@@ -62,12 +95,16 @@ import {
   HomeIcon, CalendarDaysIcon, UsersIcon, ChatBubbleLeftRightIcon,
   PhotoIcon, UserGroupIcon, ChartBarIcon, CreditCardIcon, Cog6ToothIcon,
   BanknotesIcon, DocumentTextIcon, EnvelopeIcon,
-  ShieldCheckIcon, BuildingOfficeIcon, ClipboardDocumentListIcon, TagIcon,
+  ShieldCheckIcon, BuildingOfficeIcon, ClipboardDocumentListIcon, TagIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline';
 
 const route = useRoute();
 const auth = useAuthStore();
 const shell = useShellStore();
+
+// Route navigation from a link, browser Back, or command palette must never
+// leave an opaque mobile drawer covering the destination page.
+watch(() => route.fullPath, () => shell.closeMobileMenu());
 
 // Event-scoped nav shows when the current route is under /app/events/:id/*.
 // Otherwise the tenant-level nav shows. Route matches drive the active state.

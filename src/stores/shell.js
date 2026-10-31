@@ -6,6 +6,10 @@ import { defineStore } from 'pinia';
 export const useShellStore = defineStore('shell', {
   state: () => ({
     sidebarCollapsed: (typeof localStorage !== 'undefined' && localStorage.getItem('ae.sidebar.collapsed') === '1') || false,
+    // The desktop rail is intentionally hidden below md. Keep its mobile
+    // counterpart as explicit shell state so every event route exposes the
+    // same navigation rather than trapping users in the bottom tab bar.
+    mobileMenuOpen: false,
     // Loaded lazily by the sidebar the first time it's needed; cached for
     // the session so the switcher opens instantly.
     events: [],
@@ -17,6 +21,8 @@ export const useShellStore = defineStore('shell', {
       this.sidebarCollapsed = !this.sidebarCollapsed;
       try { localStorage.setItem('ae.sidebar.collapsed', this.sidebarCollapsed ? '1' : '0'); } catch { /* private mode */ }
     },
+    openMobileMenu() { this.mobileMenuOpen = true; },
+    closeMobileMenu() { this.mobileMenuOpen = false; },
     async ensureEvents() {
       if (this.eventsLoaded || this.eventsLoading) return;
       this.eventsLoading = true;
