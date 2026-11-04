@@ -9,6 +9,7 @@
 import * as fabric from 'fabric';
 import { rebuildFilterStack } from './filtersGallery';
 import { applyLayerEffectStack, normalizeLayerEffects } from './layerEffects';
+import { DEFAULT_QR_LAYER_STYLE } from './qrLayerRenderer';
 
 const BLEND_MODE_TO_COMPOSITE = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -633,7 +634,16 @@ function fabricToLayer(obj) {
     const imgData = obj.get('data') || {};
     if (imgData.isQr) {
       const { layerId, name, isQr, locked, binding, sourceLayer, ...qrStyle } = imgData;
-      return { ...base, ...clonePlain(qrStyle), type: 'qr', bindingSource: 'guest_qr_payload', fg: imgData.fg || '#111111', bg: imgData.bg || '#FFFFFF', errorCorrection: imgData.errorCorrection || 'M' };
+      return {
+        ...base,
+        ...clonePlain(DEFAULT_QR_LAYER_STYLE),
+        ...clonePlain(qrStyle),
+        type: 'qr',
+        bindingSource: 'guest_qr_payload',
+        fg: imgData.fg ?? DEFAULT_QR_LAYER_STYLE.fg,
+        bg: imgData.bg ?? DEFAULT_QR_LAYER_STYLE.bg,
+        errorCorrection: imgData.errorCorrection ?? DEFAULT_QR_LAYER_STYLE.errorCorrection ?? 'M',
+      };
     }
     const sourceWidth = imgData.sourceWidth || obj.getElement?.()?.naturalWidth || obj.width || 1;
     const sourceHeight = imgData.sourceHeight || obj.getElement?.()?.naturalHeight || obj.height || 1;

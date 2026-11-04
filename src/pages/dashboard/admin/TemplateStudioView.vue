@@ -494,6 +494,7 @@ import {
   refreshTextMetricsPreservingLayout, mutateTextPreservingLayout, applyAdjustmentLayers,
 } from '@/utils/canvasEngine';
 import { HistoryStack } from '@/utils/historyStack';
+import { DEFAULT_QR_LAYER_STYLE } from '@/utils/qrLayerRenderer';
 import { PenTool } from '@/utils/penTool';
 import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { PathEditor } from '@/utils/pathEditor';
@@ -1505,7 +1506,12 @@ function onKeyDown(e) {
   const activeImage = active?.type === 'image' ? active : null;
   if (mod && key === 's') {
     e.preventDefault();
-    if (isSmartObjectMode.value || e.shiftKey) save(); else saveProjectFile();
+    // Cmd/Ctrl+S is the reliable app save action. The previous branch sent
+    // plain Cmd/Ctrl+S to the browser File System Access API, which either
+    // opened a file picker or failed in browsers that do not support it. The
+    // visible Save button and keyboard shortcut must persist the template to
+    // the same cloud/local-draft path.
+    save();
     return;
   }
   if (mod && key === 'o' && !e.altKey) { e.preventDefault(); psdInputRef.value?.click(); return; }
@@ -1931,7 +1937,14 @@ async function insertQrLayer() {
     scaleX: size / qr.width, scaleY: size / qr.width,
     originX: 'left', originY: 'top',
   });
-  qr.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name: 'QR code', isQr: true });
+  qr.set('data', {
+    layerId: `layer_${Math.random().toString(36).slice(2, 10)}`,
+    name: 'QR code',
+    isQr: true,
+    // Persist the QR's own design on the template layer. Generated cards
+    // must use this layer style, not the event-wide QR settings.
+    ...DEFAULT_QR_LAYER_STYLE,
+  });
   fabricCanvasRaw.add(qr);
   fabricCanvasRaw.setActiveObject(qr);
   refreshLayersList();
