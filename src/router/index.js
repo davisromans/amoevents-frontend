@@ -170,10 +170,13 @@ router.beforeEach(async (to) => {
       await new Promise((r) => setTimeout(r, 30));
     }
   }
-  // Signed out here: ask amoview.com once per tab whether you're signed in there.
+  // Signed out here: ask amoview.com whether you're signed in there. A failed
+  // try waits 30s (no loop); a sign-out holds for this tab only, so opening
+  // Events again from Amoview always signs in.
   if (!auth.isAuthed && (to.meta.requiresAuth || to.path === '/login')
-      && !sessionStorage.getItem('gc.sso.tried') && !localStorage.getItem('gc.sso.off')) {
-    sessionStorage.setItem('gc.sso.tried', '1');
+      && Date.now() - Number(sessionStorage.getItem('gc.sso.tried') || 0) > 30000
+      && !sessionStorage.getItem('gc.sso.off')) {
+    sessionStorage.setItem('gc.sso.tried', String(Date.now()));
     const state = crypto.randomUUID();
     sessionStorage.setItem('gc.sso.state', state);
     const next = to.path === '/login' ? String(to.query.redirect || '') : to.fullPath;

@@ -51,7 +51,7 @@ export const useAuthStore = defineStore('auth', {
     },
     // A deliberate sign-out must stick, or Amoview would sign straight back in.
     signOut() {
-      localStorage.setItem('gc.sso.off', '1');
+      sessionStorage.setItem('gc.sso.off', '1');
       this.logout();
     },
     async fetchMe() {
@@ -81,7 +81,7 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('gc.tenant');
     },
     _persist({ accessToken, refreshToken, user, tenant }) {
-      localStorage.removeItem('gc.sso.off');
+      sessionStorage.removeItem('gc.sso.off');
       localStorage.setItem('gc.accessToken', accessToken);
       localStorage.setItem('gc.refreshToken', refreshToken);
       localStorage.setItem('gc.user', JSON.stringify(user));

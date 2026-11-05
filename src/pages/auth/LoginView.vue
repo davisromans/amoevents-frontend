@@ -138,7 +138,7 @@ const amoviewLoading = ref(false);
 const amoviewServerError = ref('');
 
 function useAmoviewSession() {
-  localStorage.removeItem('gc.sso.off');
+  sessionStorage.removeItem('gc.sso.off');
   sessionStorage.removeItem('gc.sso.tried');
   location.reload();
 }
