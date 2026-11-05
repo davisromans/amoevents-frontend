@@ -74,7 +74,7 @@ const initials = computed(() =>
   (auth.user?.name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
 );
 function logout() {
-  auth.logout();
+  auth.signOut();
   open.value = false;
   router.replace('/login');
 }

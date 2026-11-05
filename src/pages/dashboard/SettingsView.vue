@@ -382,5 +382,5 @@ async function clearAppData(signOut) {
   window.location.replace(signOut ? '/login' : window.location.pathname);
 }
 
-function logout() { auth.logout(); router.replace('/login'); }
+function logout() { auth.signOut(); router.replace('/login'); }
 </script>

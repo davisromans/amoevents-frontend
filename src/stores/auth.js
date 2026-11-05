@@ -44,6 +44,16 @@ export const useAuthStore = defineStore('auth', {
       const res = await http.post('/bridge/taiview/login', { phone, password });
       this._persist(unwrap(res));
     },
+    // Browser already signed in on amoview.com: spend its one-time code.
+    async loginWithAmoviewSession(code) {
+      const res = await http.post('/bridge/taiview/sso', { code });
+      this._persist(unwrap(res));
+    },
+    // A deliberate sign-out must stick, or Amoview would sign straight back in.
+    signOut() {
+      localStorage.setItem('gc.sso.off', '1');
+      this.logout();
+    },
     async fetchMe() {
       try {
         const res = await http.get('/auth/me');
@@ -71,6 +81,7 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('gc.tenant');
     },
     _persist({ accessToken, refreshToken, user, tenant }) {
+      localStorage.removeItem('gc.sso.off');
       localStorage.setItem('gc.accessToken', accessToken);
       localStorage.setItem('gc.refreshToken', refreshToken);
       localStorage.setItem('gc.user', JSON.stringify(user));

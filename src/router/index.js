@@ -9,6 +9,7 @@ const routes = [
   { path: '/about', component: () => import('@/pages/public/AboutView.vue'), meta: { public: true } },
   { path: '/g/:token', component: () => import('@/pages/public/GuestSelfServiceView.vue'), meta: { public: true } },
   { path: '/gallery/:token', component: () => import('@/pages/public/PublicGalleryView.vue'), meta: { public: true } },
+  { path: '/sso', component: () => import('@/pages/auth/SsoReturnView.vue'), meta: { public: true } },
   { path: '/login', component: () => import('@/pages/auth/LoginView.vue'), meta: { public: true, authPage: true } },
   { path: '/register', component: () => import('@/pages/auth/RegisterView.vue'), meta: { public: true, authPage: true } },
   { path: '/forgot', component: () => import('@/pages/auth/ForgotPasswordView.vue'), meta: { public: true, authPage: true } },
@@ -168,6 +169,16 @@ router.beforeEach(async (to) => {
     while (!auth.ready && Date.now() - start < 4000) {
       await new Promise((r) => setTimeout(r, 30));
     }
+  }
+  // Signed out here: ask amoview.com once per tab whether you're signed in there.
+  if (!auth.isAuthed && (to.meta.requiresAuth || to.path === '/login')
+      && !sessionStorage.getItem('gc.sso.tried') && !localStorage.getItem('gc.sso.off')) {
+    sessionStorage.setItem('gc.sso.tried', '1');
+    const state = crypto.randomUUID();
+    sessionStorage.setItem('gc.sso.state', state);
+    const next = to.path === '/login' ? String(to.query.redirect || '') : to.fullPath;
+    window.location.href = `https://www.amoview.com/sso/events?${new URLSearchParams({ state, next })}`;
+    return false;
   }
   if (to.meta.requiresAuth && !auth.isAuthed) {
     return { path: '/login', query: { redirect: to.fullPath } };

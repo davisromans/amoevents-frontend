@@ -59,6 +59,10 @@
         Same phone &amp; password you use in the Amoview app — one account for videos, streaming, and events.
       </div>
 
+      <button type="button" class="w-full text-sm font-bold text-brand-primary-deep underline" @click="useAmoviewSession">
+        Already signed in on amoview.com? Continue
+      </button>
+
       <Field label="Amoview phone" :error="amoviewErrors.phone">
         <template #default="{ id, invalid, ariaDescribedby }">
           <TextInput
@@ -132,6 +136,12 @@ const amoviewForm = reactive({ phone: '', password: '' });
 const amoviewErrors = reactive({ phone: '', password: '' });
 const amoviewLoading = ref(false);
 const amoviewServerError = ref('');
+
+function useAmoviewSession() {
+  localStorage.removeItem('gc.sso.off');
+  sessionStorage.removeItem('gc.sso.tried');
+  location.reload();
+}
 
 async function submitAmoview() {
   amoviewErrors.phone = ''; amoviewErrors.password = ''; amoviewServerError.value = '';

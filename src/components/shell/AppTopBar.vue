@@ -67,6 +67,6 @@ const menuItems = computed(() => [
   { label: 'Profile',   icon: UserIcon,        to: '/app/settings' },
   { label: 'Security',  icon: Cog6ToothIcon,   to: '/app/settings?section=security' },
   { divider: true },
-  { label: 'Sign out',  icon: ArrowRightOnRectangleIcon, danger: true, onSelect: () => { auth.logout(); router.push('/login'); } },
+  { label: 'Sign out',  icon: ArrowRightOnRectangleIcon, danger: true, onSelect: () => { auth.signOut(); router.push('/login'); } },
 ]);
 </script>
