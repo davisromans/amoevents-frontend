@@ -178,7 +178,8 @@ router.beforeEach(async (to) => {
     sessionStorage.setItem('gc.sso.state', state);
     const next = to.path === '/login' ? String(to.query.redirect || '') : to.fullPath;
     window.location.href = `https://www.amoview.com/sso/events?${new URLSearchParams({ state, next })}`;
-    return false;
+    // The browser is leaving: stay pending, a cancelled first navigation fails boot.
+    return new Promise(() => {});
   }
   if (to.meta.requiresAuth && !auth.isAuthed) {
     return { path: '/login', query: { redirect: to.fullPath } };
