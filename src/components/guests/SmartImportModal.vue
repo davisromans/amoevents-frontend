@@ -90,10 +90,10 @@
               </label>
               <label class="flex items-center gap-1.5 text-2xs font-bold uppercase tracking-wide text-surface-slate dark:text-surface-ash">
                 Seats
-                <input v-model.number="r.familySize" type="number" min="1" max="20" placeholder="1" class="field-input !py-1 !text-sm normal-case tracking-normal font-normal w-20" />
+                <input v-model.number="r.familySize" type="number" min="1" placeholder="1" class="field-input !py-1 !text-sm normal-case tracking-normal font-normal w-20" />
               </label>
               <span class="text-2xs text-surface-slate dark:text-surface-ash">
-                DOUBLE imports as 2 seats; FAMILY imports as 3–20 seats.
+                DOUBLE imports as 2 seats; FAMILY imports as 3 or more seats.
               </span>
             </div>
           </div>

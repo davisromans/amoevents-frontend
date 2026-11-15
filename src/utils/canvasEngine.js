@@ -9,6 +9,7 @@
 import * as fabric from 'fabric';
 import { rebuildFilterStack } from './filtersGallery';
 import { applyLayerEffectStack, normalizeLayerEffects } from './layerEffects';
+import { DEFAULT_QR_LAYER_STYLE } from './qrLayerRenderer';
 
 const BLEND_MODE_TO_COMPOSITE = {
   normal: 'source-over', multiply: 'multiply', screen: 'screen',
@@ -319,10 +320,10 @@ function applyCommon(fabricObj, layer, { skipPosition } = {}) {
     adjustments: clonePlain(layer.adjustments || {}),
     galleryFilters: clonePlain(layer.galleryFilters || {}),
     clipMaskSourceLayerId: layer.clipMaskSourceLayerId || null,
-    textResizeMode: layer.textResizeMode || ((layer.textMode === 'box' || layerUsesVariable(layer)) ? 'frame' : 'content'),
     smartObject: !!layer.smartObject,
     smartObjectSource: clonePlain(layer.smartObjectSource || null),
     textWarp: clonePlain(layer.textWarp || null),
+    textResizeMode: layer.textResizeMode || ((layer.textMode === 'box' || layerUsesVariable(layer)) ? 'frame' : 'content'),
     textFitMode: layer.textFitMode || 'wrap',
     outerGlow: (layer.effects || []).some((effect) => effect?.type === 'outerGlow'),
     layerEffects: normalizeLayerEffects(layer.effects || []),
@@ -623,8 +624,8 @@ function fabricToLayer(obj) {
       stroke: baseStyle.stroke ?? obj.stroke ?? null, strokeWidth: baseStyle.strokeWidth ?? obj.strokeWidth ?? 0,
       underline: !!obj.underline, linethrough: !!obj.linethrough,
       lineHeight: obj.lineHeight, letterSpacing: (obj.charSpacing || 0) / 10, charStyles: extractCharStyles(obj),
-      textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
       textWarp: clonePlain(data.textWarp || preserved.textWarp || null),
+      textResizeMode: data.textResizeMode || preserved.textResizeMode || (obj.type === 'textbox' ? 'frame' : 'content'),
       textFitMode: data.textFitMode || preserved.textFitMode || 'wrap',
       textLayoutVersion: data.legacyPsdTextNaturalLayout ? 2 : preserved.textLayoutVersion,
     };
@@ -633,7 +634,16 @@ function fabricToLayer(obj) {
     const imgData = obj.get('data') || {};
     if (imgData.isQr) {
       const { layerId, name, isQr, locked, binding, sourceLayer, ...qrStyle } = imgData;
-      return { ...base, ...clonePlain(qrStyle), type: 'qr', bindingSource: 'guest_qr_payload', fg: imgData.fg || '#111111', bg: imgData.bg || '#FFFFFF', errorCorrection: imgData.errorCorrection || 'M' };
+      return {
+        ...base,
+        ...clonePlain(DEFAULT_QR_LAYER_STYLE),
+        ...clonePlain(qrStyle),
+        type: 'qr',
+        bindingSource: 'guest_qr_payload',
+        fg: imgData.fg ?? DEFAULT_QR_LAYER_STYLE.fg,
+        bg: imgData.bg ?? DEFAULT_QR_LAYER_STYLE.bg,
+        errorCorrection: imgData.errorCorrection ?? DEFAULT_QR_LAYER_STYLE.errorCorrection ?? 'M',
+      };
     }
     const sourceWidth = imgData.sourceWidth || obj.getElement?.()?.naturalWidth || obj.width || 1;
     const sourceHeight = imgData.sourceHeight || obj.getElement?.()?.naturalHeight || obj.height || 1;
