@@ -12,7 +12,8 @@ export const generateMissingCards = (templateId, eventId) =>
 
 // Super-admin CRUD
 export const adminList = () => http.get('/admin/card-templates').then(unwrap);
-export const adminUpdate = (id, patch) => http.patch(`/admin/card-templates/${id}`, patch).then(unwrap);
+// Large multi-page documents take longer than the shared 20s default.
+export const adminUpdate = (id, patch) => http.patch(`/admin/card-templates/${id}`, patch, { timeout: 3 * 60 * 1000 }).then(unwrap);
 export const adminDelete = (id) => http.delete(`/admin/card-templates/${id}`).then(unwrap);
 
 export async function adminUpload(file, meta) {

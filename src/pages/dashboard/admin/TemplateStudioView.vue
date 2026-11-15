@@ -185,7 +185,7 @@
              box (left-full) was being silently clipped by that same
              scroll container instead of floating over the canvas. -->
         <div ref="shapesMenuRef">
-          <button class="btn-ghost !p-2" :title="`Shapes (${lastShape.label})`" @click="toggleShapesMenu">
+          <button class="btn-ghost !p-2" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': drawKind === 'rect' || drawKind === 'ellipse' }" :title="`Shapes (${lastShape.label})`" @click="toggleShapesMenu">
             <component :is="lastShape.icon" v-if="lastShape.icon" class="w-4 h-4" />
             <span v-else class="block w-4 h-4" v-html="lastShape.svg" />
           </button>
@@ -199,7 +199,7 @@
             </button>
           </div>
         </Teleport>
-        <button class="btn-ghost !p-2" title="Insert text" @click="insertTextLayer">
+        <button class="btn-ghost !p-2" :class="{ 'bg-brand-primary-glow text-brand-primary-deep': drawKind === 'text' }" title="Text tool (T) — drag a frame on the canvas" @click="insertTextLayer">
           <PlusCircleIcon class="w-4 h-4" />
         </button>
 
@@ -224,7 +224,7 @@
 
       <!-- Canvas viewport — pan/zoom/rulers/grid (Batch 5) -->
       <div ref="viewportRef" class="flex-1 relative overflow-auto bg-[#e5e5e5] dark:bg-[#1a1a1a]"
-           :class="tool === 'pen' ? 'cursor-crosshair' : 'cursor-grab'"
+           :class="tool === 'select' ? 'cursor-grab' : 'cursor-crosshair'"
            @wheel.prevent="onWheel" @mousedown="onPanStart">
         <!-- Rulers — real tick marks + labels in document units, redrawn
              whenever zoom or scroll changes so 0 always lines up with the
@@ -549,6 +549,9 @@ const api = {
   adminCreateBlank: (meta) => (isVariantMode.value ? variantApi.createBlankVariant(variantEventId.value, meta) : templateApi.adminCreateBlank(meta)),
 };
 const toast = useToast();
+// structuredClone throws DataCloneError ("could not be cloned") on Vue
+// reactive proxies; template documents are plain JSON, so clone as JSON.
+const plainClone = (value) => (value == null ? value : JSON.parse(JSON.stringify(value)));
 const showShortcuts = ref(false);
 const SHORTCUTS = [
   { action: 'Save a local offline draft', keys: 'Ctrl/Cmd + S' },
@@ -1239,8 +1242,10 @@ function onEditPath(path) {
 function setTool(next) {
   if (maskPainter.value) cancelMaskPaint();
   if (cropSession.value) cancelCrop();
+  if (drawState) endDrawTool();
   teardownActiveTool();
   tool.value = next;
+  setCanvasCursor(next === 'select' ? null : 'crosshair');
   if (next === 'pen') {
     penTool = new PenTool(fabricCanvasRaw, { stroke: '#111827', strokeWidth: 2 });
     penTool.onComplete = () => { tool.value = 'select'; refreshLayersList(); };
@@ -1601,7 +1606,11 @@ function onKeyDown(e) {
     }
   }
   const inInput = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
-  const fabricTextInput = inInput && activeText?.isEditing;
+  // Only Fabric's own hidden textarea counts as canvas text typing. Any other
+  // field (font search, properties) must swallow keys even while a text
+  // layer is still in edit mode — otherwise typing "v" in the font search
+  // switched tools and Backspace deleted the layer.
+  const fabricTextInput = inInput && activeText?.isEditing && e.target === activeText.hiddenTextarea;
   if (inInput && !fabricTextInput) return;
   if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
   if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
@@ -1719,6 +1728,7 @@ function onKeyDown(e) {
   if (e.key === 'Escape') {
     if (maskPainter.value) cancelMaskPaint();
     else if (cropSession.value) cancelCrop();
+    else if (drawState) endDrawTool();
     else { teardownActiveTool(); clearPixelSelectionOverlay(); tool.value = 'select'; fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll(); }
     return;
   }
@@ -1735,6 +1745,8 @@ function onKeyDown(e) {
     if (key === 'w') setTool('magic-wand');
     if (key === 'l') setTool('lasso');
     if (key === 'm') setTool('marquee');
+    if (key === 't') insertTextLayer();
+    if (key === 'u') insertRectLayer();
   }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     // Was fabricCanvasRaw.remove(o) directly — a no-op for any object
@@ -2043,10 +2055,20 @@ function insertAdjustmentLayer(kind = 'brightnessContrast') {
 let drawState = null;
 function beginDrawTool(kind) {
   if (!fabricCanvasRaw) return;
+  if (drawState) endDrawTool();
+  if (maskPainter.value) cancelMaskPaint();
+  if (cropSession.value) cancelCrop();
+  teardownActiveTool();
   tool.value = 'draw';
+  drawKind.value = kind;
   fabricCanvasRaw.discardActiveObject();
   fabricCanvasRaw.selection = false;
-  fabricCanvasRaw.defaultCursor = 'crosshair';
+  // Draw tools stay armed over existing layers: without skipTargetFind a
+  // press on any layer selected/moved it instead of starting the frame,
+  // and the hover cursor flipped back to "move".
+  fabricCanvasRaw.skipTargetFind = true;
+  setCanvasCursor('crosshair');
+  fabricCanvasRaw.requestRenderAll();
   drawState = { kind };
   fabricCanvasRaw.on('mouse:down', onDrawDown);
   fabricCanvasRaw.on('mouse:move', onDrawMove);
@@ -2111,9 +2133,21 @@ function endDrawTool() {
   fabricCanvasRaw.off('mouse:move', onDrawMove);
   fabricCanvasRaw.off('mouse:up', onDrawUp);
   fabricCanvasRaw.selection = true;
-  fabricCanvasRaw.defaultCursor = 'default';
-  tool.value = 'select';
+  fabricCanvasRaw.skipTargetFind = false;
+  setCanvasCursor(null);
+  if (tool.value === 'draw') tool.value = 'select';
+  drawKind.value = null;
   drawState = null;
+}
+const drawKind = ref(null);
+watch(tool, (next) => { if (next === 'select') setCanvasCursor(null); });
+// Every non-move tool shows a crosshair over the whole canvas, layers included.
+function setCanvasCursor(cursor) {
+  if (!fabricCanvasRaw) return;
+  fabricCanvasRaw.defaultCursor = cursor || 'default';
+  fabricCanvasRaw.hoverCursor = cursor || 'move';
+  fabricCanvasRaw.moveCursor = cursor || 'move';
+  fabricCanvasRaw.setCursor?.(fabricCanvasRaw.defaultCursor);
 }
 
 // ── Shape tools ──────────────────────────────────────────────────────────
@@ -2675,7 +2709,7 @@ const smartObjectSessions = new Map();
 
 async function smartObjectDocumentFor(obj) {
   const saved = obj?.get('data')?.smartObjectDocument;
-  if (saved?.layers) return structuredClone(saved);
+  if (saved?.layers) return plainClone(saved);
   const clone = await obj.clone(['data']);
   const cloneData = clone.get('data') || {};
   clone.set('data', { ...cloneData, smartObject: false, smartObjectSource: null, smartObjectDocument: null });
@@ -2719,7 +2753,7 @@ async function applySmartObjectDocument(target, smartDocument, smartName = 'Link
   });
   replacement.set('data', {
     ...oldData, name: oldData.name || smartName, smartObject: true,
-    smartObjectSource: null, smartObjectDocument: structuredClone(smartDocument),
+    smartObjectSource: null, smartObjectDocument: plainClone(smartDocument),
     layerEffects: [], layerEffectBase: null, liveCanvas: true,
   });
   previewCanvas.dispose();
@@ -2753,7 +2787,7 @@ async function onEditSmartObject(obj) {
     const sessionId = crypto.randomUUID();
     const smartDocument = await smartObjectDocumentFor(obj);
     const layerId = obj.get('data')?.layerId || `layer_${Math.random().toString(36).slice(2, 10)}`;
-    obj.set('data', { ...(obj.get('data') || {}), layerId, smartObject: true, smartObjectDocument: structuredClone(smartDocument) });
+    obj.set('data', { ...(obj.get('data') || {}), layerId, smartObject: true, smartObjectDocument: plainClone(smartDocument) });
     const saved = await putTemplateProject(`smart-object:${sessionId}`, {
       name: `${obj.get('data')?.name || 'Layer'} contents`, template: null,
       document: smartDocument, pages: [{ name: 'Contents', document: smartDocument }], dirty: false,
@@ -3158,7 +3192,7 @@ async function resolveMissingFont(family, replacement) {
       const data = obj.get('data') || {};
       const converted = data.sourceLayer?.convertedFromText;
       if (!canonicalTextUsesFamily(converted, family)) continue;
-      const sourceLayer = structuredClone(data.sourceLayer);
+      const sourceLayer = plainClone(data.sourceLayer);
       replaceCanonicalTextFamily(sourceLayer.convertedFromText, family, replacement);
       obj.set('data', { ...data, sourceLayer });
       const restored = await restoreConvertedText(fabricCanvasRaw, obj);
@@ -3872,7 +3906,7 @@ async function buildProjectBlob() {
   captureActivePage();
   const { default: JSZip } = await import('jszip');
     const zip = new JSZip();
-    const packagePages = structuredClone(pages.value);
+    const packagePages = plainClone(pages.value);
     let assetIndex = 0;
     for (const page of packagePages) {
       await visitDocumentAssets(page.document, async (layer, isMask) => {

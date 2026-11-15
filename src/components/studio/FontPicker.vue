@@ -5,7 +5,7 @@
       <ChevronDownIcon class="w-3.5 h-3.5 shrink-0 text-surface-slate dark:text-surface-ash" />
     </button>
 
-    <div v-if="open" class="absolute z-30 mt-1 w-72 max-h-80 surface-card shadow-card p-2 flex flex-col gap-2">
+    <div v-if="open" class="absolute z-30 mt-1 w-72 max-h-[28rem] surface-card shadow-card p-2 flex flex-col gap-2">
       <div v-if="requiredFamily && requiredAvailable === false" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 text-2xs text-amber-800 dark:text-amber-200">
         <p class="font-bold">Missing original PSD font</p>
         <p class="mt-0.5">Upload “{{ requiredFamily }}” to make this text match the source design.</p>
@@ -21,7 +21,7 @@
         </button>
       </div>
 
-      <div class="overflow-y-auto flex-1">
+      <div class="overflow-y-auto flex-1" @scroll="onListScroll">
         <p v-if="filteredActive.length" class="text-2xs font-bold text-surface-slate dark:text-surface-ash px-1 pt-1">Your roster</p>
         <button v-for="f in filteredActive" :key="'active-' + f.family"
                 class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-sm"
@@ -30,6 +30,8 @@
           {{ f.family }}
         </button>
 
+        <p v-if="loadingMore" class="text-2xs text-surface-slate px-2 py-1">Loading more fonts…</p>
+        <p v-if="!filteredActive.length && !filteredCatalog.length" class="text-2xs text-surface-slate px-2 py-2">No fonts match “{{ q }}”.</p>
         <p v-if="filteredCatalog.length" class="text-2xs font-bold text-surface-slate dark:text-surface-ash px-1 pt-2">
           Google Fonts — tap to add & use
         </p>
@@ -157,18 +159,52 @@ async function onFontFilesChosen(event) {
 // open just to filter it in the browser meant a huge unfiltered payload
 // AND, per the font-loading watch below, hundreds of unwanted font-file
 // fetches. `active` here is already exactly what should be listed.
+// Paged: the roster holds 1,250+ families, and a fixed first page of 40
+// only ever showed names starting with digits/"A". Scrolling loads the
+// next page; a request counter drops stale responses so a slow earlier
+// search can't overwrite the results for what was typed last.
+const PAGE = 60;
+let activeRequest = 0;
+let catalogRequest = 0;
+const hasMore = ref(true);
+const loadingMore = ref(false);
 async function refreshActive() {
-  active.value = await listFonts({ q: q.value || undefined, category: category.value || undefined, limit: 40 });
+  const id = ++activeRequest;
+  const rows = await listFonts({ q: q.value.trim() || undefined, category: category.value || undefined, limit: PAGE, skip: 0 });
+  if (id !== activeRequest) return;
+  active.value = rows;
+  hasMore.value = rows.length === PAGE;
+}
+async function loadMore() {
+  if (!hasMore.value || loadingMore.value) return;
+  loadingMore.value = true;
+  const id = activeRequest;
+  try {
+    const rows = await listFonts({ q: q.value.trim() || undefined, category: category.value || undefined, limit: PAGE, skip: active.value.length });
+    if (id !== activeRequest) return;
+    active.value = [...active.value, ...rows];
+    hasMore.value = rows.length === PAGE;
+  } finally { loadingMore.value = false; }
+}
+function onListScroll(e) {
+  const el = e.target;
+  if (el.scrollTop + el.clientHeight > el.scrollHeight - 120) loadMore();
 }
 async function refreshCatalog() {
-  catalog.value = await searchGoogleCatalog({ category: category.value || undefined, q: q.value || undefined });
+  const id = ++catalogRequest;
+  const rows = await searchGoogleCatalog({ category: category.value || undefined, q: q.value.trim() || undefined });
+  if (id === catalogRequest) catalog.value = rows;
 }
 
 const activeFamilies = computed(() => new Set(active.value.map((f) => f.family)));
 const filteredCatalog = computed(() => catalog.value.filter((f) => !activeFamilies.value.has(f.family)).slice(0, 40));
 const filteredActive = active;
 
-watch([q, category], () => { refreshActive(); refreshCatalog(); });
+let searchTimer = null;
+watch([q, category], () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { refreshActive(); refreshCatalog(); }, 200);
+});
 watch(() => props.requiredFamily, checkRequiredFamily, { immediate: true });
 // Preview each catalog font in its own real typeface, not just its name —
 // otherwise "Script" and "Display" fonts are indistinguishable from the
@@ -183,11 +219,21 @@ watch(filteredCatalog, (list) => { list.forEach((f) => loadGoogleFont(f.family))
 // concurrent font-file fetches every time this picker opens. Loading only
 // the currently-filtered/visible rows keeps this at (at most) a couple
 // hundred, same cap as the catalog list.
-watch(filteredActive, (list) => { list.forEach((f) => loadFont(f)); }, { immediate: true });
+const requestedFaces = new Set();
+watch(filteredActive, (list) => {
+  list.forEach((f) => { if (!requestedFaces.has(f.family)) { requestedFaces.add(f.family); loadFont(f); } });
+}, { immediate: true });
 
-function choose(family) {
-  emit('update:modelValue', family);
+// Wait for the face before applying it so the canvas re-measures and
+// paints with the real font instead of a fallback.
+async function choose(family) {
   open.value = false;
+  const row = active.value.find((f) => f.family === family);
+  try {
+    if (row) await loadFont(row);
+    await document.fonts?.load(`16px "${family}"`);
+  } catch { /* apply anyway */ }
+  emit('update:modelValue', family);
 }
 
 async function addAndChoose(family) {

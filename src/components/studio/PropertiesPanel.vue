@@ -1029,7 +1029,13 @@ function setFont(family) {
   const target = sel?.obj || obj.value;
   mutateTextPreservingLayout(target, () => {
     if (sel) target.setSelectionStyles({ fontFamily: family }, sel.start, sel.end);
-    else target.set('fontFamily', family);
+    else {
+      // Whole-layer change: per-character styles (PSD imports, variable
+      // text) override the base font, so clear them or nothing changes.
+      target.set('fontFamily', family);
+      const len = String(target.text || '').length;
+      if (len && target.styles && Object.keys(target.styles).length) target.setSelectionStyles({ fontFamily: family }, 0, len);
+    }
   });
   props.canvas.requestRenderAll();
   props.canvas.fire('object:modified', { target });
