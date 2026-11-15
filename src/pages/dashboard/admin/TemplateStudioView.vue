@@ -1240,6 +1240,7 @@ function onEditPath(path) {
 }
 
 function setTool(next) {
+  textToolSticky = false;
   if (maskPainter.value) cancelMaskPaint();
   if (cropSession.value) cancelCrop();
   if (drawState) endDrawTool();
@@ -1728,7 +1729,7 @@ function onKeyDown(e) {
   if (e.key === 'Escape') {
     if (maskPainter.value) cancelMaskPaint();
     else if (cropSession.value) cancelCrop();
-    else if (drawState) endDrawTool();
+    else if (drawState) { textToolSticky = false; endDrawTool(); }
     else { teardownActiveTool(); clearPixelSelectionOverlay(); tool.value = 'select'; fabricCanvasRaw.discardActiveObject(); fabricCanvasRaw.requestRenderAll(); }
     return;
   }
@@ -2094,6 +2095,14 @@ function onDrawDown(opt) {
   drawState.startX = p.x;
   drawState.startY = p.y;
   const obj = createDrawObject(drawState.kind, p.x, p.y);
+  // An empty Textbox draws nothing while dragging, so show a dashed frame
+  // preview — the frame is visible the whole time, like Photoshop.
+  drawState.preview = new fabric.Rect({
+    left: p.x, top: p.y, width: 0, height: 0, originX: 'left', originY: 'top',
+    fill: 'rgba(217,180,94,0.08)', stroke: '#2563eb', strokeWidth: 1 / (fabricCanvasRaw.getZoom() || 1),
+    strokeDashArray: [6, 4], strokeUniform: true, selectable: false, evented: false, excludeFromExport: true,
+  });
+  fabricCanvasRaw.add(drawState.preview);
   const name = drawState.kind === 'rect' ? 'Rectangle' : drawState.kind === 'ellipse' ? 'Ellipse' : 'Text';
   obj.set('data', { layerId: `layer_${Math.random().toString(36).slice(2, 10)}`, name });
   fabricCanvasRaw.add(obj);
@@ -2102,11 +2111,22 @@ function onDrawDown(opt) {
 function onDrawMove(opt) {
   if (!drawState?.obj) return;
   const p = fabricCanvasRaw.getScenePoint(opt.e);
+  drawState.lastY = p.y;
   updateDrawObject(drawState.kind, drawState.obj, drawState.startX, drawState.startY, p.x, p.y);
+  drawState.preview?.set({
+    left: Math.min(drawState.startX, p.x), top: Math.min(drawState.startY, p.y),
+    width: Math.abs(p.x - drawState.startX), height: Math.abs(p.y - drawState.startY),
+  });
   fabricCanvasRaw.requestRenderAll();
 }
 function onDrawUp() {
-  const { kind, obj } = drawState || {};
+  const { kind, obj, preview } = drawState || {};
+  if (preview) fabricCanvasRaw.remove(preview);
+  if (obj && kind === 'text') {
+    // Text frame height follows the drag (minimum one line).
+    const h = Math.abs((drawState.lastY ?? drawState.startY) - drawState.startY);
+    if (h > obj.height) obj.set({ minHeight: h });
+  }
   if (obj) {
     // A plain click (no real drag) — fall back to a sensible default size
     // rather than leaving a 0×0, invisible, unselectable layer behind.
@@ -2122,12 +2142,29 @@ function onDrawUp() {
     refreshLayersList();
     fabricCanvasRaw.fire('object:modified', {});
     if (kind === 'text') {
+      endDrawTool();
+      fabricCanvasRaw.setActiveObject(obj);
       obj.enterEditing();
       obj.selectAll();
+      // Photoshop keeps the Type tool after committing text: re-arm it when
+      // editing ends, unless another tool was picked meanwhile.
+      obj.once('editing:exited', () => {
+        if (!String(obj.text || '').trim()) { fabricCanvasRaw.remove(obj); refreshLayersList(); }
+        if (tool.value === 'select' && textToolSticky) beginDrawTool('text');
+      });
+      textToolSticky = true;
+      return;
     }
+    // Shapes stay armed so several can be drawn in a row (Esc/V to stop).
+    const again = kind;
+    endDrawTool();
+    beginDrawTool(again);
+    fabricCanvasRaw.setActiveObject(obj);
+    return;
   }
   endDrawTool();
 }
+let textToolSticky = false;
 function endDrawTool() {
   fabricCanvasRaw.off('mouse:down', onDrawDown);
   fabricCanvasRaw.off('mouse:move', onDrawMove);

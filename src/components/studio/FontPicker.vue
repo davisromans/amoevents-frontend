@@ -11,7 +11,7 @@
         <p class="mt-0.5">Upload “{{ requiredFamily }}” to make this text match the source design.</p>
         <button class="mt-1.5 font-bold underline" @click="openRequiredUpload">Import matching font</button>
       </div>
-      <input v-model="q" type="text" placeholder="Search fonts…" class="field-input !py-1.5 !text-xs" autofocus />
+      <input v-model="q" type="text" placeholder="Search all fonts (e.g. Montserrat)…" class="field-input !py-1.5 !text-xs" autofocus />
       <div class="flex gap-1 overflow-x-auto hide-scrollbar">
         <button v-for="c in CATEGORIES" :key="c.value"
                 class="px-2 py-1 rounded-md text-2xs font-bold whitespace-nowrap"
@@ -21,7 +21,7 @@
         </button>
       </div>
 
-      <div class="overflow-y-auto flex-1" @scroll="onListScroll">
+      <div class="overflow-y-auto flex-1 min-h-0" @scroll="onListScroll">
         <p v-if="filteredActive.length" class="text-2xs font-bold text-surface-slate dark:text-surface-ash px-1 pt-1">Your roster</p>
         <button v-for="f in filteredActive" :key="'active-' + f.family"
                 class="w-full text-left px-2 py-1.5 rounded-md hover:bg-surface-mist/50 dark:hover:bg-surface-fog/50 text-sm"
@@ -30,6 +30,7 @@
           {{ f.family }}
         </button>
 
+        <button v-if="hasMore && !loadingMore" class="w-full text-2xs font-bold text-brand-primary py-1.5" @click="loadMore">Show more fonts</button>
         <p v-if="loadingMore" class="text-2xs text-surface-slate px-2 py-1">Loading more fonts…</p>
         <p v-if="!filteredActive.length && !filteredCatalog.length" class="text-2xs text-surface-slate px-2 py-2">No fonts match “{{ q }}”.</p>
         <p v-if="filteredCatalog.length" class="text-2xs font-bold text-surface-slate dark:text-surface-ash px-1 pt-2">
