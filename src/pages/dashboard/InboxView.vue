@@ -71,6 +71,12 @@ async function loadList() {
     const current = fresh.find((conversation) => conversation._id === selected.value._id);
     if (current) selected.value = { ...selected.value, ...current };
   }
+  // Opened from an Amoview notification: go straight to that guest's thread.
+  const wanted = String(route.query.c || '');
+  if (wanted && !selected.value) {
+    const hit = conversations.value.find((conversation) => conversation._id === wanted);
+    if (hit) { await openConversation(hit); return; }
+  }
   if (!selected.value && conversations.value.length && isDesktop()) {
     await openConversation(conversations.value[0]);
   }
