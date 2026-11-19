@@ -73,7 +73,7 @@ const cooldown = ref(0);
 let cooldownTimer = null;
 
 const SKIP_KEY = 'gc.phonePromptSkippedAt';
-const isPlaceholderPhone = (p) => !p || p.startsWith('google:') || p.startsWith('taiview:');
+const isPlaceholderPhone = (p) => !p || p.startsWith('google:') || p.startsWith('amoview:');
 
 // Only auto-open for users whose stored phone is a placeholder AND who haven't
 // dismissed the prompt in the last 6 hours. Explicit "Skip for now" writes

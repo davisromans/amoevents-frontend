@@ -152,12 +152,12 @@ async function revoke(c) {
 
 function initials(name) { return (name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase(); }
 // A co-owner invited via Amoview gets a placeholder phone like
-// `taiview:<id>` (internal-only, satisfies the required+unique field)
+// `amoview:<id>` (internal-only, satisfies the required+unique field)
 // until they've accepted and we can pull their real profile — showing
 // that raw string was exactly the "nonsense" in the Team list.
 function displayContact(u) {
   if (!u?.phone) return '';
-  return u.phone.startsWith('taiview:') ? 'Amoview account' : u.phone;
+  return u.phone.startsWith('amoview:') ? 'Amoview account' : u.phone;
 }
 
 watch(coOwnerQuery, (q) => {

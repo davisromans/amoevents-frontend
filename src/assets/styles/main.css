@@ -216,7 +216,7 @@
            rounded-md text-surface-slate dark:text-surface-ash;
   }
 
-  /* Mobile app bar (mirrors tai-view-web) */
+  /* Mobile app bar (mirrors amoview-web) */
   .mobile-appbar {
     position: sticky; top: 0; z-index: 30;
     @apply bg-surface-cream dark:bg-surface-night

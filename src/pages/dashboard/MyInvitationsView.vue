@@ -85,12 +85,12 @@ const toast = useToast();
 const loading = ref(true);
 const invitations = ref([]);
 
-// Placeholder phones (`google:<sub>`, `taiview:<id>`) never match any Guest
+// Placeholder phones (`google:<sub>`, `amoview:<id>`) never match any Guest
 // row — the empty state calls this out and points the user at Settings
 // instead of leaving them guessing why nothing shows up.
 const phoneReady = computed(() => {
   const p = auth.user?.phone || '';
-  return !!p && !p.startsWith('google:') && !p.startsWith('taiview:');
+  return !!p && !p.startsWith('google:') && !p.startsWith('amoview:');
 });
 
 function rsvpLabel(s) { return ({ yes: 'Attending', no: 'Not attending', maybe: 'Maybe', pending: 'Awaiting reply' })[s] || 'Awaiting reply'; }

@@ -249,7 +249,7 @@ watch(() => route.query.section, (v) => {
 const initials = computed(() => (auth.user?.name || '?').split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase());
 const phoneDisplay = computed(() => {
   const p = auth.user?.phone || '';
-  return (p.startsWith('google:') || p.startsWith('taiview:')) ? 'No phone added yet' : p;
+  return (p.startsWith('google:') || p.startsWith('amoview:')) ? 'No phone added yet' : p;
 });
 const phoneVerified = computed(() => !!auth.user?.phoneVerifiedAt);
 function openPhoneGate() {
@@ -287,7 +287,7 @@ async function submitPassword() {
   finally { pwLoading.value = false; }
 }
 
-// Amoview account link — see bridge.routes.js's /taiview/link-by-password.
+// Amoview account link — see bridge.routes.js's /amoview/link-by-password.
 // Without this, an AmoEvents login created here (native email/password or
 // Google) has no way to end up sharing an identity with the Amoview mobile
 // app, which only ever authenticates via the phone-token bridge — so
@@ -308,7 +308,7 @@ async function submitLinkAmoview() {
   linkAmoviewError.value = '';
   linkAmoviewLoading.value = true;
   try {
-    await http.post('/bridge/taiview/link-by-password', { phone: linkAmoview.phone, password: linkAmoview.password });
+    await http.post('/bridge/amoview/link-by-password', { phone: linkAmoview.phone, password: linkAmoview.password });
     linkAmoview.phone = ''; linkAmoview.password = '';
     toast.success('Amoview account linked — your events now show on mobile too');
     fetchBridgeStatus();

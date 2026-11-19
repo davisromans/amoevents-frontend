@@ -38,15 +38,15 @@ export const useAuthStore = defineStore('auth', {
       this._persist(unwrap(res));
     },
     // "Continue with Amoview" — same phone+password as the Amoview app,
-    // proxied server-side (bridge.routes.js's /taiview/login) so this is
+    // proxied server-side (bridge.routes.js's /amoview/login) so this is
     // genuinely one identity, not a second AmoEvents-only account.
     async loginWithAmoview(phone, password) {
-      const res = await http.post('/bridge/taiview/login', { phone, password });
+      const res = await http.post('/bridge/amoview/login', { phone, password });
       this._persist(unwrap(res));
     },
     // Browser already signed in on amoview.com: spend its one-time code.
     async loginWithAmoviewSession(code) {
-      const res = await http.post('/bridge/taiview/sso', { code });
+      const res = await http.post('/bridge/amoview/sso', { code });
       this._persist(unwrap(res));
     },
     // A deliberate sign-out must stick, or Amoview would sign straight back in.
