@@ -549,7 +549,7 @@ const api = {
   adminCreateBlank: (meta) => (isVariantMode.value ? variantApi.createBlankVariant(variantEventId.value, meta) : templateApi.adminCreateBlank(meta)),
   // PSD generation is shared by template and event-variant studio modes.
   // It is intentionally server-side so large documents never exhaust a tab.
-  adminExportPsd: (document, exportName) => templateApi.adminExportPsd(document, exportName),
+  adminExportPsd: (preview, exportName) => templateApi.adminExportPsd(preview, exportName),
 };
 const toast = useToast();
 // structuredClone throws DataCloneError ("could not be cloned") on Vue
@@ -4170,10 +4170,14 @@ async function exportPsd() {
   try {
     fabricCanvasRaw.discardActiveObject();
     fabricCanvasRaw.requestRenderAll();
-    await persistLiveCanvasLayers({ cloud: true });
-    captureActivePage();
-    const exportDocument = pages.value[activePage.value]?.document || document.value;
-    const response = await api.adminExportPsd(exportDocument, name.value);
+    // Only one canvas is created here. Unlike a layered browser export it
+    // does not allocate one uncompressed canvas per layer, and it is exactly
+    // the visual composition shown in the Studio preview.
+    const previewCanvas = fabricCanvasRaw.toCanvasElement(1 / (fabricCanvasRaw.getZoom() || 1));
+    const preview = await new Promise((resolve, reject) => {
+      previewCanvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not prepare the PSD preview'))), 'image/png');
+    });
+    const response = await api.adminExportPsd(preview, name.value);
     const blob = response.data;
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
@@ -4183,8 +4187,7 @@ async function exportPsd() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    const mode = response.headers?.['x-amoevents-psd-mode'];
-    toast.success(mode === 'compatible' ? 'PSD exported in compatible mode.' : 'Layered PSD exported.');
+    toast.success('PSD exported exactly as shown in the Studio preview.');
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();

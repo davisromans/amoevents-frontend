@@ -15,11 +15,17 @@ export const adminList = () => http.get('/admin/card-templates').then(unwrap);
 // Large multi-page documents take longer than the shared 20s default.
 export const adminUpdate = (id, patch) => http.patch(`/admin/card-templates/${id}`, patch, { timeout: 3 * 60 * 1000 }).then(unwrap);
 export const adminDelete = (id) => http.delete(`/admin/card-templates/${id}`).then(unwrap);
-export const adminExportPsd = (document, name) => http.post('/admin/card-templates/export-psd', { document, name }, {
+export const adminExportPsd = (preview, name) => {
+  const form = new FormData();
+  form.append('preview', preview, 'amoevents-preview.png');
+  form.append('name', name || 'template');
+  return http.post('/admin/card-templates/export-psd', form, {
   timeout: 5 * 60 * 1000,
   responseType: 'blob',
   offlineCache: false,
-});
+  headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
 
 export async function adminUpload(file, meta) {
   const form = new FormData();
