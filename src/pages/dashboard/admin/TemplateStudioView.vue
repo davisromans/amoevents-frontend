@@ -500,7 +500,7 @@ import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { PathEditor } from '@/utils/pathEditor';
 import { CloneStampController, clearImageSelection, contentAwareFillTransparent, dodgeBurnAt, eraseAt, fillImageSelection, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, createMagicWandSelection, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
-import { exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
+import { exportCanvasAsCompatiblePsd, exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
 import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { parseCubeLut } from '@/utils/cubeLut';
 import { importPsdLocally } from '@/utils/localPsdImport';
@@ -4163,10 +4163,25 @@ async function exportPsd() {
   try {
     fabricCanvasRaw.discardActiveObject();
     fabricCanvasRaw.requestRenderAll();
-    const buffer = await exportCanvasAsPsd(fabricCanvasRaw, {
+    const exportSize = {
       width: document.value.width,
       height: document.value.height,
-    });
+    };
+    let buffer;
+    let usedCompatibleFallback = false;
+    try {
+      buffer = await exportCanvasAsPsd(fabricCanvasRaw, exportSize);
+    } catch (layeredError) {
+      const detail = String(layeredError?.message || layeredError || '').replace(/\s+/g, ' ').trim();
+      const memoryIssue = /memory|allocation|array buffer|canvas|too large|maximum/i.test(detail);
+      if (!memoryIssue) throw layeredError;
+      // Release the failed layered-export stack before allocating the single
+      // composite canvas. This keeps a large PSD export usable on phones and
+      // memory-constrained desktop browsers.
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+      buffer = await exportCanvasAsCompatiblePsd(fabricCanvasRaw, exportSize);
+      usedCompatibleFallback = true;
+    }
     const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
@@ -4176,6 +4191,9 @@ async function exportPsd() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (usedCompatibleFallback) {
+      toast.success('PSD exported in compatible mode. The editable design remains saved in AmoEvents.');
+    }
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();

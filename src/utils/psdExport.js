@@ -168,3 +168,27 @@ export async function exportCanvasAsPsd(canvas, { width, height }) {
     children,
   }, { noBackground: true });
 }
+
+/**
+ * Low-memory, Photoshop-readable fallback. A layered PSD can require one
+ * uncompressed bitmap per layer at the same time, which is too much for some
+ * browsers even though the artwork itself renders correctly. This writes one
+ * full-resolution composite layer instead, so the user still receives a real
+ * PSD rather than a failed download. The editable AmoEvents document remains
+ * unchanged in local/cloud storage.
+ */
+export async function exportCanvasAsCompatiblePsd(canvas, { width, height }) {
+  const { writePsd } = await import('ag-psd');
+  const composite = canvas.toCanvasElement(1 / (canvas.getZoom() || 1));
+  return writePsd({
+    width,
+    height,
+    canvas: composite,
+    children: [{
+      name: 'AmoEvents artwork (compatible)',
+      canvas: composite,
+      left: 0,
+      top: 0,
+    }],
+  }, { noBackground: true });
+}
