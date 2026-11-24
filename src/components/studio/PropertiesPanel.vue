@@ -1135,12 +1135,30 @@ function deleteTextStyle() {
 // zero renderer changes). With nothing highlighted: binds the whole layer,
 // same as before.
 const currentBinding = computed(() => obj.value?.get('data')?.binding || '');
+const BINDING_TEXT_STYLE_KEYS = [
+  'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fill', 'stroke', 'strokeWidth',
+  'underline', 'linethrough', 'overline', 'deltaY', 'charSpacing', 'textBackgroundColor',
+];
+function bindingTextStyleSnapshot(target, position = 0) {
+  const length = String(target?.text || '').length;
+  const index = Math.max(0, Math.min(Number(position) || 0, Math.max(0, length - 1)));
+  const character = target?.getSelectionStyles?.(index, index + 1)?.[0] || {};
+  return BINDING_TEXT_STYLE_KEYS.reduce((style, key) => {
+    const value = character[key] ?? target?.[key];
+    if (value !== undefined && value !== null) style[key] = value;
+    return style;
+  }, {});
+}
 function chooseVariable(key) {
   if (!key) return;
   const sel = getEffectiveSelection();
   if (sel) {
     const token = `{{${key}}}`;
-    sel.obj.insertChars(token, undefined, sel.start, sel.end);
+    const style = bindingTextStyleSnapshot(sel.obj, sel.start);
+    // Insert the token with the exact font/weight/style selected by the
+    // operator instead of inheriting a stale run from replaced text.
+    sel.obj.insertChars(token, style, sel.start, sel.end);
+    sel.obj.setSelectionStyles(style, sel.start, sel.start + token.length);
     sel.obj.dirty = true;
     props.canvas.requestRenderAll();
     props.canvas.fire('object:modified', { target: sel.obj });
@@ -1151,15 +1169,20 @@ function chooseVariable(key) {
 }
 function setBinding(key) {
   const target = obj.value;
+  const style = bindingTextStyleSnapshot(target, getCursorPosition()?.at ?? 0);
   // A variable placeholder is often much shorter than the text it replaces.
   // Preserve the exact rectangle the operator drew; a binding must change
   // content only, never turn a paragraph frame into a tiny glyph-sized box.
   mutateTextPreservingLayout(target, () => {
     const data = target.get('data') || {};
-    target.set('data', { ...data, binding: key || null });
+    target.set('data', { ...data, binding: key || null, textResizeMode: 'frame' });
     // Bound layers show their literal {{key}} placeholder as the actual text
     // content — this is what the server-side renderer finds and substitutes.
     target.set('text', key ? `{{${key}}}` : 'Double-click to edit');
+    // Content replacement does not remap Fabric's character-style indexes.
+    // Clear obsolete ones and style the replacement token explicitly.
+    target.set('styles', {});
+    if (target.text) target.setSelectionStyles(style, 0, target.text.length);
   });
   target.dirty = true;
   props.canvas.requestRenderAll();

@@ -176,8 +176,11 @@ export function mutateTextPreservingLayout(obj, mutation) {
   const left = obj.left;
   const top = obj.top;
   mutation?.();
+  // A mutation can create a new data.binding. Read it again so the first
+  // variable insertion already preserves the authored paragraph frame.
+  const nextData = obj.get('data') || data;
   obj.initDimensions?.();
-  if (obj.type === 'textbox' && (data.textResizeMode === 'frame' || data.binding || data.sourceLayer?.textLayoutVersion >= 2)) {
+  if (obj.type === 'textbox' && (nextData.textResizeMode === 'frame' || nextData.binding || nextData.sourceLayer?.textLayoutVersion >= 2)) {
     // Photoshop paragraph text owns a frame width, not a glyph rectangle
     // that should be stretched in both directions when its font loads.
     obj.set({ left, top, width: targetWidth, scaleX: 1, scaleY: 1 });
