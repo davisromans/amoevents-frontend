@@ -550,6 +550,9 @@ const api = {
   // PSD generation is shared by template and event-variant studio modes.
   // It is intentionally server-side so large documents never exhaust a tab.
   adminExportPsd: (preview, exportName) => templateApi.adminExportPsd(preview, exportName),
+  adminPsdExportInit: () => templateApi.adminPsdExportInit(),
+  adminPsdExportLayer: (jobId, layer, metadata) => templateApi.adminPsdExportLayer(jobId, layer, metadata),
+  adminPsdExportComplete: (jobId, payload) => templateApi.adminPsdExportComplete(jobId, payload),
 };
 const toast = useToast();
 // structuredClone throws DataCloneError ("could not be cloned") on Vue
@@ -4170,14 +4173,42 @@ async function exportPsd() {
   try {
     fabricCanvasRaw.discardActiveObject();
     fabricCanvasRaw.requestRenderAll();
-    // Only one canvas is created here. Unlike a layered browser export it
-    // does not allocate one uncompressed canvas per layer, and it is exactly
-    // the visual composition shown in the Studio preview.
-    const previewCanvas = fabricCanvasRaw.toCanvasElement(1 / (fabricCanvasRaw.getZoom() || 1));
-    const preview = await new Promise((resolve, reject) => {
-      previewCanvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not prepare the PSD preview'))), 'image/png');
+    const { jobId } = await api.adminPsdExportInit();
+    const rootObjects = [...fabricCanvasRaw.getObjects()];
+    const toPng = (canvas) => new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not prepare a PSD layer'))), 'image/png');
     });
-    const response = await api.adminExportPsd(preview, name.value);
+    const layers = [];
+    // Export each root item in isolation. A Fabric group stays one Photoshop
+    // layer because its children use local coordinates; ungroup it in Studio
+    // first if you want those children as separate Photoshop layers.
+    for (let index = 0; index < rootObjects.length; index += 1) {
+      const object = rootObjects[index];
+      const tile = await rasterizeFabricObject(object);
+      const blob = await toPng(tile.canvas);
+      const metadata = {
+        index,
+        name: object.get('data')?.name || object.text?.slice(0, 80) || object.type || `Layer ${index + 1}`,
+        left: tile.left,
+        top: tile.top,
+        visible: object.visible !== false,
+        opacity: object.opacity ?? 1,
+        blendMode: object.globalCompositeOperation || 'source-over',
+      };
+      await api.adminPsdExportLayer(jobId, blob, metadata);
+      layers.push(metadata);
+      // Drop the temporary tile before rendering the next one. This is the
+      // memory boundary that makes a layered PSD work on Chrome/Safari.
+      tile.canvas.width = 1;
+      tile.canvas.height = 1;
+    }
+    const response = await api.adminPsdExportComplete(jobId, {
+      name: name.value,
+      width: document.value.width,
+      height: document.value.height,
+      background: document.value.background || fabricCanvasRaw.backgroundColor || 'transparent',
+      layers,
+    });
     const blob = response.data;
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
@@ -4187,7 +4218,7 @@ async function exportPsd() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast.success('PSD exported exactly as shown in the Studio preview.');
+    toast.success('Layered PSD exported. Each Studio object is an editable Photoshop layer.');
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();

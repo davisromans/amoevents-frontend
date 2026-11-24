@@ -27,6 +27,25 @@ export const adminExportPsd = (preview, name) => {
   });
 };
 
+export const adminPsdExportInit = () => http.post('/admin/card-templates/export-psd/init', {}).then(unwrap);
+
+export async function adminPsdExportLayer(jobId, layer, metadata) {
+  const form = new FormData();
+  form.append('layer', layer, `layer-${metadata.index}.png`);
+  Object.entries(metadata).forEach(([key, value]) => form.append(key, String(value ?? '')));
+  return http.post(`/admin/card-templates/export-psd/${jobId}/layer`, form, {
+    timeout: 5 * 60 * 1000,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    offlineCache: false,
+  }).then(unwrap);
+}
+
+export const adminPsdExportComplete = (jobId, payload) => http.post(`/admin/card-templates/export-psd/${jobId}/complete`, payload, {
+  timeout: 5 * 60 * 1000,
+  responseType: 'blob',
+  offlineCache: false,
+});
+
 export async function adminUpload(file, meta) {
   const form = new FormData();
   form.append('file', file);
