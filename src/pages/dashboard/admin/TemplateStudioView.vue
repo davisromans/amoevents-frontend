@@ -500,7 +500,7 @@ import { applyClipMask, removeMask, MaskPainter } from '@/utils/maskTool';
 import { PathEditor } from '@/utils/pathEditor';
 import { CloneStampController, clearImageSelection, contentAwareFillTransparent, dodgeBurnAt, eraseAt, fillImageSelection, paintBrushAt, paintBrushTipAt, healAt, paintBucketAt, createMagicWandSelection, liquifyPushAt, perspectiveWarp, sampleColorAt, refreshAfterRetouch, ensureLiveCanvas } from '@/utils/retouchTools';
 import { CropSession, ASPECT_PRESETS } from '@/utils/cropTool';
-import { exportCanvasAsCompatiblePsd, exportCanvasAsPsd, rasterizeFabricObject } from '@/utils/psdExport';
+import { rasterizeFabricObject } from '@/utils/psdExport';
 import { toggleGalleryFilter, rebuildFilterStack } from '@/utils/filtersGallery';
 import { parseCubeLut } from '@/utils/cubeLut';
 import { importPsdLocally } from '@/utils/localPsdImport';
@@ -4158,31 +4158,20 @@ async function exportImage(format) {
 
 async function exportPsd() {
   if (!fabricCanvasRaw || exporting.value) return;
+  if (!isOnline.value) {
+    toast.error('PSD export needs an internet connection so it can be built safely on the server.');
+    return;
+  }
   exporting.value = true;
   exportMenuOpen.value = false;
   try {
     fabricCanvasRaw.discardActiveObject();
     fabricCanvasRaw.requestRenderAll();
-    const exportSize = {
-      width: document.value.width,
-      height: document.value.height,
-    };
-    let buffer;
-    let usedCompatibleFallback = false;
-    try {
-      buffer = await exportCanvasAsPsd(fabricCanvasRaw, exportSize);
-    } catch (layeredError) {
-      const detail = String(layeredError?.message || layeredError || '').replace(/\s+/g, ' ').trim();
-      const memoryIssue = /memory|allocation|array buffer|canvas|too large|maximum/i.test(detail);
-      if (!memoryIssue) throw layeredError;
-      // Release the failed layered-export stack before allocating the single
-      // composite canvas. This keeps a large PSD export usable on phones and
-      // memory-constrained desktop browsers.
-      await new Promise((resolve) => window.setTimeout(resolve, 80));
-      buffer = await exportCanvasAsCompatiblePsd(fabricCanvasRaw, exportSize);
-      usedCompatibleFallback = true;
-    }
-    const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
+    await persistLiveCanvasLayers({ cloud: true });
+    captureActivePage();
+    const exportDocument = pages.value[activePage.value]?.document || document.value;
+    const response = await api.adminExportPsd(exportDocument, name.value);
+    const blob = response.data;
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
     link.href = url;
@@ -4191,9 +4180,8 @@ async function exportPsd() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    if (usedCompatibleFallback) {
-      toast.success('PSD exported in compatible mode. The editable design remains saved in AmoEvents.');
-    }
+    const mode = response.headers?.['x-amoevents-psd-mode'];
+    toast.success(mode === 'compatible' ? 'PSD exported in compatible mode.' : 'Layered PSD exported.');
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();
