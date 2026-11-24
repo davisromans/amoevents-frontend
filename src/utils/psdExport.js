@@ -46,7 +46,33 @@ function fabricTextToPsd(obj) {
   return data;
 }
 
-async function rasterizeLeaf(obj) {
+function cropToDocument(bounds, documentBounds) {
+  if (!documentBounds) return {
+    left: Math.floor(bounds.left), top: Math.floor(bounds.top),
+    width: Math.max(1, Math.ceil(bounds.width)), height: Math.max(1, Math.ceil(bounds.height)),
+    visible: true,
+  };
+  const left = Math.max(0, Math.floor(bounds.left));
+  const top = Math.max(0, Math.floor(bounds.top));
+  const right = Math.min(documentBounds.width, Math.ceil(bounds.left + bounds.width));
+  const bottom = Math.min(documentBounds.height, Math.ceil(bounds.top + bounds.height));
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+    visible: right > left && bottom > top,
+  };
+}
+
+function transparentCanvas(width = 1, height = 1) {
+  const canvas = window.document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+async function rasterizeLeaf(obj, documentBounds = null) {
   const clone = await obj.clone(['data']);
   // calcTransformMatrix includes every parent-group transform. Applying it
   // to the detached clone keeps nested PSD layers in their exact document
@@ -64,31 +90,37 @@ async function rasterizeLeaf(obj) {
   });
   clone.setCoords();
   const bounds = clone.getBoundingRect();
-  const width = Math.max(1, Math.ceil(bounds.width));
-  const height = Math.max(1, Math.ceil(bounds.height));
-  clone.set({ left: (clone.left || 0) - bounds.left, top: (clone.top || 0) - bounds.top });
+  // Imported PSDs can contain a very large image or mask positioned mostly
+  // outside the poster. Allocating its complete bounding box can exhaust the
+  // browser before ag-psd starts writing. A PSD only needs pixels inside the
+  // document rectangle for its visible result, so rasterise that intersection.
+  const crop = cropToDocument(bounds, documentBounds);
+  if (!crop.visible) {
+    return { canvas: transparentCanvas(), left: crop.left, top: crop.top };
+  }
+  clone.set({ left: (clone.left || 0) - crop.left, top: (clone.top || 0) - crop.top });
   if (clone.clipPath?.absolutePositioned) {
     clone.clipPath.set({
-      left: (clone.clipPath.left || 0) - bounds.left,
-      top: (clone.clipPath.top || 0) - bounds.top,
+      left: (clone.clipPath.left || 0) - crop.left,
+      top: (clone.clipPath.top || 0) - crop.top,
     });
     clone.clipPath.setCoords();
   }
   clone.setCoords();
   const el = window.document.createElement('canvas');
-  const layerCanvas = new fabric.StaticCanvas(el, { width, height, backgroundColor: 'transparent' });
+  const layerCanvas = new fabric.StaticCanvas(el, { width: crop.width, height: crop.height, backgroundColor: 'transparent' });
   layerCanvas.add(clone);
   layerCanvas.renderAll();
   const canvas = layerCanvas.toCanvasElement(1);
   layerCanvas.dispose();
-  return { canvas, left: Math.floor(bounds.left), top: Math.floor(bounds.top) };
+  return { canvas, left: crop.left, top: crop.top };
 }
 
 export async function rasterizeFabricObject(obj) {
   return rasterizeLeaf(obj);
 }
 
-async function objectToPsdLayer(obj) {
+async function objectToPsdLayer(obj, documentBounds) {
   const common = {
     name: safeName(obj),
     hidden: obj.visible === false,
@@ -98,10 +130,10 @@ async function objectToPsdLayer(obj) {
   if (obj.type === 'group') {
     const children = [];
     // Fabric stores bottom-to-top; PSD children are written top-to-bottom.
-    for (const child of [...obj.getObjects()].reverse()) children.push(await objectToPsdLayer(child));
+    for (const child of [...obj.getObjects()].reverse()) children.push(await objectToPsdLayer(child, documentBounds));
     return { ...common, children, opened: true };
   }
-  const bitmap = await rasterizeLeaf(obj);
+  const bitmap = await rasterizeLeaf(obj, documentBounds);
   if (['textbox', 'text', 'i-text'].includes(obj.type)) {
     return { ...common, ...bitmap, text: fabricTextToPsd(obj) };
   }
@@ -117,8 +149,14 @@ export async function exportCanvasAsPsd(canvas, { width, height }) {
   // Keep the sizeable PSD codec out of the editor's initial bundle. It is
   // downloaded only when the user explicitly requests a PSD export.
   const { writePsd } = await import('ag-psd');
+  const documentBounds = { width, height };
   const children = [];
-  for (const obj of [...canvas.getObjects()].reverse()) children.push(await objectToPsdLayer(obj));
+  for (const obj of [...canvas.getObjects()].reverse()) {
+    children.push(await objectToPsdLayer(obj, documentBounds));
+    // Yield between layers so Safari/Chrome can collect intermediate Fabric
+    // canvases instead of treating a many-layer export as one long blocked task.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   // The live editor changes both viewport zoom and backing-canvas size.
   // Neutralise that display zoom so the PSD composite is always exported
   // at the document's real pixel dimensions.

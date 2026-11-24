@@ -4178,7 +4178,11 @@ async function exportPsd() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (err) {
     console.error(err);
-    toast.error('PSD export failed. Try PNG if the document is too large for this device.');
+    const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();
+    const memoryIssue = /memory|allocation|array buffer|canvas|too large|maximum/i.test(detail);
+    toast.error(memoryIssue
+      ? 'PSD export ran out of browser memory. Close other tabs and try again; your design was not changed.'
+      : `PSD export failed: ${detail || 'unknown export error'}`);
   } finally {
     exporting.value = false;
   }
