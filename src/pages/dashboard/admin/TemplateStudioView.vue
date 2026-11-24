@@ -4174,16 +4174,37 @@ async function exportPsd() {
     fabricCanvasRaw.discardActiveObject();
     fabricCanvasRaw.requestRenderAll();
     const { jobId } = await api.adminPsdExportInit();
-    const rootObjects = [...fabricCanvasRaw.getObjects()];
+    // Fabric stores a nested group tree. Flatten it for PSD output so an
+    // image replaced inside a group is still its own Photoshop layer. The
+    // rasterizer applies each child's full transform matrix, preserving its
+    // absolute canvas position after the group wrapper disappears.
+    const exportObjects = [];
+    const collectExportObjects = (objects, inherited = { visible: true, opacity: 1, blendMode: 'source-over' }) => {
+      for (const object of objects || []) {
+        const state = {
+          visible: inherited.visible && object.visible !== false,
+          opacity: inherited.opacity * (object.opacity ?? 1),
+          // A group's non-default blend mode must be retained when its child
+          // becomes a standalone PSD layer. A child's own non-default mode
+          // takes precedence.
+          blendMode: object.globalCompositeOperation && object.globalCompositeOperation !== 'source-over'
+            ? object.globalCompositeOperation
+            : inherited.blendMode,
+        };
+        if (object.type === 'group' && object.getObjects?.().length) {
+          collectExportObjects(object.getObjects(), state);
+        } else {
+          exportObjects.push({ object, ...state });
+        }
+      }
+    };
+    collectExportObjects(fabricCanvasRaw.getObjects());
     const toPng = (canvas) => new Promise((resolve, reject) => {
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not prepare a PSD layer'))), 'image/png');
     });
     const layers = [];
-    // Export each root item in isolation. A Fabric group stays one Photoshop
-    // layer because its children use local coordinates; ungroup it in Studio
-    // first if you want those children as separate Photoshop layers.
-    for (let index = 0; index < rootObjects.length; index += 1) {
-      const object = rootObjects[index];
+    for (let index = 0; index < exportObjects.length; index += 1) {
+      const { object, visible, opacity, blendMode } = exportObjects[index];
       const tile = await rasterizeFabricObject(object);
       const blob = await toPng(tile.canvas);
       const metadata = {
@@ -4191,9 +4212,9 @@ async function exportPsd() {
         name: object.get('data')?.name || object.text?.slice(0, 80) || object.type || `Layer ${index + 1}`,
         left: tile.left,
         top: tile.top,
-        visible: object.visible !== false,
-        opacity: object.opacity ?? 1,
-        blendMode: object.globalCompositeOperation || 'source-over',
+        visible,
+        opacity,
+        blendMode,
       };
       await api.adminPsdExportLayer(jobId, blob, metadata);
       layers.push(metadata);
@@ -4218,7 +4239,7 @@ async function exportPsd() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast.success('Layered PSD exported. Each Studio object is an editable Photoshop layer.');
+    toast.success('Layered PSD exported. Images inside groups are included as separate Photoshop layers.');
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();
