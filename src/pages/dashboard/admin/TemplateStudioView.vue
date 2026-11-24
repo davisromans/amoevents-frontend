@@ -547,6 +547,9 @@ const api = {
   adminGet: (id) => (isVariantMode.value ? variantApi.getVariant(variantEventId.value, id) : templateApi.adminGet(id)),
   adminUpdate: (id, payload) => (isVariantMode.value ? variantApi.updateVariant(variantEventId.value, id, payload) : templateApi.adminUpdate(id, payload)),
   adminCreateBlank: (meta) => (isVariantMode.value ? variantApi.createBlankVariant(variantEventId.value, meta) : templateApi.adminCreateBlank(meta)),
+  // PSD generation is shared by template and event-variant studio modes.
+  // It is intentionally server-side so large documents never exhaust a tab.
+  adminExportPsd: (document, exportName) => templateApi.adminExportPsd(document, exportName),
 };
 const toast = useToast();
 // structuredClone throws DataCloneError ("could not be cloned") on Vue
@@ -4185,10 +4188,7 @@ async function exportPsd() {
   } catch (err) {
     console.error(err);
     const detail = String(err?.message || err || '').replace(/\s+/g, ' ').trim();
-    const memoryIssue = /memory|allocation|array buffer|canvas|too large|maximum/i.test(detail);
-    toast.error(memoryIssue
-      ? 'PSD export ran out of browser memory. Close other tabs and try again; your design was not changed.'
-      : `PSD export failed: ${detail || 'unknown export error'}`);
+    toast.error(`PSD export failed: ${apiErrorMessage(err) || detail || 'unknown export error'}`);
   } finally {
     exporting.value = false;
   }
