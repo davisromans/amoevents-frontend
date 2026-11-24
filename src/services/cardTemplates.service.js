@@ -32,7 +32,7 @@ export const adminPsdExportInit = () => http.post('/admin/card-templates/export-
 export async function adminPsdExportLayer(jobId, layer, metadata) {
   const form = new FormData();
   form.append('layer', layer, `layer-${metadata.index}.png`);
-  Object.entries(metadata).forEach(([key, value]) => form.append(key, String(value ?? '')));
+  Object.entries(metadata).forEach(([key, value]) => form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')));
   return http.post(`/admin/card-templates/export-psd/${jobId}/layer`, form, {
     timeout: 5 * 60 * 1000,
     headers: { 'Content-Type': 'multipart/form-data' },

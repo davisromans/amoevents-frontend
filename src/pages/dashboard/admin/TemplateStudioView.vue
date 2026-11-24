@@ -4202,6 +4202,19 @@ async function exportPsd() {
     const toPng = (canvas) => new Promise((resolve, reject) => {
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not prepare a PSD layer'))), 'image/png');
     });
+    const nativeShape = (object, tile) => {
+      if (!['rect', 'circle', 'ellipse'].includes(object.type)
+        || Number(object.angle || 0) !== 0 || Number(object.skewX || 0) !== 0 || Number(object.skewY || 0) !== 0
+        || typeof object.fill !== 'string') return null;
+      return {
+        type: object.type,
+        // The isolated tile's bounds are the exact document-space shape
+        // bounds for unrotated Fabric primitives.
+        left: tile.left, top: tile.top, width: tile.canvas.width, height: tile.canvas.height,
+        fill: object.fill, stroke: typeof object.stroke === 'string' ? object.stroke : null,
+        strokeWidth: Number(object.strokeWidth) || 0,
+      };
+    };
     const layers = [];
     for (let index = 0; index < exportObjects.length; index += 1) {
       const { object, visible, opacity, blendMode } = exportObjects[index];
@@ -4215,6 +4228,7 @@ async function exportPsd() {
         visible,
         opacity,
         blendMode,
+        shape: nativeShape(object, tile),
       };
       await api.adminPsdExportLayer(jobId, blob, metadata);
       layers.push(metadata);
