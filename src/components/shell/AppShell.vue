@@ -52,6 +52,7 @@ const paletteItems = computed(() => {
     { _id: 'adm-pricing',  label: 'Admin — Pricing', icon: BanknotesIcon,   to: '/app/admin/pricing',   group: 'Admin' },
     { _id: 'adm-users',    label: 'Admin — Users',   icon: UsersIcon,       to: '/app/admin/users',     group: 'Admin' },
     { _id: 'adm-tenants',  label: 'Admin — Tenants', icon: ShieldCheckIcon, to: '/app/admin/tenants',   group: 'Admin' },
+    { _id: 'adm-inbound',  label: 'Admin — Customer messages', icon: ShieldCheckIcon, to: '/app/admin/inbound', group: 'Admin' },
     { _id: 'adm-audit',    label: 'Admin — Audit',   icon: ShieldCheckIcon, to: '/app/admin/audit',     group: 'Admin' },
   ] : [];
   const events = shell.events.map((e) => ({

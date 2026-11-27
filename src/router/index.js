@@ -59,6 +59,7 @@ const routes = [
       { path: 'admin/users', component: () => import('@/pages/dashboard/admin/AdminUsersView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/tenants', component: () => import('@/pages/dashboard/admin/AdminTenantsView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/audit', component: () => import('@/pages/dashboard/admin/AdminAuditView.vue'), meta: { allowedRoles: ['super_admin'] } },
+      { path: 'admin/inbound', component: () => import('@/pages/dashboard/admin/AdminInboundView.vue'), meta: { allowedRoles: ['super_admin'] } },
       { path: 'admin/payments', component: () => import('@/pages/dashboard/admin/AdminPaymentsView.vue'), meta: { allowedRoles: ['super_admin'] } },
     ],
   },

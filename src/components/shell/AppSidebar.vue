@@ -162,6 +162,7 @@ const adminSection = computed(() => ({
     { label: 'Users',           to: '/app/admin/users',             icon: UsersIcon },
     { label: 'Tenants',         to: '/app/admin/tenants',           icon: BuildingOfficeIcon },
     { label: 'Payments queue',  to: '/app/admin/payments',          icon: CreditCardIcon },
+    { label: 'Customer messages', to: '/app/admin/inbound',         icon: ChatBubbleLeftRightIcon },
     { label: 'Audit',           to: '/app/admin/audit',             icon: ShieldCheckIcon },
   ],
 }));
