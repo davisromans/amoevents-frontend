@@ -10,6 +10,27 @@ export async function guestStats(eventId) {
   return unwrap(res);
 }
 
+export async function exportGuestList(eventId) {
+  try {
+    const res = await http.get(`/events/${eventId}/guests/export`, {
+      responseType: 'blob',
+      timeout: 120000,
+    });
+    const disposition = String(res.headers?.['content-disposition'] || '');
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return {
+      blob: res.data,
+      filename: match?.[1] || 'guest-list.xlsx',
+      count: Number(res.headers?.['x-amoevents-export-count'] || 0),
+    };
+  } catch (err) {
+    if (err.response?.data instanceof Blob) {
+      try { err.response.data = JSON.parse(await err.response.data.text()); } catch (_) { /* retain the Blob error */ }
+    }
+    throw err;
+  }
+}
+
 export async function exportGuestDeliverySummary(eventId) {
   try {
     const res = await http.get(`/events/${eventId}/guests/export-delivery`, {

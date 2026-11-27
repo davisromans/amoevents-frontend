@@ -361,7 +361,7 @@ import {
 import { StarIcon } from '@heroicons/vue/24/solid';
 import {
   listGuests, guestStats, createGuest, updateGuest, deleteGuest, downloadGuestQr, markGuestCalled,
-  previewGuestStandardization, applyGuestStandardization, exportGuestDeliverySummary, reconcileSmsDelivery,
+  previewGuestStandardization, applyGuestStandardization, exportGuestDeliverySummary, exportGuestList, reconcileSmsDelivery,
 } from '@/services/guests.service';
 import { getEvent } from '@/services/events.service';
 import { listTags } from '@/services/tags.service';
@@ -417,6 +417,7 @@ const q = ref('');
 const rsvpFilter = ref('all');
 const availableTags = ref([]);
 const exportingDelivery = ref(false);
+const exportingList = ref(false);
 const reconcilingSms = ref(false);
 
 // Keep one primary action visible.  Secondary, infrequent actions belong in a
@@ -432,6 +433,12 @@ const guestActionMenu = computed(() => [
     label: 'Standardize names and numbers',
     icon: ArrowPathIcon,
     onSelect: () => { openStandardize(); },
+  },
+  {
+    label: exportingList.value ? 'Preparing guest list…' : 'Export guest list (Excel)',
+    icon: ArrowDownTrayIcon,
+    disabled: exportingList.value,
+    onSelect: () => { void downloadGuestList(); },
   },
   { divider: true },
   {
@@ -461,6 +468,26 @@ const checkInPending = ref(new Set());
 // background reconciliation cannot make a just-updated button jump back to
 // 0/2.
 const checkInFloors = new Map();
+
+async function downloadGuestList() {
+  exportingList.value = true;
+  try {
+    const { blob, filename, count } = await exportGuestList(eventId.value);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+    toast.success(`Downloaded guest list with ${count} guest${count === 1 ? '' : 's'}`);
+  } catch (err) {
+    toast.error(apiErrorMessage(err));
+  } finally {
+    exportingList.value = false;
+  }
+}
 
 async function downloadDeliverySummary() {
   exportingDelivery.value = true;
