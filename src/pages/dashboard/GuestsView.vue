@@ -23,6 +23,7 @@
     </template>
 
     <SmartImportModal v-model:open="openSmartImport" :event-id="route.params.id" @imported="refresh" />
+    <DeliveryReportModal v-model:open="deliveryReportOpen" :event-id="String(route.params.id)" />
 
     <Modal v-model="standardizeOpen" title="Standardize guest details" description="Preview first. Nothing changes until you apply the selected rule." :max-width="720">
       <div class="space-y-5">
@@ -366,6 +367,7 @@ import {
 import { getEvent } from '@/services/events.service';
 import { listTags } from '@/services/tags.service';
 import SmartImportModal from '@/components/guests/SmartImportModal.vue';
+import DeliveryReportModal from '@/components/guests/DeliveryReportModal.vue';
 import GuestDetailSheet from '@/components/guests/GuestDetailSheet.vue';
 import { manualEntry } from '@/services/scan.service';
 import { apiErrorMessage } from '@/services/http';
@@ -418,6 +420,7 @@ const rsvpFilter = ref('all');
 const availableTags = ref([]);
 const exportingDelivery = ref(false);
 const exportingList = ref(false);
+const deliveryReportOpen = ref(false);
 const reconcilingSms = ref(false);
 
 // Keep one primary action visible.  Secondary, infrequent actions belong in a
@@ -441,6 +444,11 @@ const guestActionMenu = computed(() => [
     onSelect: () => { void downloadGuestList(); },
   },
   { divider: true },
+  {
+    label: 'Export PDF report',
+    icon: ArrowDownTrayIcon,
+    onSelect: () => { deliveryReportOpen.value = true; },
+  },
   {
     label: exportingDelivery.value ? 'Preparing delivery export…' : 'Export delivery report',
     icon: ArrowDownTrayIcon,

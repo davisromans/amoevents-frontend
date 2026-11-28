@@ -154,3 +154,27 @@ export async function downloadGuestQr(eventId, guestId, filename = 'qr.png') {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
 }
+
+export async function getDeliveryOverview(eventId) {
+  const res = await http.get(`/events/${eventId}/guests/delivery-overview`, { timeout: 60000 });
+  return unwrap(res);
+}
+
+export async function exportDeliveryPdf(eventId, options = {}) {
+  try {
+    const params = {
+      attention: options.attention === false ? 0 : 1,
+      list: options.list === false ? 0 : 1,
+      phones: options.phones === false ? 0 : 1,
+    };
+    const res = await http.get(`/events/${eventId}/guests/export-delivery-pdf`, { params, responseType: 'blob', timeout: 180000 });
+    const disposition = String(res.headers?.['content-disposition'] || '');
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return { blob: res.data, filename: match?.[1] || 'delivery-report.pdf' };
+  } catch (err) {
+    if (err.response?.data instanceof Blob) {
+      try { err.response.data = JSON.parse(await err.response.data.text()); } catch (_) { /* retain the Blob error */ }
+    }
+    throw err;
+  }
+}
